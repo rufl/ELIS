@@ -1,0 +1,1 @@
+1 8 sheet {"type":"bitmap","width":2,"height":2,"tiles":2}

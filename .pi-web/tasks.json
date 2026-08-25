@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "docs.define-the-next-documented-work-tranche-f5b035d0",
+      "title": "Define the next documented work tranche",
+      "group": "Docs · Planning",
+      "description": "Review the available README and project docs, then define one bounded accepted BACKLOG.md or ROADMAP.md item before implementation. Source: README.md § Planning:1",
+      "command": "omp --approval-mode write 'Work on ELIS task DEFINE-THE-NEXT-DOCUMENTED-WORK-TRANCHE-F5B035D0 from README.md § Planning:1: Review the available README and project docs, then define one bounded accepted BACKLOG.md or ROADMAP.md item before implementation. Read project instructions and linked proof docs first. Use the durable task relay at .pi-web/relays/DEFINE-THE-NEXT-DOCUMENTED-WORK-TRANCHE-F5B035D0: read charter.md and status.md before editing when they exist; create or update charter.md, status.md, and log.md as needed; leave status.md with the current state, blockers, and next action, and append a concise log.md entry before finishing. Advance only the documented boundary, preserve concurrent worktree edits, run the smallest correct gates, and update source-of-truth docs only when evidence is real. Do not fabricate external evidence or commit or push unless requested.'",
+      "confirm": true
+    }
+  ]
+}

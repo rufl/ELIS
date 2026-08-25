@@ -1,0 +1,32 @@
+local palette = { 0x001f, 0x03e0, 0x7c00 }
+assert(require("helper").loaded)
+ui.set_pallet(0, #palette, palette)
+
+function update(t)
+  ui.cls(0)
+  ui.camera(2, 3)
+  ui.clip(0, 0, 480, 270)
+  ui.fillp(0xffff)
+  ui.line(2, 2, 30, 2, 1)
+  ui.draw_rect(4, 4, 20, 12, false, 2)
+  ui.rect(5, 5, 24, 18, 3)
+  ui.rectfill(6, 6, 23, 17, 1)
+  ui.draw_circle(35, 12, 7, false, 2, true, 3)
+  ui.circfill(52, 12, 6, 2)
+  ui.trisfill(60, 4, 72, 20, 84, 4, 3)
+  ui.print("ASCII !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", 4, 30, 1)
+  ui.camera()
+  ui.clip()
+  ui.fillp()
+  ui.map({ metadata = { width = 0, height = 0, tile_size = 8 } }, 0, 0)
+  if Sprites and Sprites["tile.bin"] then
+    assert(ui.preload_spritesheet(Sprites["tile.bin"]))
+    ui.draw_sprite(98, 4, 0, 1)
+    ui.spr(Sprites["tile.bin"], 90, 4)
+    ui.tile(Sprites["tile.bin"], 0, 92, 4)
+    ui.tile(Sprites["tile.bin"], 1024, 94, 4)
+    ui.map({ metadata = { width = 2, height = 2, tile_size = 1 }, ["tile.bin"] = { 0, 1024, 2048, 3072 } }, 96, 4)
+  end
+  local _ = ui.btn('BTN_Z', 0)
+  local __ = ui.btnp(BTN_Q, 0)
+end

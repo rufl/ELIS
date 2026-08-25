@@ -1,0 +1,1 @@
+1 1 tile.bin {"type":"bitmap","width":1,"height":1,"tiles":1}
