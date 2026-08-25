@@ -39,38 +39,42 @@ zig build verify
 
 The game directory must contain `game.lua`. Games use the original `ui.*` and `sfx.*` APIs and may define `update()`, called once per frame. Escape opens the simulator menu instead of terminating the process directly.
 
-## ELIS Studio
+## ELIS Workshop
 
-`zig build studio` opens a separate native SDL2 authoring application. The
-first complete slice provides a simple direct-paint workflow without placing
-editor state inside the compatible simulator:
+`zig build studio` opens a separate native SDL2 authoring application. Workshop
+offers a friendly, explanatory presentation and a compact Studio presentation
+over the same authoritative project and command history:
 
 - four strict bottom-to-top visual layers: background, terrain, objects, and
   foreground;
-- brush, erase, contiguous fill, pick, collision, player-spawn, and goal tools;
+- pencil, deterministic 16-variant smart terrain, erase, contiguous fill, pick,
+  collision, player-spawn, and goal tools;
+- independent manifest-backed tileset selection for every layer and exact
+  `palette.lua` BGR555 preview;
 - mouse, keyboard, and controller editing with a visible grid cursor;
 - drag/fill command coalescing and bounded undo/redo history;
 - automatic missing/blocked spawn, missing/blocked goal, critical-path
   reachability, and empty-background validation;
-- atomic checksummed `.elisworld` source projects and deterministic `ui.map`
-  Lua export with editor metadata stored under reserved `lupi_metadata`;
+- atomic checksummed `.elisworld` v2 source projects, safe v1 migration, and
+  deterministic `ui.map` Lua export with semantic terrain data stored under
+  reserved `lupi_metadata`;
+- responsive 960×600 compact and roomy layouts, reduced-motion mode, friendly
+  contextual teaching, and a one-key presentation switch;
 - a chrome-free validated map preview plus native save/export/reload smoke.
 
-Open a project and preview an encoded raw Lupi tileset:
+Open a project using the game manifest and exact palette as its asset workspace:
 
 ```sh
 zig build studio -- \
+  --game-root=game \
   --project=projects/forest.elisworld \
-  --export=projects/forest.lua \
-  --tileset-name=maps/forest \
-  --tileset-file=game/maps/forest
+  --export=projects/forest.lua
 ```
 
-The raw bitmap preview uses an editor-only indexed diagnostic palette unless a
-future project palette integration supplies exact colors. Tile geometry and IDs
-are real; final color fidelity must still be checked in the compatible
-simulator. See [STUDIO.md](STUDIO.md) for controls, formats, validation, and the
-runtime boundary.
+`--tileset-file` remains available for a single raw legacy preview. Without a
+valid `palette.lua`, Workshop labels its fallback colors as diagnostic rather
+than implying palette fidelity. See [STUDIO.md](STUDIO.md) for smart-terrain
+layout, controls, formats, responsive presentations, and the runtime boundary.
 
 ### Runtime statistics and rendering debugger
 

@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
     const studio_run = b.addSystemCommand(&.{"zig-out/bin/elis-studio"});
     studio_run.step.dependOn(&native_cmd.step);
     if (b.args) |args| studio_run.addArgs(args);
-    const studio = b.step("studio", "Open the native ELIS map and level editor");
+    const studio = b.step("studio", "Open the playful native ELIS Workshop map and level editor");
     studio.dependOn(&studio_run.step);
 
     const tests_cmd = b.addSystemCommand(&.{ "bash", "scripts/test_studio.sh" });
@@ -31,6 +31,6 @@ pub fn build(b: *std.Build) void {
     studio_smoke.dependOn(&studio_smoke_cmd.step);
 
     const verify_cmd = b.addSystemCommand(&.{ "bash", "scripts/verify.sh" });
-    const verify = b.step("verify", "Run ELIS simulator and Studio verification matrix");
+    const verify = b.step("verify", "Run ELIS simulator and Workshop verification matrix");
     verify.dependOn(&verify_cmd.step);
 }

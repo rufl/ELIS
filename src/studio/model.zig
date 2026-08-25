@@ -1,6 +1,7 @@
 const std = @import("std");
 
-pub const schema_version: u16 = 1;
+pub const schema_version: u16 = 2;
+pub const legacy_schema_version: u16 = 1;
 pub const layer_count: usize = 4;
 pub const max_dimension: u16 = 64;
 pub const empty_tile: u16 = std.math.maxInt(u16);
@@ -24,9 +25,10 @@ pub const Project = struct {
     width: u16,
     height: u16,
     tile_size: u16,
-    tileset: [128]u8 = .{0} ** 128,
-    tileset_len: u8 = 0,
+    tilesets: [layer_count][128]u8 = .{.{0} ** 128} ** layer_count,
+    tileset_lens: [layer_count]u8 = .{0} ** layer_count,
     tiles: []u16,
+    smart: []u16,
     solid: []u8,
     spawn: ?Point = null,
     goal: ?Point = null,
@@ -44,8 +46,11 @@ pub const Project = struct {
         const cells = @as(usize, width) * height;
         const tiles = try allocator.alloc(u16, cells * layer_count);
         errdefer allocator.free(tiles);
+        const smart = try allocator.alloc(u16, cells * layer_count);
+        errdefer allocator.free(smart);
         const solid = try allocator.alloc(u8, cells);
         @memset(tiles, empty_tile);
+        @memset(smart, empty_tile);
         @memset(solid, 0);
         var result = Project{
             .allocator = allocator,
@@ -53,6 +58,7 @@ pub const Project = struct {
             .height = height,
             .tile_size = tile_size,
             .tiles = tiles,
+            .smart = smart,
             .solid = solid,
         };
         result.setTilesetName(tileset_name);
@@ -83,6 +89,7 @@ pub const Project = struct {
 
     pub fn deinit(self: *Project) void {
         self.allocator.free(self.tiles);
+        self.allocator.free(self.smart);
         self.allocator.free(self.solid);
         self.* = undefined;
     }
@@ -102,19 +109,35 @@ pub const Project = struct {
         return self.tiles[layer * cells ..][0..cells];
     }
 
+    pub fn smartCells(self: Project, layer: usize) []u16 {
+        std.debug.assert(layer < layer_count);
+        const cells = self.cellCount();
+        return self.smart[layer * cells ..][0..cells];
+    }
+
     pub fn tilesetName(self: *const Project) []const u8 {
-        return self.tileset[0..self.tileset_len];
+        return self.layerTilesetName(0);
     }
 
     pub fn setTilesetName(self: *Project, name: []const u8) void {
-        std.debug.assert(name.len > 0 and name.len <= self.tileset.len - 1);
-        @memset(&self.tileset, 0);
-        @memcpy(self.tileset[0..name.len], name);
-        self.tileset_len = @intCast(name.len);
+        for (0..layer_count) |layer| self.setLayerTilesetName(layer, name);
+    }
+
+    pub fn layerTilesetName(self: *const Project, layer: usize) []const u8 {
+        std.debug.assert(layer < layer_count);
+        return self.tilesets[layer][0..self.tileset_lens[layer]];
+    }
+
+    pub fn setLayerTilesetName(self: *Project, layer: usize, name: []const u8) void {
+        std.debug.assert(layer < layer_count);
+        std.debug.assert(name.len > 0 and name.len <= self.tilesets[layer].len - 1);
+        @memset(&self.tilesets[layer], 0);
+        @memcpy(self.tilesets[layer][0..name.len], name);
+        self.tileset_lens[layer] = @intCast(name.len);
     }
 };
 
-pub const ChangeKind = enum(u8) { tile, solid, spawn, goal };
+pub const ChangeKind = enum(u8) { tile, smart, solid, spawn, goal };
 
 pub const Change = struct {
     kind: ChangeKind,
@@ -181,6 +204,76 @@ pub const CommandBuilder = struct {
         });
     }
 
+    pub fn setRawTile(self: *CommandBuilder, project: *Project, layer: u8, index: usize, tile: u16) !void {
+        try self.setSmart(project, layer, index, empty_tile);
+        try self.setTile(project, layer, index, tile);
+    }
+
+    pub fn paintSmartTerrain(
+        self: *CommandBuilder,
+        project: *Project,
+        layer: u8,
+        index: usize,
+        material_base: ?u16,
+    ) !void {
+        if (layer >= layer_count or index >= project.cellCount()) return error.InvalidEditorChange;
+        if (material_base) |base| if (base > max_tile_id - 15) return error.InvalidSmartTerrainBase;
+        try self.setSmart(project, layer, index, material_base orelse empty_tile);
+        var affected: [5]usize = undefined;
+        var count: usize = 1;
+        affected[0] = index;
+        const x = index % project.width;
+        const y = index / project.width;
+        if (x > 0) {
+            affected[count] = index - 1;
+            count += 1;
+        }
+        if (x + 1 < project.width) {
+            affected[count] = index + 1;
+            count += 1;
+        }
+        if (y > 0) {
+            affected[count] = index - project.width;
+            count += 1;
+        }
+        if (y + 1 < project.height) {
+            affected[count] = index + project.width;
+            count += 1;
+        }
+        for (affected[0..count]) |cell| try self.refreshSmartCell(project, layer, cell);
+    }
+
+    fn setSmart(self: *CommandBuilder, project: *Project, layer: u8, index: usize, base: u16) !void {
+        if (layer >= layer_count or index >= project.cellCount() or base > max_tile_id - 15 and base != empty_tile) {
+            return error.InvalidEditorChange;
+        }
+        const offset = @as(usize, layer) * project.cellCount() + index;
+        try self.record(project, .{
+            .kind = .smart,
+            .layer = layer,
+            .index = @intCast(index),
+            .before = project.smart[offset],
+            .after = base,
+        });
+    }
+
+    fn refreshSmartCell(self: *CommandBuilder, project: *Project, layer: u8, index: usize) !void {
+        const smart = project.smartCells(layer);
+        const base = smart[index];
+        if (base == empty_tile) {
+            try self.setTile(project, layer, index, empty_tile);
+            return;
+        }
+        const x = index % project.width;
+        const y = index / project.width;
+        var mask: u16 = 0;
+        if (y > 0 and smart[index - project.width] == base) mask |= 1;
+        if (x + 1 < project.width and smart[index + 1] == base) mask |= 2;
+        if (y + 1 < project.height and smart[index + project.width] == base) mask |= 4;
+        if (x > 0 and smart[index - 1] == base) mask |= 8;
+        try self.setTile(project, layer, index, base + mask);
+    }
+
     pub fn setSolid(self: *CommandBuilder, project: *Project, index: usize, solid: bool) !void {
         if (index >= project.cellCount()) return error.InvalidEditorChange;
         try self.record(project, .{
@@ -229,7 +322,7 @@ pub const CommandBuilder = struct {
         while (read < write) : (read += 1) {
             const index: usize = queue[read];
             if (cells[index] != target) continue;
-            try self.setTile(project, layer, index, replacement);
+            try self.setRawTile(project, layer, index, replacement);
             const x = index % project.width;
             const y = index / project.width;
             const neighbors = [_]?usize{
@@ -412,8 +505,10 @@ pub fn validate(project: Project) ValidationReport {
 
 pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     const cell_count = project.cellCount();
-    const payload_len = project.tileset_len + project.tiles.len * 2 + project.solid.len;
-    const fixed_len = magic.len + 2 + 2 + 2 + 2 + 1 + 4 + 4 + 8;
+    var tileset_bytes: usize = 0;
+    for (project.tileset_lens) |length| tileset_bytes += length;
+    const payload_len = tileset_bytes + project.tiles.len * 2 + project.smart.len * 2 + project.solid.len;
+    const fixed_len = magic.len + 2 + 2 + 2 + 2 + layer_count + 4 + 4 + 8;
     const total_len = fixed_len + payload_len + checksum_len;
     if (total_len > max_file_bytes) return error.ProjectTooLarge;
     const bytes = try allocator.alloc(u8, total_len);
@@ -424,12 +519,13 @@ pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     putU16(bytes, &cursor, project.width);
     putU16(bytes, &cursor, project.height);
     putU16(bytes, &cursor, project.tile_size);
-    putU8(bytes, &cursor, project.tileset_len);
+    for (project.tileset_lens) |length| putU8(bytes, &cursor, length);
     putU32(bytes, &cursor, encodePoint(project, project.spawn));
     putU32(bytes, &cursor, encodePoint(project, project.goal));
     putU64(bytes, &cursor, project.revision);
-    putBytes(bytes, &cursor, project.tilesetName());
+    for (0..layer_count) |layer| putBytes(bytes, &cursor, project.layerTilesetName(layer));
     for (project.tiles) |tile| putU16(bytes, &cursor, tile);
+    for (project.smart) |base| putU16(bytes, &cursor, base);
     putBytes(bytes, &cursor, project.solid[0..cell_count]);
     putU32(bytes, &cursor, checksum(bytes[0..cursor]));
     std.debug.assert(cursor == bytes.len);
@@ -443,34 +539,88 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Project {
         return error.InvalidWorldChecksum;
     }
     var cursor: usize = magic.len;
-    if (try takeU16(bytes, &cursor) != schema_version) return error.UnsupportedWorldVersion;
-    const width = try takeU16(bytes, &cursor);
-    const height = try takeU16(bytes, &cursor);
-    const tile_size = try takeU16(bytes, &cursor);
+    const version = try takeU16(bytes, &cursor);
+    return switch (version) {
+        legacy_schema_version => decodeV1(allocator, bytes, &cursor),
+        schema_version => decodeV2(allocator, bytes, &cursor),
+        else => error.UnsupportedWorldVersion,
+    };
+}
+
+fn decodeV2(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) !Project {
+    const width = try takeU16(bytes, cursor);
+    const height = try takeU16(bytes, cursor);
+    const tile_size = try takeU16(bytes, cursor);
     try validateDimensions(width, height, tile_size);
-    const tileset_len = try takeU8(bytes, &cursor);
-    if (tileset_len == 0 or tileset_len > 127) return error.InvalidWorldProject;
-    const spawn_value = try takeU32(bytes, &cursor);
-    const goal_value = try takeU32(bytes, &cursor);
-    const revision = try takeU64(bytes, &cursor);
+    var tileset_lens: [layer_count]u8 = undefined;
+    var tileset_bytes: usize = 0;
+    for (&tileset_lens) |*length| {
+        length.* = try takeU8(bytes, cursor);
+        if (length.* == 0 or length.* > 127) return error.InvalidWorldProject;
+        tileset_bytes += length.*;
+    }
+    const spawn_value = try takeU32(bytes, cursor);
+    const goal_value = try takeU32(bytes, cursor);
+    const revision = try takeU64(bytes, cursor);
     const cell_count = @as(usize, width) * height;
-    const expected = cursor + tileset_len + cell_count * layer_count * 2 + cell_count + checksum_len;
+    const expected = cursor.* + tileset_bytes + cell_count * layer_count * 4 + cell_count + checksum_len;
     if (expected != bytes.len) return error.InvalidWorldProject;
-    const tileset_name = try takeBytes(bytes, &cursor, tileset_len);
-    var project = try Project.init(allocator, width, height, tile_size, tileset_name);
+    var tileset_names: [layer_count][]const u8 = undefined;
+    for (&tileset_names, tileset_lens) |*name, length| name.* = try takeBytes(bytes, cursor, length);
+    var project = try Project.init(allocator, width, height, tile_size, tileset_names[0]);
     errdefer project.deinit();
+    for (tileset_names, 0..) |name, layer| project.setLayerTilesetName(layer, name);
     for (project.tiles) |*tile| {
-        tile.* = try takeU16(bytes, &cursor);
+        tile.* = try takeU16(bytes, cursor);
         if (tile.* > max_tile_id and tile.* != empty_tile) return error.InvalidWorldProject;
     }
+    for (project.smart, 0..) |*base, index| {
+        base.* = try takeU16(bytes, cursor);
+        if (base.* > max_tile_id - 15 and base.* != empty_tile) return error.InvalidWorldProject;
+        if (base.* != empty_tile) {
+            const tile = project.tiles[index];
+            if (tile < base.* or tile > base.* + 15) return error.InvalidWorldProject;
+        }
+    }
     for (project.solid) |*value| {
-        value.* = try takeU8(bytes, &cursor);
+        value.* = try takeU8(bytes, cursor);
         if (value.* > 1) return error.InvalidWorldProject;
     }
     project.spawn = try decodePoint(project, spawn_value);
     project.goal = try decodePoint(project, goal_value);
     project.revision = revision;
-    if (cursor != bytes.len - checksum_len) return error.InvalidWorldProject;
+    if (cursor.* != bytes.len - checksum_len) return error.InvalidWorldProject;
+    return project;
+}
+
+fn decodeV1(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) !Project {
+    const width = try takeU16(bytes, cursor);
+    const height = try takeU16(bytes, cursor);
+    const tile_size = try takeU16(bytes, cursor);
+    try validateDimensions(width, height, tile_size);
+    const tileset_len = try takeU8(bytes, cursor);
+    if (tileset_len == 0 or tileset_len > 127) return error.InvalidWorldProject;
+    const spawn_value = try takeU32(bytes, cursor);
+    const goal_value = try takeU32(bytes, cursor);
+    const revision = try takeU64(bytes, cursor);
+    const cell_count = @as(usize, width) * height;
+    const expected = cursor.* + tileset_len + cell_count * layer_count * 2 + cell_count + checksum_len;
+    if (expected != bytes.len) return error.InvalidWorldProject;
+    const tileset_name = try takeBytes(bytes, cursor, tileset_len);
+    var project = try Project.init(allocator, width, height, tile_size, tileset_name);
+    errdefer project.deinit();
+    for (project.tiles) |*tile| {
+        tile.* = try takeU16(bytes, cursor);
+        if (tile.* > max_tile_id and tile.* != empty_tile) return error.InvalidWorldProject;
+    }
+    for (project.solid) |*value| {
+        value.* = try takeU8(bytes, cursor);
+        if (value.* > 1) return error.InvalidWorldProject;
+    }
+    project.spawn = try decodePoint(project, spawn_value);
+    project.goal = try decodePoint(project, goal_value);
+    project.revision = revision;
+    if (cursor.* != bytes.len - checksum_len) return error.InvalidWorldProject;
     return project;
 }
 
@@ -478,12 +628,12 @@ pub fn exportLua(allocator: std.mem.Allocator, project: Project) ![]u8 {
     var output: std.Io.Writer.Allocating = .init(allocator);
     errdefer output.deinit();
     const writer = &output.writer;
-    try writer.print("-- Generated by ELIS Studio. Edit the .elisworld source, not this file.\nreturn {{\n  metadata = {{ width = {}, height = {}, tile_size = {} }},\n", .{
+    try writer.print("-- Generated by ELIS Workshop. Edit the .elisworld source, not this file.\nreturn {{\n  metadata = {{ width = {}, height = {}, tile_size = {} }},\n", .{
         project.width,
         project.height,
         project.tile_size,
     });
-    try writer.writeAll("  lupi_metadata = { editor = \"ELIS Studio\", schema = 1");
+    try writer.writeAll("  lupi_metadata = { editor = \"ELIS Workshop\", schema = 2");
     if (project.spawn) |spawn| try writer.print(", spawn = {{ x = {}, y = {} }}", .{ spawn.x, spawn.y });
     if (project.goal) |goal| try writer.print(", goal = {{ x = {}, y = {} }}", .{ goal.x, goal.y });
     try writer.writeAll(", solid = {");
@@ -491,11 +641,21 @@ pub fn exportLua(allocator: std.mem.Allocator, project: Project) ![]u8 {
         if (index != 0) try writer.writeByte(',');
         try writer.print("{}", .{value});
     }
+    try writer.writeAll("}, smart_terrain = {");
+    for (layer_names, 0..) |name, layer| {
+        if (layer != 0) try writer.writeAll(", ");
+        try writer.print("{s} = {{", .{name});
+        for (project.smartCells(layer), 0..) |base, index| {
+            if (index != 0) try writer.writeByte(',');
+            if (base == empty_tile) try writer.writeAll("-1") else try writer.print("{}", .{base});
+        }
+        try writer.writeByte('}');
+    }
     try writer.writeAll("} },\n  tilesets = {");
     for (layer_names, 0..) |name, index| {
         if (index != 0) try writer.writeAll(", ");
         try writer.print("{s} = ", .{name});
-        try writeLuaString(writer, project.tilesetName());
+        try writeLuaString(writer, project.layerTilesetName(index));
     }
     try writer.writeAll(" },\n  layers = { ");
     for (layer_names, 0..) |name, index| {
@@ -577,6 +737,7 @@ fn decodePoint(project: Project, value: u32) !?Point {
 fn applyValue(project: *Project, change: Change, value: u32) void {
     switch (change.kind) {
         .tile => project.tiles[@as(usize, change.layer) * project.cellCount() + change.index] = @intCast(value),
+        .smart => project.smart[@as(usize, change.layer) * project.cellCount() + change.index] = @intCast(value),
         .solid => project.solid[change.index] = @intCast(value),
         .spawn => project.spawn = decodeKnownPoint(project.*, value),
         .goal => project.goal = decodeKnownPoint(project.*, value),
@@ -671,6 +832,28 @@ fn readU32At(bytes: []const u8, index: usize) u32 {
         (@as(u32, bytes[index + 3]) << 24);
 }
 
+fn encodeV1ForTest(allocator: std.mem.Allocator, project: Project) ![]u8 {
+    const cell_count = project.cellCount();
+    const fixed_len = magic.len + 2 + 2 + 2 + 2 + 1 + 4 + 4 + 8;
+    const total_len = fixed_len + project.tilesetName().len + project.tiles.len * 2 + project.solid.len + checksum_len;
+    const bytes = try allocator.alloc(u8, total_len);
+    var cursor: usize = 0;
+    putBytes(bytes, &cursor, magic);
+    putU16(bytes, &cursor, legacy_schema_version);
+    putU16(bytes, &cursor, project.width);
+    putU16(bytes, &cursor, project.height);
+    putU16(bytes, &cursor, project.tile_size);
+    putU8(bytes, &cursor, @intCast(project.tilesetName().len));
+    putU32(bytes, &cursor, encodePoint(project, project.spawn));
+    putU32(bytes, &cursor, encodePoint(project, project.goal));
+    putU64(bytes, &cursor, project.revision);
+    putBytes(bytes, &cursor, project.tilesetName());
+    for (project.tiles) |tile| putU16(bytes, &cursor, tile);
+    putBytes(bytes, &cursor, project.solid[0..cell_count]);
+    putU32(bytes, &cursor, checksum(bytes[0..cursor]));
+    return bytes;
+}
+
 test "starter project validates and blocked critical path is rejected" {
     var project = try Project.initStarter(std.testing.allocator, 12, 8, 16, "tiles/world");
     defer project.deinit();
@@ -705,14 +888,51 @@ test "project encoding round trips and rejects corruption" {
     var project = try Project.initStarter(std.testing.allocator, 10, 7, 8, "maps/forest");
     defer project.deinit();
     project.layerCells(2)[project.cellIndex(4, 3)] = 19;
+    project.setLayerTilesetName(2, "props/castle");
     const bytes = try encode(std.testing.allocator, project);
     defer std.testing.allocator.free(bytes);
     var decoded = try decode(std.testing.allocator, bytes);
     defer decoded.deinit();
     try std.testing.expectEqualStrings(project.tilesetName(), decoded.tilesetName());
+    try std.testing.expectEqualStrings("props/castle", decoded.layerTilesetName(2));
     try std.testing.expectEqual(@as(u16, 19), decoded.layerCells(2)[decoded.cellIndex(4, 3)]);
     bytes[bytes.len - 5] ^= 1;
     try std.testing.expectError(error.InvalidWorldChecksum, decode(std.testing.allocator, bytes));
+}
+
+test "version one projects migrate to independent layers without invented smart terrain" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "maps/legacy");
+    defer project.deinit();
+    const bytes = try encodeV1ForTest(std.testing.allocator, project);
+    defer std.testing.allocator.free(bytes);
+    var migrated = try decode(std.testing.allocator, bytes);
+    defer migrated.deinit();
+    for (0..layer_count) |layer| {
+        try std.testing.expectEqualStrings("maps/legacy", migrated.layerTilesetName(layer));
+        for (migrated.smartCells(layer)) |base| try std.testing.expectEqual(empty_tile, base);
+    }
+}
+
+test "smart terrain derives cardinal variants and undo restores semantics" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "tiles/world");
+    defer project.deinit();
+    var history = History.init(std.testing.allocator);
+    defer history.deinit();
+    var builder = CommandBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+    const center = project.cellIndex(3, 2);
+    const east = project.cellIndex(4, 2);
+    try builder.paintSmartTerrain(&project, 1, center, 32);
+    try builder.paintSmartTerrain(&project, 1, east, 32);
+    try history.commit((try builder.finish()).?);
+    try std.testing.expectEqual(@as(u16, 34), project.layerCells(1)[center]);
+    try std.testing.expectEqual(@as(u16, 40), project.layerCells(1)[east]);
+    try std.testing.expectEqual(@as(u16, 32), project.smartCells(1)[center]);
+    try std.testing.expect(try history.undo(&project));
+    try std.testing.expectEqual(empty_tile, project.layerCells(1)[center]);
+    try std.testing.expectEqual(empty_tile, project.smartCells(1)[center]);
+    try std.testing.expect(try history.redo(&project));
+    try std.testing.expectEqual(@as(u16, 34), project.layerCells(1)[center]);
 }
 
 test "Lua export preserves strict layer order and editor metadata" {
@@ -721,6 +941,7 @@ test "Lua export preserves strict layer order and editor metadata" {
     const output = try exportLua(std.testing.allocator, project);
     defer std.testing.allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "layers = { \"background\", \"terrain\", \"objects\", \"foreground\" }") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "lupi_metadata = { editor = \"ELIS Studio\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "lupi_metadata = { editor = \"ELIS Workshop\", schema = 2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "smart_terrain = {") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "tiles/castle") != null);
 }

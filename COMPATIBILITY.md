@@ -51,9 +51,12 @@ all ASCII glyphs, primitive edge cases, camera/clip/pattern interactions, SDL
 alpha composition, deterministic asset resolution, and deterministic map
 layering across independent Lua processes. `./scripts/runtime_smoke.sh` runs
 directories, `.lupi` archives, Mazestein, and every installed demo.
-`./scripts/studio_smoke.sh` separately proves native editor startup, atomic
-project save, deterministic Lua export, capture, exact saved-project reload,
-and simulator rendering of the exported map.
+`./scripts/studio_smoke.sh` separately proves native editor startup, manifest
+and exact-palette intake, roomy and minimum-size presentations, atomic project
+save, deterministic Lua export, exact saved-project reload, and simulator
+rendering of the exported map. Version-one editor projects migrate in unit
+coverage; semantic terrain and per-layer asset references remain reserved
+editor metadata and do not change `ui.map` rendering rules.
 
 Any new intentional difference must be added here together with an executable
 regression. Unlisted game-visible differences are bugs.

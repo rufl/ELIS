@@ -2,23 +2,32 @@ const std = @import("std");
 const c = @import("native.zig").c;
 const font = @import("font.zig");
 const model = @import("studio/model.zig");
+const assets = @import("studio/assets.zig");
 
 const default_width: u16 = 30;
 const default_height: u16 = 16;
 const default_tile_size: u16 = 16;
-const panel_left: i32 = 224;
-const panel_right: i32 = 292;
-const bar_top: i32 = 50;
-const bar_bottom: i32 = 30;
+const bar_top: i32 = 58;
+const bar_bottom: i32 = 32;
 
-const Tool = enum(u8) { brush, erase, fill, pick, collision, spawn, goal };
-const tools = [_]Tool{ .brush, .erase, .fill, .pick, .collision, .spawn, .goal };
-const tool_labels = [_][]const u8{ "BRUSH", "ERASE", "FILL", "PICK", "COLLISION", "SPAWN", "GOAL" };
-const Notice = enum { none, saved, exported, save_failed, export_failed, invalid_preview };
+const Tool = enum(u8) { brush, smart, erase, fill, pick, collision, spawn, goal };
+const tools = [_]Tool{ .brush, .smart, .erase, .fill, .pick, .collision, .spawn, .goal };
+const tool_labels = [_][]const u8{ "PENCIL", "SMART TERRAIN", "ERASER", "FILL", "EYEDROPPER", "COLLISION", "PLAYER START", "GOAL" };
+const Notice = enum { none, saved, exported, asset_selected, asset_incompatible, save_failed, export_failed, invalid_preview };
 const Mode = enum { edit, preview };
+const Presentation = enum { playful, studio };
 
 const Rect = struct { x: i32, y: i32, w: i32, h: i32 };
 const Canvas = struct { rect: Rect, cell: i32, content: Rect };
+const Layout = struct {
+    left: i32,
+    right: i32,
+    tool_y: i32,
+    tool_step: i32,
+    layer_y: i32,
+    palette_y: i32,
+    palette_cell: i32,
+};
 
 const Atlas = struct {
     texture: ?*c.SDL_Texture = null,
@@ -32,6 +41,11 @@ const Atlas = struct {
         if (self.texture) |texture| c.SDL_DestroyTexture(texture);
         self.* = .{};
     }
+};
+
+const WorkspaceAssets = struct {
+    catalog: assets.Catalog = .{},
+    palette: assets.Palette = assets.Palette.diagnostic(),
 };
 
 const Studio = struct {
@@ -51,6 +65,10 @@ const Studio = struct {
     erase_drag: bool = false,
     notice: Notice = .none,
     last_saved_revision: u64 = 0,
+    presentation: Presentation = .playful,
+    asset_page: u8 = 0,
+    reduce_motion: bool = false,
+    guide_pulse: u16 = 0,
 
     fn deinit(self: *Studio) void {
         self.stroke.deinit();
@@ -74,8 +92,12 @@ const Studio = struct {
         const index = self.project.cellIndex(point.x, point.y);
         const effective_tool: Tool = if (erase_override and self.tool != .collision) .erase else self.tool;
         switch (effective_tool) {
-            .brush => try self.stroke.setTile(&self.project, self.active_layer, index, self.selected_tile),
-            .erase => try self.stroke.setTile(&self.project, self.active_layer, index, model.empty_tile),
+            .brush => try self.stroke.setRawTile(&self.project, self.active_layer, index, self.selected_tile),
+            .smart => {
+                self.selected_tile = @min(self.selected_tile, model.max_tile_id - 15);
+                try self.stroke.paintSmartTerrain(&self.project, self.active_layer, index, if (erase_override) null else self.selected_tile);
+            },
+            .erase => try self.stroke.setRawTile(&self.project, self.active_layer, index, model.empty_tile),
             .fill => try self.stroke.floodFill(&self.project, self.active_layer, index, self.selected_tile),
             .pick => {
                 const value = self.project.layerCells(self.active_layer)[index];
@@ -88,6 +110,11 @@ const Studio = struct {
         if (immediate or effective_tool == .fill or effective_tool == .pick or effective_tool == .spawn or effective_tool == .goal) {
             try self.finishStroke();
         }
+    }
+
+    fn togglePresentation(self: *Studio) void {
+        self.presentation = if (self.presentation == .playful) .studio else .playful;
+        self.notice = .none;
     }
 
     fn save(self: *Studio) void {
@@ -125,13 +152,19 @@ pub fn main(init: std.process.Init) !void {
     var project_path: []const u8 = "save/world.elisworld";
     var export_path: []const u8 = "save/world.lua";
     var tileset_name: []const u8 = "tiles/world";
+    var tileset_explicit = false;
     var tileset_file: ?[]const u8 = null;
+    var game_root: ?[]const u8 = null;
     var width = default_width;
     var height = default_height;
     var tile_size = default_tile_size;
     var smoke_frames: ?u32 = null;
     var capture_path: ?[]const u8 = null;
     var save_export_on_start = false;
+    var presentation: Presentation = .playful;
+    var reduce_motion = false;
+    var window_width: i32 = 1280;
+    var window_height: i32 = 760;
     var args = std.process.Args.Iterator.init(init.minimal.args);
     defer args.deinit();
     _ = args.skip();
@@ -142,8 +175,11 @@ pub fn main(init: std.process.Init) !void {
             export_path = argument["--export=".len..];
         } else if (std.mem.startsWith(u8, argument, "--tileset-name=")) {
             tileset_name = argument["--tileset-name=".len..];
+            tileset_explicit = true;
         } else if (std.mem.startsWith(u8, argument, "--tileset-file=")) {
             tileset_file = argument["--tileset-file=".len..];
+        } else if (std.mem.startsWith(u8, argument, "--game-root=")) {
+            game_root = argument["--game-root=".len..];
         } else if (std.mem.startsWith(u8, argument, "--width=")) {
             width = try std.fmt.parseUnsigned(u16, argument["--width=".len..], 10);
         } else if (std.mem.startsWith(u8, argument, "--height=")) {
@@ -156,10 +192,21 @@ pub fn main(init: std.process.Init) !void {
             save_export_on_start = true;
         } else if (std.mem.startsWith(u8, argument, "--capture=")) {
             capture_path = argument["--capture=".len..];
+        } else if (std.mem.eql(u8, argument, "--presentation=studio")) {
+            presentation = .studio;
+        } else if (std.mem.eql(u8, argument, "--presentation=playful")) {
+            presentation = .playful;
+        } else if (std.mem.eql(u8, argument, "--reduce-motion")) {
+            reduce_motion = true;
+        } else if (std.mem.startsWith(u8, argument, "--window-width=")) {
+            window_width = try std.fmt.parseInt(i32, argument["--window-width=".len..], 10);
+        } else if (std.mem.startsWith(u8, argument, "--window-height=")) {
+            window_height = try std.fmt.parseInt(i32, argument["--window-height=".len..], 10);
         } else if (std.mem.eql(u8, argument, "--help") or std.mem.eql(u8, argument, "-h")) {
             std.debug.print(
                 "Usage: elis-studio [--project=file] [--export=file] [--tileset-name=name] " ++
-                    "[--tileset-file=raw-bitmap] [--width=N] [--height=N] [--tile-size=N] " ++
+                    "[--tileset-file=raw-bitmap] [--game-root=game] [--width=N] [--height=N] [--tile-size=N] " ++
+                    "[--presentation=playful|studio] [--reduce-motion] [--window-width=N] [--window-height=N] " ++
                     "[--save-export] [--smoke] [--capture=file.bmp]\n",
                 .{},
             );
@@ -170,6 +217,15 @@ pub fn main(init: std.process.Init) !void {
     if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_GAMECONTROLLER | c.SDL_INIT_JOYSTICK) != 0) return error.SdlInit;
     defer c.SDL_Quit();
     const allocator = init.gpa;
+    const workspace_assets = loadWorkspaceAssets(allocator, game_root);
+    if (smoke_frames != null and game_root != null) {
+        if (workspace_assets.catalog.count == 0) return error.StudioManifestMissingBitmaps;
+        if (!workspace_assets.palette.exact()) return error.StudioPaletteMissing;
+    }
+    if (window_width < 960 or window_height < 600) return error.StudioWindowTooSmall;
+    if (!tileset_explicit) if (workspace_assets.catalog.firstTileSize(tile_size)) |first| {
+        tileset_name = workspace_assets.catalog.items[first].name();
+    };
     var project = if (fileExists(project_path))
         try model.load(allocator, project_path)
     else
@@ -183,6 +239,8 @@ pub fn main(init: std.process.Init) !void {
         .project_path = project_path,
         .export_path = export_path,
         .last_saved_revision = project.revision,
+        .presentation = presentation,
+        .reduce_motion = reduce_motion,
     };
     defer studio.deinit();
     if (save_export_on_start) {
@@ -193,11 +251,11 @@ pub fn main(init: std.process.Init) !void {
 
     _ = c.SDL_SetHint(c.SDL_HINT_RENDER_SCALE_QUALITY, "0");
     const window = c.SDL_CreateWindow(
-        "ELIS Studio  |  Lupi Map Authoring",
+        "ELIS Workshop  |  Learn, Paint, Build",
         c.SDL_WINDOWPOS_CENTERED,
         c.SDL_WINDOWPOS_CENTERED,
-        1280,
-        760,
+        window_width,
+        window_height,
         c.SDL_WINDOW_SHOWN | c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_ALLOW_HIGHDPI,
     ) orelse return error.SdlWindow;
     defer c.SDL_DestroyWindow(window);
@@ -207,8 +265,8 @@ pub fn main(init: std.process.Init) !void {
     defer c.SDL_DestroyRenderer(renderer);
     _ = c.SDL_SetRenderDrawBlendMode(renderer, c.SDL_BLENDMODE_BLEND);
 
-    var atlas = try loadAtlas(allocator, renderer, tileset_file, tile_size);
-    defer atlas.deinit();
+    var atlases = try loadProjectAtlases(allocator, renderer, game_root, &workspace_assets, studio.project, tileset_file);
+    defer for (&atlases) |*atlas| atlas.deinit();
     var gamepad = openFirstController();
     defer if (gamepad) |controller| c.SDL_GameControllerClose(controller);
     var previous_buttons: [c.SDL_CONTROLLER_BUTTON_MAX]bool = .{false} ** c.SDL_CONTROLLER_BUTTON_MAX;
@@ -221,7 +279,8 @@ pub fn main(init: std.process.Init) !void {
         var window_h: c_int = 0;
         c.SDL_GetWindowSize(window, &window_w, &window_h);
         _ = c.SDL_RenderSetLogicalSize(renderer, window_w, window_h);
-        const canvas = canvasLayout(studio.project, window_w, window_h, studio.mode);
+        const layout = layoutFor(window_w, window_h, studio.presentation);
+        const canvas = canvasLayout(studio.project, window_w, window_h, studio.mode, layout);
         while (c.SDL_PollEvent(&event) != 0) {
             switch (event.type) {
                 c.SDL_QUIT => running = false,
@@ -232,14 +291,18 @@ pub fn main(init: std.process.Init) !void {
                     if (gamepad) |controller| c.SDL_GameControllerClose(controller);
                     gamepad = openFirstController();
                 },
-                c.SDL_KEYDOWN => if (event.key.repeat == 0) try handleKey(&studio, event.key.keysym.sym, event.key.keysym.mod, &running),
+                c.SDL_KEYDOWN => if (event.key.repeat == 0) {
+                    if (studio.mode == .edit and (event.key.keysym.sym == c.SDLK_COMMA or event.key.keysym.sym == c.SDLK_PERIOD)) {
+                        try cycleLayerAsset(allocator, renderer, &studio, &atlases, game_root, &workspace_assets, if (event.key.keysym.sym == c.SDLK_COMMA) -1 else 1);
+                    } else try handleKey(&studio, event.key.keysym.sym, event.key.keysym.mod, &running);
+                },
                 c.SDL_MOUSEBUTTONDOWN => if (studio.mode == .edit) {
                     const point = canvasPoint(studio.project, canvas, event.button.x, event.button.y);
                     if (point) |value| {
                         studio.dragging = true;
                         studio.erase_drag = event.button.button == c.SDL_BUTTON_RIGHT;
                         try studio.applyAt(value, studio.erase_drag, false);
-                    } else try handleChromeClick(&studio, event.button.x, event.button.y, window_w, window_h);
+                    } else try handleChromeClick(allocator, renderer, &studio, &atlases, game_root, &workspace_assets, event.button.x, event.button.y, window_w, window_h);
                 },
                 c.SDL_MOUSEMOTION => if (studio.mode == .edit and studio.dragging) {
                     if (canvasPoint(studio.project, canvas, event.motion.x, event.motion.y)) |point| {
@@ -248,19 +311,30 @@ pub fn main(init: std.process.Init) !void {
                 },
                 c.SDL_MOUSEBUTTONUP => if (studio.dragging) try studio.finishStroke(),
                 c.SDL_MOUSEWHEEL => if (studio.mode == .edit) {
-                    if (event.wheel.y > 0) previousTile(&studio) else if (event.wheel.y < 0) nextTile(&studio, atlas.tile_count);
+                    if (event.wheel.y > 0) previousTile(&studio) else if (event.wheel.y < 0) nextTile(&studio, atlases[studio.active_layer].tile_count);
                 },
                 else => {},
             }
         }
-        if (gamepad) |controller| try handleController(&studio, controller, &previous_buttons, atlas.tile_count);
+        if (gamepad) |controller| try handleController(
+            allocator,
+            renderer,
+            &studio,
+            &atlases,
+            game_root,
+            &workspace_assets,
+            controller,
+            &previous_buttons,
+            atlases[studio.active_layer].tile_count,
+        );
 
-        try render(renderer, &studio, atlas, window_w, window_h);
+        try render(renderer, &studio, atlases, &workspace_assets, window_w, window_h);
         if (capture_pending) {
             try captureRenderer(renderer, capture_path.?);
             capture_pending = false;
         }
         c.SDL_RenderPresent(renderer);
+        studio.guide_pulse +%= 1;
         frame_count += 1;
         if (smoke_frames) |limit| {
             if (frame_count >= limit) running = false;
@@ -276,7 +350,9 @@ fn handleKey(studio: *Studio, key: c.SDL_Keycode, modifiers: c.SDL_Keymod, runni
     }
     switch (key) {
         c.SDLK_ESCAPE => running.* = false,
+        c.SDLK_TAB => studio.togglePresentation(),
         c.SDLK_b => studio.tool = .brush,
+        c.SDLK_t => studio.tool = .smart,
         c.SDLK_e => studio.tool = .erase,
         c.SDLK_f => studio.tool = .fill,
         c.SDLK_p => studio.tool = .pick,
@@ -312,7 +388,12 @@ fn handleKey(studio: *Studio, key: c.SDL_Keycode, modifiers: c.SDL_Keymod, runni
 }
 
 fn handleController(
+    allocator: std.mem.Allocator,
+    renderer: *c.SDL_Renderer,
     studio: *Studio,
+    atlases: *[model.layer_count]Atlas,
+    game_root: ?[]const u8,
+    workspace: *const WorkspaceAssets,
     controller: *c.SDL_GameController,
     previous: *[c.SDL_CONTROLLER_BUTTON_MAX]bool,
     tile_count: u16,
@@ -342,35 +423,70 @@ fn handleController(
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_Y)) studio.tool = @enumFromInt((@intFromEnum(studio.tool) + 1) % tools.len);
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) previousTile(studio);
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) nextTile(studio, tile_count);
+    if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_LEFTSTICK)) studio.togglePresentation();
+    if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_RIGHTSTICK)) {
+        try cycleLayerAsset(allocator, renderer, studio, atlases, game_root, workspace, 1);
+    }
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_BACK)) studio.togglePreview();
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_START)) studio.save();
     previous.* = current;
 }
 
-fn handleChromeClick(studio: *Studio, x: i32, y: i32, window_w: i32, window_h: i32) !void {
-    _ = window_h;
+fn handleChromeClick(
+    allocator: std.mem.Allocator,
+    renderer: *c.SDL_Renderer,
+    studio: *Studio,
+    atlases: *[model.layer_count]Atlas,
+    game_root: ?[]const u8,
+    workspace: *const WorkspaceAssets,
+    x: i32,
+    y: i32,
+    window_w: i32,
+    window_h: i32,
+) !void {
+    const layout = layoutFor(window_w, window_h, studio.presentation);
     if (y < bar_top) {
         if (x >= 270 and x < 370) studio.save();
         if (x >= 380 and x < 490) studio.exportMap();
         if (x >= 500 and x < 620) studio.togglePreview();
+        if (x >= 630 and x < 770) studio.togglePresentation();
         return;
     }
-    if (x < panel_left) {
-        if (y >= 92 and y < 92 + @as(i32, @intCast(tools.len)) * 32) {
-            studio.tool = @enumFromInt(@as(u8, @intCast(@divTrunc(y - 92, 32))));
+    if (x < layout.left) {
+        if (y >= layout.tool_y and y < layout.tool_y + @as(i32, @intCast(tools.len)) * layout.tool_step) {
+            studio.tool = @enumFromInt(@as(u8, @intCast(@divTrunc(y - layout.tool_y, layout.tool_step))));
             return;
         }
-        if (y >= 350 and y < 350 + @as(i32, model.layer_count) * 32) {
-            studio.active_layer = @intCast(@divTrunc(y - 350, 32));
+        if (y >= layout.layer_y and y < layout.layer_y + @as(i32, model.layer_count) * layout.tool_step) {
+            studio.active_layer = @intCast(@divTrunc(y - layout.layer_y, layout.tool_step));
+            studio.palette_page = studio.selected_tile / 64;
             return;
         }
     }
-    if (x >= window_w - panel_right) {
-        const local_x = x - (window_w - panel_right) - 18;
-        const local_y = y - 98;
-        if (local_x >= 0 and local_y >= 0 and local_x < 8 * 30 and local_y < 8 * 30) {
-            const slot: u16 = @intCast(@divTrunc(local_y, 30) * 8 + @divTrunc(local_x, 30));
+    if (x >= window_w - layout.right) {
+        const right_x = window_w - layout.right;
+        const local_x = x - right_x - 18;
+        const local_y = y - layout.palette_y;
+        if (local_x >= 0 and local_y >= 0 and local_x < 8 * layout.palette_cell and local_y < 8 * layout.palette_cell) {
+            const slot: u16 = @intCast(@divTrunc(local_y, layout.palette_cell) * 8 + @divTrunc(local_x, layout.palette_cell));
             studio.selected_tile = studio.palette_page * 64 + slot;
+            return;
+        }
+        const asset_y = layout.palette_y + layout.palette_cell * 8 + 44;
+        if (y >= asset_y - 24 and y < asset_y - 2) {
+            if (x < right_x + @divTrunc(layout.right, 2)) {
+                studio.asset_page -|= 1;
+            } else {
+                const page_count: u8 = @intCast((compatibleAssetCount(&workspace.catalog, studio.project.tile_size) + 4) / 5);
+                if (page_count > 0) studio.asset_page = @min(studio.asset_page + 1, page_count - 1);
+            }
+            return;
+        }
+        if (y >= asset_y and y < asset_y + 5 * 25) {
+            const row: usize = @intCast(@divTrunc(y - asset_y, 25));
+            if (compatibleAssetIndex(&workspace.catalog, studio.project.tile_size, @as(usize, studio.asset_page) * 5 + row)) |asset_index| {
+                try assignLayerAsset(allocator, renderer, studio, atlases, game_root, workspace, asset_index);
+            }
         }
     }
 }
@@ -386,81 +502,121 @@ fn nextTile(studio: *Studio, available: u16) void {
     studio.palette_page = studio.selected_tile / 64;
 }
 
-fn render(renderer: *c.SDL_Renderer, studio: *Studio, atlas: Atlas, width: i32, height: i32) !void {
+fn render(
+    renderer: *c.SDL_Renderer,
+    studio: *Studio,
+    atlases: [model.layer_count]Atlas,
+    workspace: *const WorkspaceAssets,
+    width: i32,
+    height: i32,
+) !void {
     setColor(renderer, 18, 22, 31, 255);
     _ = c.SDL_RenderClear(renderer);
     if (studio.mode == .preview) {
-        drawPreview(renderer, studio, atlas, width, height);
+        drawPreview(renderer, studio, atlases, width, height);
         return;
     }
+    const layout = layoutFor(width, height, studio.presentation);
+    const playful = studio.presentation == .playful;
     fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = bar_top }, 29, 35, 48, 255);
-    fill(renderer, .{ .x = 0, .y = bar_top, .w = panel_left, .h = height - bar_top }, 23, 28, 39, 255);
-    fill(renderer, .{ .x = width - panel_right, .y = bar_top, .w = panel_right, .h = height - bar_top }, 23, 28, 39, 255);
+    fill(renderer, .{ .x = 0, .y = bar_top, .w = layout.left, .h = height - bar_top }, 23, 28, 39, 255);
+    fill(renderer, .{ .x = width - layout.right, .y = bar_top, .w = layout.right, .h = height - bar_top }, 23, 28, 39, 255);
     fill(renderer, .{ .x = 0, .y = height - bar_bottom, .w = width, .h = bar_bottom }, 12, 16, 24, 255);
-    drawText(renderer, 18, 16, 2, "ELIS STUDIO", 236, 199, 110);
-    drawText(renderer, 158, 20, 1, if (studio.dirty()) "UNSAVED" else "SAVED", if (studio.dirty()) 244 else 120, if (studio.dirty()) 124 else 210, 104);
-    button(renderer, .{ .x = 270, .y = 9, .w = 100, .h = 32 }, "SAVE", false);
-    button(renderer, .{ .x = 380, .y = 9, .w = 110, .h = 32 }, "EXPORT", false);
-    button(renderer, .{ .x = 500, .y = 9, .w = 120, .h = 32 }, "PREVIEW", false);
+    drawText(renderer, 18, 13, 2, if (playful) "ELIS WORKSHOP" else "ELIS STUDIO", 236, 199, 110);
+    drawText(renderer, 18, 38, 1, if (playful) "LEARN  PAINT  BUILD" else "PRECISE AUTHORING", 125, 145, 173);
+    drawText(renderer, 180, 24, 1, if (studio.dirty()) "UNSAVED" else "SAVED", if (studio.dirty()) 244 else 120, if (studio.dirty()) 124 else 210, 104);
+    button(renderer, .{ .x = 270, .y = 12, .w = 100, .h = 34 }, "SAVE", false);
+    button(renderer, .{ .x = 380, .y = 12, .w = 110, .h = 34 }, "EXPORT", false);
+    button(renderer, .{ .x = 500, .y = 12, .w = 120, .h = 34 }, "PREVIEW", false);
+    button(renderer, .{ .x = 630, .y = 12, .w = 140, .h = 34 }, if (playful) "STUDIO VIEW" else "PLAYFUL VIEW", true);
 
-    drawText(renderer, 18, 66, 1, "TOOLS", 154, 184, 222);
+    drawText(renderer, 18, 70, 1, if (playful) "CHOOSE A TOOL" else "TOOLS", 154, 184, 222);
     for (tools, 0..) |tool, index| {
-        button(renderer, .{ .x = 14, .y = 92 + @as(i32, @intCast(index)) * 32, .w = 196, .h = 27 }, tool_labels[index], studio.tool == tool);
+        button(renderer, .{
+            .x = 14,
+            .y = layout.tool_y + @as(i32, @intCast(index)) * layout.tool_step,
+            .w = layout.left - 28,
+            .h = layout.tool_step - 5,
+        }, tool_labels[index], studio.tool == tool);
     }
-    drawText(renderer, 18, 326, 1, "LAYERS  BOTTOM -> TOP", 154, 184, 222);
+    drawText(renderer, 18, layout.layer_y - 22, 1, if (playful) "BUILDING LAYERS" else "LAYERS  BOTTOM -> TOP", 154, 184, 222);
     for (model.layer_names, 0..) |name, index| {
-        button(renderer, .{ .x = 14, .y = 350 + @as(i32, @intCast(index)) * 32, .w = 196, .h = 27 }, name, studio.active_layer == index);
+        const layer_y = layout.layer_y + @as(i32, @intCast(index)) * layout.tool_step;
+        button(renderer, .{ .x = 14, .y = layer_y, .w = layout.left - 28, .h = layout.tool_step - 5 }, name, studio.active_layer == index);
+        if (playful and layout.left >= 220) {
+            drawTextClipped(renderer, 82, layer_y + layout.tool_step - 16, 1, studio.project.layerTilesetName(index), 20, 132, 151, 177);
+        }
     }
-    drawText(renderer, 18, 500, 1, "B/E/F/P/C/S/G  TOOLS", 125, 145, 173);
-    drawText(renderer, 18, 516, 1, "1-4 LAYERS  CTRL-Z/Y", 125, 145, 173);
-    drawText(renderer, 18, 532, 1, "F5 EXPORT  F6 PREVIEW", 125, 145, 173);
-    drawText(renderer, 18, 548, 1, "PAD: A APPLY  B ERASE", 125, 145, 173);
-    drawText(renderer, 18, 564, 1, "X PICK  Y NEXT TOOL", 125, 145, 173);
+    drawGuide(renderer, studio, layout, height);
 
-    const canvas = canvasLayout(studio.project, width, height, .edit);
-    drawMap(renderer, studio, atlas, canvas, true);
+    const canvas = canvasLayout(studio.project, width, height, .edit, layout);
+    drawMap(renderer, studio, atlases, canvas, true);
 
-    const right_x = width - panel_right;
-    drawText(renderer, right_x + 18, 66, 1, "TILE PALETTE", 154, 184, 222);
-    var buffer: [64]u8 = undefined;
-    const selected = std.fmt.bufPrint(&buffer, "TILE {d}  PAGE {d}/16", .{ studio.selected_tile, studio.palette_page + 1 }) catch "TILE";
-    drawText(renderer, right_x + 18, 82, 1, selected, 236, 199, 110);
+    const right_x = width - layout.right;
+    drawText(renderer, right_x + 18, 70, 1, if (studio.tool == .smart) "SMART MATERIAL FAMILY" else "TILE PALETTE", 154, 184, 222);
+    var buffer: [128]u8 = undefined;
+    const selected = if (studio.tool == .smart)
+        std.fmt.bufPrint(&buffer, "BASE {d}  USES {d}-{d}", .{ studio.selected_tile, studio.selected_tile, @min(studio.selected_tile + 15, model.max_tile_id) }) catch "SMART MATERIAL"
+    else
+        std.fmt.bufPrint(&buffer, "TILE {d}  PAGE {d}/16", .{ studio.selected_tile, studio.palette_page + 1 }) catch "TILE";
+    drawText(renderer, right_x + 18, 86, 1, selected, 236, 199, 110);
+    const atlas = atlases[studio.active_layer];
     for (0..64) |slot| {
         const tile: u16 = studio.palette_page * 64 + @as(u16, @intCast(slot));
         const rect = Rect{
-            .x = right_x + 18 + @as(i32, @intCast(slot % 8)) * 30,
-            .y = 98 + @as(i32, @intCast(slot / 8)) * 30,
-            .w = 27,
-            .h = 27,
+            .x = right_x + 18 + @as(i32, @intCast(slot % 8)) * layout.palette_cell,
+            .y = layout.palette_y + @as(i32, @intCast(slot / 8)) * layout.palette_cell,
+            .w = layout.palette_cell - 3,
+            .h = layout.palette_cell - 3,
         };
         drawTile(renderer, atlas, tile, rect, 0);
         if (tile == studio.selected_tile) outline(renderer, rect, 249, 211, 112, 255);
     }
-    const report = model.validate(studio.project);
-    drawText(renderer, right_x + 18, 356, 1, "VALIDATION", 154, 184, 222);
-    const summary = std.fmt.bufPrint(&buffer, "{d} ERRORS  {d} WARNINGS", .{ report.error_count, report.warning_count }) catch "VALIDATION";
-    drawText(renderer, right_x + 18, 374, 1, summary, if (report.error_count > 0) 246 else 111, if (report.error_count > 0) 112 else 214, 112);
-    const reachable = std.fmt.bufPrint(&buffer, "{d} REACHABLE CELLS", .{report.reachable_cells}) catch "";
-    drawText(renderer, right_x + 18, 390, 1, reachable, 125, 145, 173);
-    for (report.issues[0..report.count], 0..) |issue, index| {
-        drawText(renderer, right_x + 18, 420 + @as(i32, @intCast(index)) * 17, 1, issueLabel(issue.kind), if (issue.severity == .@"error") 246 else 236, if (issue.severity == .@"error") 112 else 199, 110);
+
+    const asset_header_y = layout.palette_y + layout.palette_cell * 8 + 18;
+    const palette_label = if (workspace.palette.exact())
+        std.fmt.bufPrint(&buffer, "ASSETS  EXACT PALETTE {d}", .{workspace.palette.defined_count}) catch "ASSETS"
+    else
+        "ASSETS  DIAGNOSTIC PALETTE";
+    drawText(renderer, right_x + 18, asset_header_y, 1, palette_label, 154, 184, 222);
+    const page_label = std.fmt.bufPrint(&buffer, "< PAGE {d} >", .{studio.asset_page + 1}) catch "< ASSETS >";
+    drawText(renderer, right_x + layout.right - 92, asset_header_y, 1, page_label, 236, 199, 110);
+    const asset_y = asset_header_y + 26;
+    for (0..5) |row| {
+        const asset_index = compatibleAssetIndex(&workspace.catalog, studio.project.tile_size, @as(usize, studio.asset_page) * 5 + row) orelse break;
+        const asset = &workspace.catalog.items[asset_index];
+        const selected_asset = std.mem.eql(u8, asset.name(), studio.project.layerTilesetName(studio.active_layer));
+        button(renderer, .{
+            .x = right_x + 14,
+            .y = asset_y + @as(i32, @intCast(row)) * 25,
+            .w = layout.right - 28,
+            .h = 22,
+        }, asset.name(), selected_asset);
     }
-    drawText(renderer, right_x + 18, height - 118, 1, "PROJECT", 154, 184, 222);
-    drawTextClipped(renderer, right_x + 18, height - 100, 1, studio.project_path, 38, 185, 196, 212);
-    drawText(renderer, right_x + 18, height - 82, 1, "LUA EXPORT", 154, 184, 222);
-    drawTextClipped(renderer, right_x + 18, height - 66, 1, studio.export_path, 38, 185, 196, 212);
+
+    const report = model.validate(studio.project);
+    const validation_y = asset_y + 5 * 25 + 12;
+    drawText(renderer, right_x + 18, validation_y, 1, "LEVEL CHECK", 154, 184, 222);
+    const summary = std.fmt.bufPrint(&buffer, "{d} ERRORS  {d} WARNINGS", .{ report.error_count, report.warning_count }) catch "VALIDATION";
+    drawText(renderer, right_x + 18, validation_y + 18, 1, summary, if (report.error_count > 0) 246 else 111, if (report.error_count > 0) 112 else 214, 112);
+    const reachable = std.fmt.bufPrint(&buffer, "{d} REACHABLE CELLS", .{report.reachable_cells}) catch "";
+    drawText(renderer, right_x + 18, validation_y + 34, 1, reachable, 125, 145, 173);
+    const visible_issues = @min(report.count, @as(u8, @intCast(@max(@divTrunc(height - bar_bottom - validation_y - 58, 17), 0))));
+    for (report.issues[0..visible_issues], 0..) |issue, index| {
+        drawText(renderer, right_x + 18, validation_y + 54 + @as(i32, @intCast(index)) * 17, 1, issueLabel(issue.kind), if (issue.severity == .@"error") 246 else 236, if (issue.severity == .@"error") 112 else 199, 110);
+    }
     drawNotice(renderer, studio.notice, width, height);
 }
 
-fn drawPreview(renderer: *c.SDL_Renderer, studio: *Studio, atlas: Atlas, width: i32, height: i32) void {
+fn drawPreview(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer_count]Atlas, width: i32, height: i32) void {
     fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = height }, 7, 9, 14, 255);
-    const canvas = canvasLayout(studio.project, width, height, .preview);
-    drawMap(renderer, studio, atlas, canvas, false);
+    const canvas = canvasLayout(studio.project, width, height, .preview, layoutFor(width, height, studio.presentation));
+    drawMap(renderer, studio, atlases, canvas, false);
     fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = 38 }, 12, 16, 24, 230);
     drawText(renderer, 18, 13, 1, "MAP PREVIEW  -  F7 / ESC RETURN TO EDIT", 218, 225, 236);
 }
 
-fn drawMap(renderer: *c.SDL_Renderer, studio: *Studio, atlas: Atlas, canvas: Canvas, editor_overlay: bool) void {
+fn drawMap(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer_count]Atlas, canvas: Canvas, editor_overlay: bool) void {
     fill(renderer, canvas.rect, 9, 12, 18, 255);
     for (0..studio.project.height) |y| {
         for (0..studio.project.width) |x| {
@@ -473,7 +629,7 @@ fn drawMap(renderer: *c.SDL_Renderer, studio: *Studio, atlas: Atlas, canvas: Can
             };
             for (0..model.layer_count) |layer| {
                 const tile = studio.project.layerCells(layer)[index];
-                if (tile != model.empty_tile) drawTile(renderer, atlas, tile, rect, @intCast(layer));
+                if (tile != model.empty_tile) drawTile(renderer, atlases[layer], tile, rect, @intCast(layer));
             }
             if (editor_overlay and studio.project.solid[index] != 0) {
                 fill(renderer, rect, 225, 62, 76, 82);
@@ -518,7 +674,134 @@ fn drawTile(renderer: *c.SDL_Renderer, atlas: Atlas, tile: u16, destination: Rec
     }
 }
 
-fn loadAtlas(allocator: std.mem.Allocator, renderer: *c.SDL_Renderer, path: ?[]const u8, tile_size: u16) !Atlas {
+fn loadWorkspaceAssets(allocator: std.mem.Allocator, game_root: ?[]const u8) WorkspaceAssets {
+    const root = game_root orelse return .{};
+    var result = WorkspaceAssets{};
+    var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var path_buffer: [2048]u8 = undefined;
+    const manifest_path = std.fmt.bufPrint(&path_buffer, "{s}/lupi_manifest.txt", .{root}) catch return result;
+    if (std.Io.Dir.cwd().readFileAlloc(io, manifest_path, allocator, .limited(4 * 1024 * 1024))) |bytes| {
+        defer allocator.free(bytes);
+        result.catalog = assets.parseManifest(bytes);
+    } else |_| {}
+    const palette_path = std.fmt.bufPrint(&path_buffer, "{s}/palette.lua", .{root}) catch return result;
+    if (std.Io.Dir.cwd().readFileAlloc(io, palette_path, allocator, .limited(256 * 1024))) |bytes| {
+        defer allocator.free(bytes);
+        result.palette = assets.parsePaletteLua(bytes);
+    } else |_| {}
+    return result;
+}
+
+fn loadProjectAtlases(
+    allocator: std.mem.Allocator,
+    renderer: *c.SDL_Renderer,
+    game_root: ?[]const u8,
+    workspace: *const WorkspaceAssets,
+    project: model.Project,
+    legacy_path: ?[]const u8,
+) ![model.layer_count]Atlas {
+    var result: [model.layer_count]Atlas = .{Atlas{}} ** model.layer_count;
+    errdefer for (&result) |*atlas| atlas.deinit();
+    for (&result, 0..) |*atlas, layer| {
+        atlas.* = if (legacy_path) |path|
+            try loadAtlas(allocator, renderer, path, project.tile_size, workspace.palette)
+        else
+            try loadCatalogAtlas(allocator, renderer, game_root, workspace, project.layerTilesetName(layer), project.tile_size);
+    }
+    return result;
+}
+
+fn loadCatalogAtlas(
+    allocator: std.mem.Allocator,
+    renderer: *c.SDL_Renderer,
+    game_root: ?[]const u8,
+    workspace: *const WorkspaceAssets,
+    name: []const u8,
+    tile_size: u16,
+) !Atlas {
+    const root = game_root orelse return .{};
+    const asset_index = workspace.catalog.find(name) orelse return .{};
+    const asset = &workspace.catalog.items[asset_index];
+    if (asset.width != tile_size or asset.height != tile_size) return .{};
+    var path_buffer: [2048]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}", .{ root, asset.name() });
+    return loadAtlas(allocator, renderer, path, tile_size, workspace.palette);
+}
+
+fn assignLayerAsset(
+    allocator: std.mem.Allocator,
+    renderer: *c.SDL_Renderer,
+    studio: *Studio,
+    atlases: *[model.layer_count]Atlas,
+    game_root: ?[]const u8,
+    workspace: *const WorkspaceAssets,
+    asset_index: usize,
+) !void {
+    if (asset_index >= workspace.catalog.count) return;
+    const asset = &workspace.catalog.items[asset_index];
+    if (asset.width != studio.project.tile_size or asset.height != studio.project.tile_size) {
+        studio.notice = .asset_incompatible;
+        return;
+    }
+    const layer = studio.active_layer;
+    if (std.mem.eql(u8, studio.project.layerTilesetName(layer), asset.name())) return;
+    var replacement = try loadCatalogAtlas(allocator, renderer, game_root, workspace, asset.name(), studio.project.tile_size);
+    errdefer replacement.deinit();
+    atlases[layer].deinit();
+    atlases[layer] = replacement;
+    studio.project.setLayerTilesetName(layer, asset.name());
+    studio.project.revision +%= 1;
+    studio.selected_tile = @min(studio.selected_tile, if (replacement.tile_count > 0) replacement.tile_count - 1 else model.max_tile_id);
+    studio.palette_page = studio.selected_tile / 64;
+    studio.notice = .asset_selected;
+}
+
+fn cycleLayerAsset(
+    allocator: std.mem.Allocator,
+    renderer: *c.SDL_Renderer,
+    studio: *Studio,
+    atlases: *[model.layer_count]Atlas,
+    game_root: ?[]const u8,
+    workspace: *const WorkspaceAssets,
+    direction: i32,
+) !void {
+    const count = compatibleAssetCount(&workspace.catalog, studio.project.tile_size);
+    if (count == 0) return;
+    var current: usize = 0;
+    for (0..count) |ordinal| {
+        const index = compatibleAssetIndex(&workspace.catalog, studio.project.tile_size, ordinal).?;
+        if (std.mem.eql(u8, workspace.catalog.items[index].name(), studio.project.layerTilesetName(studio.active_layer))) {
+            current = ordinal;
+            break;
+        }
+    }
+    const next: usize = @intCast(@mod(@as(i32, @intCast(current)) + direction, @as(i32, @intCast(count))));
+    const asset_index = compatibleAssetIndex(&workspace.catalog, studio.project.tile_size, next).?;
+    try assignLayerAsset(allocator, renderer, studio, atlases, game_root, workspace, asset_index);
+    studio.asset_page = @intCast(next / 5);
+}
+
+fn compatibleAssetCount(catalog: *const assets.Catalog, tile_size: u16) usize {
+    var count: usize = 0;
+    for (catalog.slice()) |asset| {
+        if (asset.width == tile_size and asset.height == tile_size) count += 1;
+    }
+    return count;
+}
+
+fn compatibleAssetIndex(catalog: *const assets.Catalog, tile_size: u16, ordinal: usize) ?usize {
+    var compatible: usize = 0;
+    for (catalog.slice(), 0..) |asset, index| {
+        if (asset.width != tile_size or asset.height != tile_size) continue;
+        if (compatible == ordinal) return index;
+        compatible += 1;
+    }
+    return null;
+}
+
+fn loadAtlas(allocator: std.mem.Allocator, renderer: *c.SDL_Renderer, path: ?[]const u8, tile_size: u16, palette: assets.Palette) !Atlas {
     const source_path = path orelse return .{};
     var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
     defer threaded.deinit();
@@ -542,7 +825,7 @@ fn loadAtlas(allocator: std.mem.Allocator, renderer: *c.SDL_Renderer, path: ?[]c
         for (0..tile_size) |py| for (0..tile_size) |px| {
             const palette_index = bytes[tile * pixels_per_tile + py * tile_size + px];
             if (palette_index == 0) continue;
-            const color = indexedPreviewColor(palette_index);
+            const color = palette.colors[palette_index];
             destination[(@as(usize, atlas_y) + py) * pitch + @as(usize, atlas_x) + px] =
                 c.SDL_MapRGBA(surface.*.format, color[0], color[1], color[2], 255);
         };
@@ -559,9 +842,29 @@ fn loadAtlas(allocator: std.mem.Allocator, renderer: *c.SDL_Renderer, path: ?[]c
     };
 }
 
-fn canvasLayout(project: model.Project, width: i32, height: i32, mode: Mode) Canvas {
+fn layoutFor(width: i32, height: i32, presentation: Presentation) Layout {
+    const roomy = width >= 1180 and height >= 700;
+    const playful = presentation == .playful;
+    const left: i32 = if (roomy and playful) 236 else if (roomy) 214 else 196;
+    const palette_cell: i32 = if (roomy and playful) 34 else if (roomy) 31 else 28;
+    const minimum_right: i32 = if (roomy and playful) 320 else 272;
+    const right = @max(palette_cell * 8 + 36, minimum_right);
+    const tool_step: i32 = if (roomy and playful) 36 else 30;
+    const tool_y: i32 = 88;
+    return .{
+        .left = left,
+        .right = right,
+        .tool_y = tool_y,
+        .tool_step = tool_step,
+        .layer_y = tool_y + @as(i32, @intCast(tools.len)) * tool_step + 28,
+        .palette_y = 104,
+        .palette_cell = palette_cell,
+    };
+}
+
+fn canvasLayout(project: model.Project, width: i32, height: i32, mode: Mode, layout: Layout) Canvas {
     const outer = if (mode == .edit)
-        Rect{ .x = panel_left, .y = bar_top, .w = @max(width - panel_left - panel_right, 1), .h = @max(height - bar_top - bar_bottom, 1) }
+        Rect{ .x = layout.left, .y = bar_top, .w = @max(width - layout.left - layout.right, 1), .h = @max(height - bar_top - bar_bottom, 1) }
     else
         Rect{ .x = 18, .y = 52, .w = @max(width - 36, 1), .h = @max(height - 70, 1) };
     const cell = @max(@min(@divTrunc(outer.w - 24, project.width), @divTrunc(outer.h - 24, project.height)), 2);
@@ -599,16 +902,59 @@ fn drawMarker(renderer: *c.SDL_Renderer, canvas: Canvas, point: model.Point, lab
     if (canvas.cell >= 18) drawText(renderer, rect.x + @max(@divTrunc(rect.w - 5, 2), 1), rect.y + @max(@divTrunc(rect.h - 8, 2), 1), 1, label, 12, 16, 24);
 }
 
+fn drawGuide(renderer: *c.SDL_Renderer, studio: *const Studio, layout: Layout, height: i32) void {
+    const y = layout.layer_y + @as(i32, model.layer_count) * layout.tool_step + 14;
+    const available = height - bar_bottom - y;
+    if (available < 42) return;
+    if (studio.presentation == .studio) {
+        drawText(renderer, 18, y, 1, "TAB PLAYFUL  CTRL-Z/Y", 125, 145, 173);
+        if (available >= 58) drawText(renderer, 18, y + 16, 1, "B/T/E/F/P/C/S/G TOOLS", 125, 145, 173);
+        if (available >= 74) drawText(renderer, 18, y + 32, 1, "F5 EXPORT  F6 PREVIEW", 125, 145, 173);
+        return;
+    }
+    const pulse: i32 = if (studio.reduce_motion) 0 else @intCast((studio.guide_pulse / 24) & 1);
+    const card_h = @min(available - 8, 118);
+    fill(renderer, .{ .x = 14, .y = y, .w = layout.left - 28, .h = card_h }, 31, 40, 55, 255);
+    outline(renderer, .{ .x = 14, .y = y, .w = layout.left - 28, .h = card_h }, 72, 96, 124, 255);
+    const face = Rect{ .x = 24, .y = y + 12 - pulse, .w = 32, .h = 30 };
+    fill(renderer, face, 249, 211, 112, 255);
+    outline(renderer, face, 255, 236, 172, 255);
+    fill(renderer, .{ .x = face.x + 7, .y = face.y + 8, .w = 3, .h = 4 }, 29, 35, 48, 255);
+    fill(renderer, .{ .x = face.x + 22, .y = face.y + 8, .w = 3, .h = 4 }, 29, 35, 48, 255);
+    setColor(renderer, 29, 35, 48, 255);
+    _ = c.SDL_RenderDrawLine(renderer, face.x + 9, face.y + 21, face.x + 23, face.y + 21);
+    drawText(renderer, 66, y + 13, 1, "PIP'S PAINT TIP", 236, 199, 110);
+    drawTextClipped(renderer, 24, y + 52, 1, guideLine(studio.tool), @intCast(@max(@divTrunc(layout.left - 48, font.advance), 1)), 202, 215, 232);
+    if (card_h >= 90) drawText(renderer, 24, y + 72, 1, "A APPLY  B ERASE", 125, 145, 173);
+    if (card_h >= 108) drawText(renderer, 24, y + 88, 1, "TAB CHANGES VIEW", 125, 145, 173);
+}
+
+fn guideLine(tool: Tool) []const u8 {
+    return switch (tool) {
+        .brush => "DRAW EXACTLY WHAT YOU PICK.",
+        .smart => "PAINT SHAPES; EDGES JOIN!",
+        .erase => "MISTAKES ARE EASY TO ERASE.",
+        .fill => "COLOR ONE CONNECTED REGION.",
+        .pick => "COPY A TILE FROM THE MAP.",
+        .collision => "RED CELLS BLOCK THE PLAYER.",
+        .spawn => "CHOOSE WHERE PLAY BEGINS.",
+        .goal => "GIVE THE PLAYER A DESTINATION.",
+    };
+}
+
 fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32) void {
     const label: []const u8 = switch (notice) {
         .none => "LMB DRAW  RMB ERASE  WHEEL TILE",
         .saved => "PROJECT SAVED ATOMICALLY",
         .exported => "LUA MAP EXPORTED",
+        .asset_selected => "LAYER TILESET CHANGED",
+        .asset_incompatible => "ASSET SIZE DOES NOT MATCH THIS MAP GRID",
         .save_failed => "SAVE FAILED - SOURCE RETAINED",
         .export_failed => "EXPORT FAILED - SOURCE RETAINED",
         .invalid_preview => "FIX VALIDATION ERRORS BEFORE PREVIEW",
     };
-    drawText(renderer, 18, height - 20, 1, label, if (notice == .save_failed or notice == .export_failed or notice == .invalid_preview) 246 else 154, if (notice == .save_failed or notice == .export_failed or notice == .invalid_preview) 112 else 184, 222);
+    const problem = notice == .save_failed or notice == .export_failed or notice == .invalid_preview or notice == .asset_incompatible;
+    drawText(renderer, 18, height - 20, 1, label, if (problem) 246 else 154, if (problem) 112 else 184, 222);
     _ = width;
 }
 
