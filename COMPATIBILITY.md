@@ -36,11 +36,13 @@ use a separate transparent overlay and never mutate the game's framebuffer or
 palette.
 
 The desktop demo browser, localization, remapping UI, gamepad/joystick support,
-native demo downloader, quit flow, statistics overlay, and F1-F12 rendering
-debugger are host features outside the upstream game-visible API. Debug chrome
-is composited after indexed-frame conversion. Rendering and layer suppression
-are opt-in runtime inspection controls; all defaults preserve the reference
-output, and the controls do not alter Lua-visible state or API results.
+native demo downloader, quit flow, statistics overlay, F1-F12 rendering
+debugger, and separate `elis-studio` authoring application are host features
+outside the upstream game-visible API. Editor data never enters the simulator
+unless the user explicitly exports and loads a Lua map. Debug chrome is
+composited after indexed-frame conversion. Rendering and layer suppression are
+opt-in runtime inspection controls; all defaults preserve the reference output,
+and the controls do not alter Lua-visible state or API results.
 
 ## Proof
 
@@ -49,6 +51,9 @@ all ASCII glyphs, primitive edge cases, camera/clip/pattern interactions, SDL
 alpha composition, deterministic asset resolution, and deterministic map
 layering across independent Lua processes. `./scripts/runtime_smoke.sh` runs
 directories, `.lupi` archives, Mazestein, and every installed demo.
+`./scripts/studio_smoke.sh` separately proves native editor startup, atomic
+project save, deterministic Lua export, capture, exact saved-project reload,
+and simulator rendering of the exported map.
 
 Any new intentional difference must be added here together with an executable
 regression. Unlisted game-visible differences are bugs.

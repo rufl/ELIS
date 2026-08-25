@@ -12,6 +12,9 @@ zig build native
 zig-out/bin/elis example
 zig-out/bin/elis game.lupi
 
+# open the native map/level authoring workspace
+zig build studio
+
 # install only missing official demos; never replace an existing version
 zig-out/bin/elis --fetch-demos
 
@@ -29,9 +32,45 @@ zig-out/bin/elis --update-demos
 
 # pixel/API differential regression against upstream commit 379a599
 ./scripts/parity_smoke.sh
+
+# simulator parity, runtime, and Studio matrix
+zig build verify
 ```
 
 The game directory must contain `game.lua`. Games use the original `ui.*` and `sfx.*` APIs and may define `update()`, called once per frame. Escape opens the simulator menu instead of terminating the process directly.
+
+## ELIS Studio
+
+`zig build studio` opens a separate native SDL2 authoring application. The
+first complete slice provides a simple direct-paint workflow without placing
+editor state inside the compatible simulator:
+
+- four strict bottom-to-top visual layers: background, terrain, objects, and
+  foreground;
+- brush, erase, contiguous fill, pick, collision, player-spawn, and goal tools;
+- mouse, keyboard, and controller editing with a visible grid cursor;
+- drag/fill command coalescing and bounded undo/redo history;
+- automatic missing/blocked spawn, missing/blocked goal, critical-path
+  reachability, and empty-background validation;
+- atomic checksummed `.elisworld` source projects and deterministic `ui.map`
+  Lua export with editor metadata stored under reserved `lupi_metadata`;
+- a chrome-free validated map preview plus native save/export/reload smoke.
+
+Open a project and preview an encoded raw Lupi tileset:
+
+```sh
+zig build studio -- \
+  --project=projects/forest.elisworld \
+  --export=projects/forest.lua \
+  --tileset-name=maps/forest \
+  --tileset-file=game/maps/forest
+```
+
+The raw bitmap preview uses an editor-only indexed diagnostic palette unless a
+future project palette integration supplies exact colors. Tile geometry and IDs
+are real; final color fidelity must still be checked in the compatible
+simulator. See [STUDIO.md](STUDIO.md) for controls, formats, validation, and the
+runtime boundary.
 
 ### Runtime statistics and rendering debugger
 

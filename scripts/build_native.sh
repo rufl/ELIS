@@ -31,12 +31,14 @@ objcopy --remove-section=.sframe --remove-section=.rela.sframe \
 mkdir -p "$work_dir/local-cache" "$work_dir/global-cache"
 
 build_zig_object() {
+  local source="$1"
+  local output="$2"
   ZIG_LOCAL_CACHE_DIR="$work_dir/local-cache" \
   ZIG_GLOBAL_CACHE_DIR="$work_dir/global-cache" \
   zig build-obj -fPIC "${stack_check_flags[@]}" -lc \
     "-O$optimize_mode" \
     $(pkg-config --cflags sdl2 lua5.5 libzip libcurl sndfile) \
-    src/main.zig -femit-bin="$work_dir/elis.o"
+    "$source" -femit-bin="$output"
 }
 
 # The manual GCC link cannot resolve Zig 0.16's __zig_probe_stack, while
@@ -45,19 +47,32 @@ build_zig_object() {
 # Some restricted filesystems also make Zig 0.16 report a transient false
 # `ReadOnlyFileSystem` while opening std.zig. Retrying with the now-initialized
 # isolated cache is safe and makes clean builds deterministic.
-build_log="$work_dir/zig-build.log"
-for attempt in 1 2 3; do
-  if build_zig_object >"$build_log" 2>&1; then
-    break
-  fi
-  if [[ "$attempt" -eq 3 ]]; then
-    cat "$build_log" >&2
-    exit 1
-  fi
-done
+build_object_with_retry() {
+  local source="$1"
+  local output="$2"
+  local label="$3"
+  local build_log="$work_dir/zig-build-$label.log"
+  for attempt in 1 2 3; do
+    if build_zig_object "$source" "$output" >"$build_log" 2>&1; then
+      return
+    fi
+    if [[ "$attempt" -eq 3 ]]; then
+      cat "$build_log" >&2
+      exit 1
+    fi
+  done
+}
+
+build_object_with_retry src/main.zig "$work_dir/elis.o" elis
+build_object_with_retry src/studio_app.zig "$work_dir/elis-studio.o" studio
 
 "$linker_cc" -nostartfiles "$work_dir/crt1.o" "$work_dir/elis.o" \
   -o zig-out/bin/elis \
+  $(pkg-config --libs sdl2 lua5.5 libzip libcurl sndfile) -lm -lpthread -ldl -lc \
+  -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
+
+"$linker_cc" -nostartfiles "$work_dir/crt1.o" "$work_dir/elis-studio.o" \
+  -o zig-out/bin/elis-studio \
   $(pkg-config --libs sdl2 lua5.5 libzip libcurl sndfile) -lm -lpthread -ldl -lc \
   -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
 
@@ -65,4 +80,4 @@ done
 # and local shortcuts created before the ELIS rename.
 ln -sfn elis zig-out/bin/lupinho-zig
 
-echo "built zig-out/bin/elis"
+echo "built zig-out/bin/elis and zig-out/bin/elis-studio"
