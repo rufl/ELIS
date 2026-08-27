@@ -8,11 +8,20 @@ const localization = @import("localization.zig");
 const Settings = @import("settings.zig").Settings;
 const font = @import("font.zig");
 const debug_mod = @import("debug.zig");
+const lupi_profile = @import("studio/lupi_profile.zig");
 
 // The Lupi ABI fixes the logical resolution. SDL scales this indexed surface;
 // games never observe the host window size.
 const W = 480;
 const H = 270;
+const lupi_flash_bytes = lupi_profile.flash_bytes;
+const lupi_psram_bytes = lupi_profile.psram_bytes;
+const lupi_lua_heap_bytes_max = lupi_profile.lua_heap_bytes_max;
+const lupi_tileset_pixels_max = lupi_profile.tileset_pixels_max;
+comptime {
+    std.debug.assert(W == lupi_profile.frame_width);
+    std.debug.assert(H == lupi_profile.frame_height);
+}
 const A = std.heap.page_allocator;
 const Color = struct { r: u8, g: u8, b: u8, a: u8 };
 const Region = struct { x: i32 = 0, y: i32 = 0, w: i32 = 0, h: i32 = 0 };
@@ -31,6 +40,7 @@ var audio_state: Audio = .{};
 var L: *c.lua_State = undefined;
 var ticks: f64 = 0;
 var last_frame_ms: f64 = 1000.0 / debug_mod.target_simulation_hz;
+var last_work_ms: f64 = 0;
 var debug_state: debug_mod.State = .{};
 var legacy_sprite_ref: c_int = c.LUA_NOREF;
 var game_root: []const u8 = "example";
@@ -50,6 +60,39 @@ const BrowserNotice = enum {
 };
 const SettingsPage = enum { none, language, controls };
 const ControlsNotice = enum { none, saved, save_failed, conflict, defaults_restored };
+
+const LuaHeap = struct {
+    used_bytes: usize = 0,
+
+    fn reset(self: *LuaHeap) void {
+        std.debug.assert(self.used_bytes == 0);
+        self.* = .{};
+    }
+};
+var lua_heap = LuaHeap{};
+
+fn luaAllocate(
+    user_data: ?*anyopaque,
+    pointer: ?*anyopaque,
+    old_size: usize,
+    new_size: usize,
+) callconv(.c) ?*anyopaque {
+    const heap: *LuaHeap = @ptrCast(@alignCast(user_data orelse return null));
+    const previous_size = if (pointer == null) 0 else old_size;
+    if (new_size == 0) {
+        if (pointer) |allocation| c.free(allocation);
+        std.debug.assert(previous_size <= heap.used_bytes);
+        heap.used_bytes -= previous_size;
+        return null;
+    }
+    if (new_size > previous_size) {
+        const growth = new_size - previous_size;
+        if (growth > lupi_lua_heap_bytes_max - heap.used_bytes) return null;
+    }
+    const allocation = c.realloc(pointer, new_size) orelse return null;
+    heap.used_bytes = heap.used_bytes - previous_size + new_size;
+    return allocation;
+}
 
 var settings_state = Settings{};
 var browser_notice: BrowserNotice = .none;
@@ -240,18 +283,18 @@ fn replaceEqualLength(data: []u8, old: []const u8, new: []const u8) bool {
 }
 
 /// The codec's current encoder still places red in the low five bits, while
-/// Lupinho commit 379a599 corrected the runtime contract to true BGR555 (blue
-/// low, red high). Normalize the temporary downloaded codec before execution
-/// so newly fetched demos retain their intended colors under the upstream ABI.
+/// Lupi RGB555 and Lupinho commit 379a599 place blue low and red high. Normalize
+/// the temporary downloaded codec before execution so fetched demos retain
+/// their intended colors under the console ABI.
 fn normalizeCodecPaletteOrder(codec_root: []const u8) bool {
     var path_buffer: [2048]u8 = undefined;
     const path = std.fmt.bufPrint(&path_buffer, "{s}/colors_convert.lua", .{codec_root}) catch return false;
     const source = assetAll(path) orelse return false;
     defer A.free(source);
 
-    const already_bgr = std.mem.indexOf(u8, source, "bit.lshift(r5, 10)") != null and
+    const already_rgb555 = std.mem.indexOf(u8, source, "bit.lshift(r5, 10)") != null and
         std.mem.indexOf(u8, source, "local b5 = bit.band(val, 0x1F)") != null;
-    if (already_bgr) return true;
+    if (already_rgb555) return true;
 
     const changed = replaceEqualLength(source, "bit.lshift(b5, 10)", "bit.lshift(r5, 10)") and
         replaceEqualLength(source, "\n    r5\n  )", "\n    b5\n  )") and
@@ -997,6 +1040,17 @@ fn asset(path: []const u8, off: usize, n: usize) ?[]u8 {
     return b;
 }
 
+fn fileSize(path: []const u8) ?usize {
+    var path_z_buffer: [2048]u8 = undefined;
+    const path_z = std.fmt.bufPrintZ(&path_z_buffer, "{s}", .{path}) catch return null;
+    const file = c.fopen(path_z.ptr, "rb") orelse return null;
+    defer _ = c.fclose(file);
+    if (c.fseek(file, 0, c.SEEK_END) != 0) return null;
+    const end = c.ftell(file);
+    if (end < 0 or @as(u64, @intCast(end)) > lupi_flash_bytes) return null;
+    return @intCast(end);
+}
+
 fn assetAll(path: []const u8) ?[]u8 {
     var path_z_buf: [2048]u8 = undefined;
     const path_z = std.fmt.bufPrintZ(&path_z_buf, "{s}", .{path}) catch return null;
@@ -1004,7 +1058,7 @@ fn assetAll(path: []const u8) ?[]u8 {
     defer _ = c.fclose(f);
     if (c.fseek(f, 0, c.SEEK_END) != 0) return null;
     const end = c.ftell(f);
-    if (end <= 0 or @as(u64, @intCast(end)) > std.math.maxInt(usize)) return null;
+    if (end <= 0 or @as(u64, @intCast(end)) > lupi_flash_bytes) return null;
     if (c.fseek(f, 0, c.SEEK_SET) != 0) return null;
     const b = A.alloc(u8, @intCast(end)) catch return null;
     const got = c.fread(b.ptr, 1, b.len, f);
@@ -1014,6 +1068,24 @@ fn assetAll(path: []const u8) ?[]u8 {
     }
     return b;
 }
+fn gameFitsFlash(root: []const u8) bool {
+    var path_buffer: [2048]u8 = undefined;
+    const manifest_path = std.fmt.bufPrint(&path_buffer, "{s}/lupi_manifest.txt", .{root}) catch return false;
+    const manifest = assetAll(manifest_path) orelse return !fileExists(manifest_path);
+    defer A.free(manifest);
+    var declared_bytes: usize = 0;
+    var lines = std.mem.splitScalar(u8, manifest, '\n');
+    while (lines.next()) |manifest_line| {
+        var tokens = std.mem.tokenizeScalar(u8, manifest_line, ' ');
+        _ = tokens.next() orelse continue;
+        const size_text = tokens.next() orelse continue;
+        const size = std.fmt.parseUnsigned(usize, size_text, 10) catch return false;
+        if (size > lupi_flash_bytes - declared_bytes) return false;
+        declared_bytes += size;
+    }
+    return true;
+}
+
 fn endsWith(path: []const u8, suffix: []const u8) bool {
     return path.len >= suffix.len and std.mem.eql(u8, path[path.len - suffix.len ..], suffix);
 }
@@ -1062,8 +1134,13 @@ fn extractArchive(path: []const u8) ?[]u8 {
     const za = c.zip_open(archive_z.ptr, 0, &err) orelse return null;
     defer _ = c.zip_close(za);
     const count = c.zip_get_num_entries(za, 0);
+    var extracted_bytes: u64 = 0;
     var index: usize = 0;
     while (index < count) : (index += 1) {
+        var entry: c.zip_stat_t = undefined;
+        if (c.zip_stat_index(za, index, 0, &entry) != 0) return null;
+        if (entry.size > lupi_flash_bytes - extracted_bytes) return null;
+        extracted_bytes += entry.size;
         const name_ptr = c.zip_get_name(za, index, 0) orelse continue;
         const name = std.mem.span(name_ptr);
         // Reject traversal components rather than harmless names containing
@@ -1160,7 +1237,8 @@ fn logTopLuaError(L_: *c.lua_State, context: []const u8) void {
 }
 fn cls(L_: *c.lua_State) callconv(.c) c_int {
     debug_state.draw_current.clears += 1;
-    for (&fb) |*r| @memset(r, color(checkInt(L_, 1)));
+    for (&fb) |*row| @memset(row, color(checkInt(L_, 1)));
+    clipping = false;
     return 0;
 }
 fn setPaletteEntry(index: i32, packed_value: i32) void {
@@ -1362,7 +1440,8 @@ fn spr(L_: *c.lua_State) callconv(.c) c_int {
     const x = checkInt(L_, 2);
     const y = checkInt(L_, 3);
     const flip_x = c.lua_toboolean(L_, 4) != 0;
-    if (debug_state.render.sprites) bitmap(p, width, height, 0, x, y, flip_x, false);
+    const flip_y = c.lua_toboolean(L_, 5) != 0;
+    if (debug_state.render.sprites) bitmap(p, width, height, 0, x, y, flip_x, flip_y);
     return 0;
 }
 fn tile(L_: *c.lua_State) callconv(.c) c_int {
@@ -1375,8 +1454,11 @@ fn tile(L_: *c.lua_State) callconv(.c) c_int {
     const height = checkedTableInt(L_, 1, "height");
     const x = checkInt(L_, 3);
     const y = checkInt(L_, 4);
-    if (debug_state.render.sprites)
-        bitmap(p, width, height, n & ~@as(i32, 1024), x, y, (n & 1024) != 0, false);
+    const flip_x = (n & 1024) != 0 or c.lua_toboolean(L_, 5) != 0;
+    const flip_y = (n & 2048) != 0 or c.lua_toboolean(L_, 6) != 0;
+    if (debug_state.render.sprites) {
+        bitmap(p, width, height, n & ~@as(i32, 3072), x, y, flip_x, flip_y);
+    }
     return 0;
 }
 fn manifestNumber(json: []const u8, field: []const u8, d: i32) i32 {
@@ -1399,13 +1481,23 @@ fn injectSprites() void {
     while (lines.next()) |manifest_line| {
         var tok = std.mem.tokenizeScalar(u8, manifest_line, ' ');
         _ = tok.next() orelse continue;
-        _ = tok.next() orelse continue;
+        const encoded_bytes_text = tok.next() orelse continue;
+        const encoded_bytes = std.fmt.parseUnsigned(usize, encoded_bytes_text, 10) catch continue;
         const rel = tok.next() orelse continue;
         const json = tok.rest();
         if (std.mem.indexOf(u8, json, "\"type\":\"bitmap\"") == null) continue;
         const w = manifestNumber(json, "width", 0);
         const h = manifestNumber(json, "height", 0);
-        const tiles = manifestNumber(json, "tiles", 1);
+        if (w <= 0 or h <= 0) continue;
+        const pixels_per_tile = @as(usize, @intCast(w)) * @as(usize, @intCast(h));
+        if (encoded_bytes > lupi_tileset_pixels_max or encoded_bytes % pixels_per_tile != 0) {
+            continue;
+        }
+        const encoded_tiles = encoded_bytes / pixels_per_tile;
+        if (encoded_tiles == 0 or encoded_tiles > 1024) continue;
+        var full: [1536]u8 = undefined;
+        const full_path = std.fmt.bufPrint(&full, "{s}/{s}", .{ game_root, rel }) catch continue;
+        if (fileSize(full_path) != encoded_bytes) continue;
         var comps: [32][]const u8 = undefined;
         var count: usize = 0;
         var pt = std.mem.tokenizeScalar(u8, rel, '/');
@@ -1430,15 +1522,13 @@ fn injectSprites() void {
             depth += 1;
         }
         c.lua_newtable(L);
-        var full: [1536]u8 = undefined;
-        const full_path = std.fmt.bufPrint(&full, "{s}/{s}", .{ game_root, rel }) catch continue;
         _ = c.lua_pushlstring(L, full_path.ptr, full_path.len);
         c.lua_setfield(L, -2, "path");
         c.lua_pushinteger(L, w);
         c.lua_setfield(L, -2, "width");
         c.lua_pushinteger(L, h);
         c.lua_setfield(L, -2, "height");
-        c.lua_pushinteger(L, tiles);
+        c.lua_pushinteger(L, @intCast(encoded_tiles));
         c.lua_setfield(L, -2, "ntiles");
         _ = c.lua_pushlstring(L, comps[count - 1].ptr, comps[count - 1].len);
         c.lua_insert(L, -2);
@@ -1555,6 +1645,7 @@ fn drawMapLayer(L_: *c.lua_State, map_index: c_int, sprites: c_int, layer_key: [
     if (tile_w <= 0 or tile_h <= 0) return;
     const map_data = assetAll(path) orelse return;
     defer A.free(map_data);
+    if (map_data.len > lupi_tileset_pixels_max) return;
 
     var index: i32 = 1;
     const total = map_w * map_h;
@@ -1745,7 +1836,10 @@ fn stat(L_: *c.lua_State) callconv(.c) c_int {
             const bytes = c.lua_gc(L_, c.LUA_GCCOUNTB);
             c.lua_pushnumber(L_, @as(f64, @floatFromInt(kib)) * 1024.0 + @as(f64, @floatFromInt(bytes)));
         },
-        1 => c.lua_pushnumber(L_, last_frame_ms),
+        1 => c.lua_pushnumber(
+            L_,
+            @min(last_work_ms * debug_mod.target_simulation_hz / 10.0, 100.0),
+        ),
         7 => c.lua_pushnumber(L_, if (last_frame_ms > 0) 1000.0 / last_frame_ms else 0),
         else => c.lua_pushnumber(L_, 0),
     }
@@ -1830,8 +1924,8 @@ fn identifierByte(value: u8) bool {
     return std.ascii.isAlphanumeric(value) or value == '_';
 }
 
-/// Lua's bundled upstream runtime accepts binary integer literals. Distribution
-/// Lua 5.5 builds generally do not, so translate only lexer-visible numeric
+/// Lupi's bundled runtime accepts binary integer literals. Distribution Lua
+/// 5.4 builds generally do not, so translate only lexer-visible numeric
 /// tokens. Quoted strings, escaped bytes, line comments, long strings, and long
 /// comments are copied verbatim.
 const TranslatedSource = struct {
@@ -2010,14 +2104,17 @@ fn resetGameState() void {
     clipping = false;
     ticks = 0;
     last_frame_ms = 1000.0 / debug_mod.target_simulation_hz;
+    last_work_ms = 0;
     debug_state.resetGame();
     legacy_sprite_ref = c.LUA_NOREF;
 }
 fn load(path: []const u8) !void {
+    if (!gameFitsFlash(path)) return error.GameExceedsLupiFlash;
     resetGameState();
     game_root = path;
     legacy_sprite_ref = c.LUA_NOREF;
-    L = c.luaL_newstate() orelse return error.LuaInit;
+    lua_heap.reset();
+    L = c.lua_newstate(luaAllocate, &lua_heap) orelse return error.LuaInit;
     errdefer c.lua_close(L);
     c.luaL_openlibs(L);
     bind();
@@ -2028,7 +2125,7 @@ fn load(path: []const u8) !void {
         \\require = function(name, ...)
         \\  local result = __lupi_require(name, ...)
         \\  if name == 'palette' and type(Palette) == 'table' then
-        \\    -- Convert RGB888 to the closest zero-based BGR555 palette index.
+        \\    -- Convert RGB888 to the closest zero-based RGB555 palette index.
         \\    Palette.hex = function(rgb)
         \\      local r = math.floor(rgb / 65536) % 256
         \\      local g = math.floor(rgb / 256) % 256
@@ -2267,8 +2364,9 @@ fn drawDebugStats() void {
         debug_state.frame_ms_max,
         ticks,
     });
-    drawDebugLine(10, 60, "LUA {d:.1} KiB  AUDIO {s}", .{
+    drawDebugLine(10, 60, "LUA {d:.0}/{d} KiB  AUDIO {s}", .{
         @as(f64, @floatFromInt(debug_state.lua_memory_bytes)) / 1024.0,
+        lupi_lua_heap_bytes_max / 1024,
         debugOnOff(audio_state.available()),
     });
     const draws = debug_state.draw_last;
@@ -2662,6 +2760,40 @@ fn verifySdlCompositor() !void {
     std.debug.print("SDL compositor parity: pass\n", .{});
 }
 
+fn printLupiConstraints() void {
+    std.debug.print(
+        \\LUPI_CONSTRAINTS_V1
+        \\lua=5.4
+        \\resolution=480x270
+        \\frame_rate_target_hz=60
+        \\palette=256_rgb555
+        \\framebuffer_bytes={d}
+        \\esp32_s3_clock_mhz=240
+        \\esp32_flash_bytes={d}
+        \\esp32_psram_bytes={d}
+        \\rp2350_clock_mhz=345
+        \\discrete_gpu=none
+        \\player_slots=3
+        \\tile_id_max=1023
+        \\tileset_pixels_max={d}
+        \\map_layer_limit=not_published
+        \\workshop_visual_layers={d}
+        \\workshop_lua_data_entries_max={d}
+        \\workshop_lua_source_bytes_max={d}
+        \\lua_heap_bytes_max={d}
+        \\
+    , .{
+        @sizeOf(@TypeOf(fb)),
+        lupi_flash_bytes,
+        lupi_psram_bytes,
+        lupi_tileset_pixels_max,
+        lupi_profile.workshop_visual_layers,
+        lupi_profile.lua_data_entries_max,
+        lupi_profile.lua_source_bytes_max,
+        lupi_lua_heap_bytes_max,
+    });
+}
+
 pub fn main(init: std.process.Init) !void {
     for (&fb) |*r| @memset(r, 0);
     defer clearDemos();
@@ -2669,6 +2801,7 @@ pub fn main(init: std.process.Init) !void {
     if (args.len == 2 and std.mem.eql(u8, std.mem.span(args[1]), "--self-test-parity")) return verifyParityCore();
     if (args.len == 2 and std.mem.eql(u8, std.mem.span(args[1]), "--self-test-settings")) return verifySettingsRoundTrip();
     if (args.len == 2 and std.mem.eql(u8, std.mem.span(args[1]), "--self-test-compositor")) return verifySdlCompositor();
+    if (args.len == 2 and std.mem.eql(u8, std.mem.span(args[1]), "--lupi-constraints")) return printLupiConstraints();
     if (args.len == 5 and std.mem.eql(u8, std.mem.span(args[1]), "--screenshot")) {
         const frame_count = std.fmt.parseUnsigned(usize, std.mem.span(args[3]), 10) catch return error.InvalidFrameCount;
         return captureFrame(std.mem.span(args[2]), frame_count, std.mem.span(args[4]));
@@ -2694,7 +2827,7 @@ pub fn main(init: std.process.Init) !void {
     const browser_mode_at_start = args.len == 1;
     const requested: []const u8 = if (args.len > 1) std.mem.span(args[1]) else "example";
     if (std.mem.eql(u8, requested, "--help") or std.mem.eql(u8, requested, "-h")) {
-        std.debug.print("Uso: elis [diretorio-do-jogo|jogo.lupi|--fetch-demos|--update-demos]\n", .{});
+        std.debug.print("Uso: elis [diretorio-do-jogo|jogo.lupi|--fetch-demos|--update-demos|--lupi-constraints]\n", .{});
         return;
     }
     if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_AUDIO | c.SDL_INIT_GAMECONTROLLER | c.SDL_INIT_JOYSTICK) != 0) return error.SdlInit;
@@ -2714,7 +2847,8 @@ pub fn main(init: std.process.Init) !void {
         discoverDemos();
     } else {
         const is_archive = endsWith(requested, ".lupi");
-        if (is_archive) active_archive = extractArchive(requested) orelse return;
+        if (is_archive) active_archive = extractArchive(requested) orelse
+            return error.InvalidLupiArchive;
         const game = active_archive orelse requested;
         try load(game);
         registerConstants();
@@ -2966,6 +3100,8 @@ pub fn main(init: std.process.Init) !void {
         _ = c.SDL_RenderCopy(ren, tex, null, &dst);
         _ = c.SDL_RenderPresent(ren);
         const work_end = c.SDL_GetPerformanceCounter();
+        last_work_ms = @as(f64, @floatFromInt(work_end -% frame_start)) * 1000.0 /
+            @as(f64, @floatFromInt(performance_frequency));
         var frame_end = work_end;
         const work_counts = work_end -% frame_start;
         if (work_counts < target_frame_counts) {

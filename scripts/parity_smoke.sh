@@ -24,6 +24,11 @@ expected="45daf4b1e214299dc646741262cc19ac98930bcc14a13c7d6a30bd844ff404a4"
 actual="$(sha256sum "$tmp/parity.ppm" | awk '{print $1}')"
 test "$actual" = "$expected"
 
+console_expected="75668b8c1b0f84492ee76af601ce83b1f904d59076d87b07d89012ed8998ccf8"
+./zig-out/bin/elis --screenshot tests/console-contract 1 "$tmp/console-contract.ppm" >/dev/null
+console_actual="$(sha256sum "$tmp/console-contract.ppm" | awk '{print $1}')"
+test "$console_actual" = "$console_expected"
+
 render_expected="4bdc24126c8d5a33987d8db28155ff74797e25850c399bbbb2f46c0bba667be2"
 ./zig-out/bin/elis --screenshot tests/render-matrix 1 "$tmp/render-matrix.ppm" >/dev/null
 render_actual="$(sha256sum "$tmp/render-matrix.ppm" | awk '{print $1}')"
@@ -52,6 +57,7 @@ done
 
 echo "debug instrumentation state: pass"
 echo "upstream parity smoke: pass"
+echo "Lua 5.4/clip-reset/two-axis-flip console contract: pass"
 echo "complete raster matrix: pass"
 echo "deterministic asset resolution: pass"
 echo "sprite/tile/map bitmap matrix: pass"

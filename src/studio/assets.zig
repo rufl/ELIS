@@ -1,7 +1,10 @@
 const std = @import("std");
+const lupi_profile = @import("lupi_profile.zig");
 
 pub const max_assets: usize = 96;
 pub const max_asset_path: usize = 127;
+/// The official lupi-codec rejects tileset images above 512×96 pixels.
+pub const lupi_tileset_pixels_max: u32 = lupi_profile.tileset_pixels_max;
 
 pub const BitmapAsset = struct {
     path: [max_asset_path + 1]u8 = .{0} ** (max_asset_path + 1),
@@ -13,6 +16,15 @@ pub const BitmapAsset = struct {
 
     pub fn name(self: *const BitmapAsset) []const u8 {
         return self.path[0..self.path_len];
+    }
+
+    pub fn lupiCompatible(self: BitmapAsset, tile_size: u16, tile_id_max: u16) bool {
+        if (self.width != tile_size or self.height != tile_size) return false;
+        const pixels_per_tile = @as(u32, self.width) * self.height;
+        if (pixels_per_tile == 0 or self.byte_len % pixels_per_tile != 0) return false;
+        if (self.byte_len > lupi_tileset_pixels_max) return false;
+        const encoded_tiles = self.byte_len / pixels_per_tile;
+        return encoded_tiles > 0 and tile_id_max < encoded_tiles;
     }
 };
 
@@ -33,7 +45,7 @@ pub const Catalog = struct {
 
     pub fn firstTileSize(self: *const Catalog, tile_size: u16) ?usize {
         for (self.slice(), 0..) |asset, index| {
-            if (asset.width == tile_size and asset.height == tile_size) return index;
+            if (asset.lupiCompatible(tile_size, 0)) return index;
         }
         return null;
     }
@@ -103,7 +115,7 @@ pub fn parsePaletteLua(source: []const u8) Palette {
         if (hex_end == hex_start) continue;
         const packed_value = std.fmt.parseUnsigned(u16, line[hex_start..hex_end], 16) catch continue;
         const index = lua_index - 1;
-        result.colors[index] = bgr555(packed_value);
+        result.colors[index] = rgb555(packed_value);
         if (!result.defined[index]) {
             result.defined[index] = true;
             result.defined_count += 1;
@@ -112,7 +124,7 @@ pub fn parsePaletteLua(source: []const u8) Palette {
     return result;
 }
 
-pub fn bgr555(value: u16) [3]u8 {
+pub fn rgb555(value: u16) [3]u8 {
     const blue: u8 = @truncate(value);
     const green: u8 = @truncate(value >> 5);
     const red: u8 = @truncate(value >> 10);
@@ -171,7 +183,7 @@ test "manifest parser keeps bounded bitmap assets and their geometry" {
     const source =
         "100 4096 maps/forest {\"height\":16, \"tiles\":16, \"width\":16, \"type\":\"bitmap\"}\n" ++
         "101 23 game.lua {\"type\":\"lua_code\"}\n" ++
-        "102 256 props/tree { \"type\" : \"bitmap\", \"width\" : 8, \"height\" : 8 }\n";
+        "102 64 props/tree { \"type\" : \"bitmap\", \"width\" : 8, \"height\" : 8 }\n";
     const catalog = parseManifest(source);
     try std.testing.expectEqual(@as(u8, 2), catalog.count);
     try std.testing.expectEqualStrings("maps/forest", catalog.items[0].name());
@@ -180,7 +192,26 @@ test "manifest parser keeps bounded bitmap assets and their geometry" {
     try std.testing.expectEqual(@as(?usize, 1), catalog.firstTileSize(8));
 }
 
-test "palette parser honors Lua indexes and true BGR555 order" {
+test "Lupi tileset compatibility enforces official size and tile bounds" {
+    const safe = BitmapAsset{
+        .width = 16,
+        .height = 16,
+        .tiles = 16,
+        .byte_len = 4096,
+    };
+    try std.testing.expect(safe.lupiCompatible(16, 15));
+    try std.testing.expect(!safe.lupiCompatible(16, 16));
+    try std.testing.expect(!safe.lupiCompatible(8, 15));
+    var oversized = safe;
+    oversized.tiles = 193;
+    oversized.byte_len = 16 * 16 * 193;
+    try std.testing.expect(!oversized.lupiCompatible(16, 0));
+    var truncated = safe;
+    truncated.byte_len -= 1;
+    try std.testing.expect(!truncated.lupiCompatible(16, 0));
+}
+
+test "palette parser honors Lua indexes and Lupi RGB555 order" {
     const palette = parsePaletteLua(
         "Palette = {\n  [1] = 0x7C00,\n  [2] = 0x03E0,\n  [3] = 0x001F,\n}\n",
     );

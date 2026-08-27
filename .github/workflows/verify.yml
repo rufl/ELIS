@@ -1,0 +1,27 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            binutils gcc pkg-config zip \
+            libsdl2-dev liblua5.4-dev libzip-dev \
+            libcurl4-openssl-dev libsndfile1-dev
+      - name: Verify simulator and Workshop
+        run: bash scripts/verify.sh

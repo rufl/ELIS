@@ -10,7 +10,7 @@ for _, name in ipairs(upstream_api) do
   assert(type(ui[name]) == "function", "missing ui." .. name)
 end
 
-assert(_VERSION == "Lua 5.5")
+assert(_VERSION == "Lua 5.4")
 assert(helper.quoted == "0b101")
 assert(helper.single == "0B110")
 assert(helper.long == "0b111")

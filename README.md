@@ -1,6 +1,12 @@
 # ELIS — Editor for Lupi with Integrated Simulator
 
-ELIS is a native Zig 0.16 environment built on a compatible port of [Lupinho](https://github.com/lupi-org-br/lupinho), the Lupi console simulator. It provides the native SDL2 window, 480x270 indexed framebuffer, Lua 5.5 update loop, BGR555 palette, primitives, the canonical 5x8 bitmap font, camera, clipping, fill patterns, keyboard/controller/text input, music and effects, sprite manifests, sprites, tiles, tilemaps, `.lupi` archives, and command-line game selection.
+ELIS is a native Zig 0.16 environment built on a compatible port of [Lupinho](https://github.com/lupi-org-br/lupinho), the Lupi console simulator. It provides the native SDL2 window, 480x270 indexed framebuffer, Lua 5.4 update loop, RGB555 palette, primitives, the canonical 5x8 bitmap font, camera, clipping, fill patterns, keyboard/controller/text input, music and effects, sprite manifests, sprites, tiles, tilemaps, `.lupi` archives, and command-line game selection.
+
+The default runtime profile targets the physical console rather than Lupinho's
+64 MiB WebAssembly envelope: ESP32-S3 N16R8 at 240 MHz, RP2350 at 345 MHz,
+8 MiB PSRAM, no documented discrete GPU, and a conservative 4 MiB Lua heap.
+Run `zig build run -- --lupi-constraints` for the enforced profile and see
+[docs/LUPI_CONSTRAINTS.md](docs/LUPI_CONSTRAINTS.md) for sources and unknowns.
 
 The audited compatibility baseline and every deliberate extension are listed
 in [COMPATIBILITY.md](COMPATIBILITY.md).
@@ -47,17 +53,21 @@ over the same authoritative project and command history:
 
 - four strict bottom-to-top visual layers: background, terrain, objects, and
   foreground;
-- pencil, deterministic 16-variant smart terrain, erase, contiguous fill, pick,
-  collision, player-spawn, and goal tools;
-- independent manifest-backed tileset selection for every layer and exact
-  `palette.lua` BGR555 preview;
+- pencil, line, outline/filled rectangle, deterministic 16-variant smart
+  terrain, erase, contiguous fill, pick, collision, player-spawn, goal, typed
+  entities with an undoable project-schema editor, rectangle selection, and
+  reusable transformable stamp tools;
+- independent manifest-backed tileset selection plus session visibility and
+  painting locks for every visual layer, and exact `palette.lua` RGB555 preview;
 - mouse, keyboard, and controller editing with a visible grid cursor;
-- drag/fill command coalescing and bounded undo/redo history;
-- automatic missing/blocked spawn, missing/blocked goal, critical-path
-  reachability, and empty-background validation;
-- atomic checksummed `.elisworld` v2 source projects, safe v1 migration, and
-  deterministic `ui.map` Lua export with semantic terrain data stored under
-  reserved `lupi_metadata`;
+- drag/fill/stamp command coalescing, nine-anchor map resize/rebase, four
+  deterministic project templates, and bounded unified undo/redo history;
+- fail-closed Lupi-safe export checks for level validity, manifest asset
+  identity, tileset/tile bounds, map sampling, weighted Lua data, and generated
+  source size;
+- atomic checksummed `.elisworld` v4 source projects, safe v1/v2/v3 migration,
+  official per-layer `ui.map` exports, an optional combined map, and semantic
+  terrain/entities retained as reserved metadata;
 - responsive 960×600 compact and roomy layouts, reduced-motion mode, friendly
   contextual teaching, and a one-key presentation switch;
 - a chrome-free validated map preview plus native save/export/reload smoke.
@@ -71,7 +81,9 @@ zig build studio -- \
   --export=projects/forest.lua
 ```
 
-`--tileset-file` remains available for a single raw legacy preview. Without a
+For a new path, add `--template=blank|platformer|arena|puzzle`; existing project
+files always load unchanged. `--tileset-file` remains available for a single
+raw legacy preview. Without a
 valid `palette.lua`, Workshop labels its fallback colors as diagnostic rather
 than implying palette fidelity. See [STUDIO.md](STUDIO.md) for smart-terrain
 layout, controls, formats, responsive presentations, and the runtime boundary.
@@ -181,3 +193,7 @@ pixels reveal black inside the game viewport, while simulator dialogs are
 composited separately without changing the demo palette or its paused frame.
 
 The build honors Zig's standard `-Doptimize=Debug|ReleaseSafe|ReleaseFast|ReleaseSmall` option. It uses GCC 15 when available, avoiding GCC 16 `.sframe` CRT relocations that Zig 0.16 cannot link directly. If GCC 15 is unavailable, the script falls back to the system compiler and removes only the unsupported `.sframe` sections from a temporary copy of `crt1.o`; it never modifies the system CRT. Set `ELIS_LINK_CC` to select another compatible linker compiler (`ZILF_LINK_CC` remains a legacy alias).
+
+## License
+
+ELIS is available under the [MIT License](LICENSE).

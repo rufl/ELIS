@@ -1,7 +1,7 @@
 const std = @import("std");
 const c = @import("native.zig").c;
 
-const player_count = 4;
+const player_count = 3;
 pub const button_count = 16;
 const axis_direction_count = 4;
 pub const scancode_count = 512;

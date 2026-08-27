@@ -1,16 +1,23 @@
 # ELIS Lupi compatibility contract
 
-The reference revision is `lupi-org-br/lupinho@379a599d5e93db8228e2b0d4348ea65fcafa2ac5`.
-The Zig runtime keeps its game-visible renderer compatible with that revision:
-480x270 indexed frames, 256 BGR555 palette entries, transparent index zero,
-the canonical 5x8 ASCII font, camera, clipping, fill patterns, primitives,
-sprites, tiles, map flips, and bottom-to-top immediate composition.
+The renderer reference revision is
+`lupi-org-br/lupinho@379a599d5e93db8228e2b0d4348ea65fcafa2ac5`.
+The physical target is the live Lupi console profile: Lua 5.4 on an ESP32-S3
+N16R8 at 240 MHz plus an RP2350 at 345 MHz, with no documented discrete GPU.
+The Zig runtime keeps 480x270 indexed frames, 256 RGB555 palette entries,
+transparent index zero, the canonical 5x8 ASCII font, camera, clipping, fill
+patterns, primitives, sprites, tiles, map flips, and bottom-to-top immediate
+composition. See [the sourced constraint profile](docs/LUPI_CONSTRAINTS.md).
 
 ## Deliberate compatible extensions
 
-These differences remove undefined behavior or implement upstream placeholders;
-they are not accidental renderer drift:
+These differences remove undefined behavior, align newer console documentation,
+or implement upstream placeholders; they are not accidental renderer drift:
 
+- ELIS deliberately links Lua 5.4 rather than the public web simulator's
+  currently vendored Lua 5.5, and caps the game Lua heap at 4 MiB.
+- `ui.cls` resets clipping; `ui.spr` and `ui.tile` accept explicit horizontal
+  and vertical flips as documented by the console API.
 - `ui.map.layers` provides strict bottom-to-top ordering. Legacy multi-layer
   maps use stable lexical ordering instead of Lua hash order.
 - Sprite lookup accepts exact manifest paths. Ambiguous short names fail with
@@ -21,9 +28,28 @@ they are not accidental renderer drift:
 - `ui.circ`, `ui.stat`, `ui.peektext`, and `ui.readtext` are additive APIs used
   by public demos and do not change reference calls.
 - `Palette.hex` is supplied after loading a generated palette module so source
-  demos can resolve RGB colors against the encoded BGR555 palette.
+  demos can resolve RGB colors against the encoded RGB555 palette.
 - Invalid dimensions, missing assets, truncated data, ambiguous assets, and
   unsafe archives fail safely rather than reproducing C undefined behavior.
+
+## Workshop Lupi-safe export profile
+
+Workshop saves remain editable even when incomplete, but Lua export fails closed
+unless the spatial checks pass and every visual layer resolves through the Lupi
+manifest to a square, exact-length bitmap. Referenced tile IDs must exist. Each
+selected tileset is capped at 49,152 encoded pixels, matching the official
+`lupi-codec` `512 * 96` tileset-image ceiling at revision
+`3e8c66299a4606b36b9f490212acc44e084a6aa2`.
+
+Generated visual, collision, and smart-terrain tables are sparse. One `ui.map`
+call is capped at 518,400 sampled tile pixels, generated data at 4,096 weighted
+entries, and generated source at 128 KiB. The maintained smoke loads that export
+through the real simulator's 4 MiB Lua heap. `LUPI-SAFE EXPORT: PASS` guarantees
+this unchanged generated map/asset module meets the enforced admission profile.
+It cannot cover added Lua, repeated map calls, animation, audio, or physical
+frame rate without package-level checks and on-device measurements. Firmware
+reserved memory, ESP32/RP2350 work division, and operation cycle budgets remain
+unpublished.
 
 ## Host presentation
 
@@ -46,11 +72,12 @@ and the controls do not alter Lua-visible state or API results.
 
 ## Proof
 
-`./scripts/parity_smoke.sh` verifies the upstream golden, every BGR555 value,
+`./scripts/parity_smoke.sh` verifies the upstream golden, every RGB555 value,
 all ASCII glyphs, primitive edge cases, camera/clip/pattern interactions, SDL
 alpha composition, deterministic asset resolution, and deterministic map
-layering across independent Lua processes. `./scripts/runtime_smoke.sh` runs
-directories, `.lupi` archives, Mazestein, and every installed demo.
+layering across independent Lua processes. `./scripts/runtime_smoke.sh` proves the Lua 5.4 link, machine-readable hardware
+profile, 4 MiB Lua heap ceiling, 16 MiB directory/archive release ceilings, and
+runs directories, `.lupi` archives, Mazestein, and every installed demo.
 `./scripts/studio_smoke.sh` separately proves native editor startup, manifest
 and exact-palette intake, roomy and minimum-size presentations, atomic project
 save, deterministic Lua export, exact saved-project reload, and simulator

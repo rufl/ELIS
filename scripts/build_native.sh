@@ -13,6 +13,11 @@ if [[ "$optimize_mode" == "ReleaseSafe" ]]; then
   stack_check_flags=(-fno-stack-check)
 fi
 mkdir -p zig-out/bin
+lua_pkg="lua5.4"
+if [[ "$(pkg-config --modversion "$lua_pkg")" != 5.4.* ]]; then
+  echo "ELIS requires Lua 5.4 for physical Lupi console compatibility" >&2
+  exit 1
+fi
 work_dir="$(mktemp -d)"
 trap 'rm -rf "$work_dir"' EXIT
 linker_cc="${ELIS_LINK_CC:-${ZILF_LINK_CC:-gcc-15}}"
@@ -37,7 +42,7 @@ build_zig_object() {
   ZIG_GLOBAL_CACHE_DIR="$work_dir/global-cache" \
   zig build-obj -fPIC "${stack_check_flags[@]}" -lc \
     "-O$optimize_mode" \
-    $(pkg-config --cflags sdl2 lua5.5 libzip libcurl sndfile) \
+    $(pkg-config --cflags sdl2 "$lua_pkg" libzip libcurl sndfile) \
     "$source" -femit-bin="$output"
 }
 
@@ -68,12 +73,12 @@ build_object_with_retry src/studio_app.zig "$work_dir/elis-studio.o" studio
 
 "$linker_cc" -nostartfiles "$work_dir/crt1.o" "$work_dir/elis.o" \
   -o zig-out/bin/elis \
-  $(pkg-config --libs sdl2 lua5.5 libzip libcurl sndfile) -lm -lpthread -ldl -lc \
+  $(pkg-config --libs sdl2 "$lua_pkg" libzip libcurl sndfile) -lm -lpthread -ldl -lc \
   -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
 
 "$linker_cc" -nostartfiles "$work_dir/crt1.o" "$work_dir/elis-studio.o" \
   -o zig-out/bin/elis-studio \
-  $(pkg-config --libs sdl2 lua5.5 libzip libcurl sndfile) -lm -lpthread -ldl -lc \
+  $(pkg-config --libs sdl2 "$lua_pkg" libzip libcurl sndfile) -lm -lpthread -ldl -lc \
   -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
 
 # Keep the former executable name as a compatibility entry point for scripts

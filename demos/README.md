@@ -1,8 +1,10 @@
 # Demo library
 
-The simulator scans this directory at startup. Add any encoded Lupi release as
-`demos/name/` with `game.lua` and `lupi_manifest.txt`, or add a `.lupi` archive
-directly here. Prepared releases may also be nested as `demos/name/current/`.
+The simulator scans this directory at startup. Add only complete, licensed,
+proof-gated Lupi releases as `demos/name/` with `game.lua` and
+`lupi_manifest.txt`, or as `.lupi` archives. Incomplete ports remain under
+`ports/` so the browser never presents certification work as a finished game.
+Prepared releases may also be nested as `demos/name/current/`.
 
 The binary reads `catalog.txt` itself. Press `U` in the demo browser (or use
 `elis --fetch-demos`) to fetch public GitHub sources and convert them to

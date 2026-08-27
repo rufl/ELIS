@@ -8,5 +8,6 @@ cd "$root"
 ./scripts/parity_smoke.sh
 ./scripts/runtime_smoke.sh
 ./scripts/studio_smoke.sh
+./scripts/mr_rescue_smoke.sh
 
 echo "ELIS full verification matrix: pass"

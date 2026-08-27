@@ -1,3 +1,6 @@
+assert(_VERSION == "Lua 5.4")
+assert(ui.stat(0) < 4 * 1024 * 1024)
+assert(ui.stat(1) >= 0 and ui.stat(1) <= 100)
 local palette = { 0x001f, 0x03e0, 0x7c00 }
 assert(require("helper").loaded)
 ui.set_pallet(0, #palette, palette)
@@ -23,7 +26,7 @@ function update(t)
     assert(ui.preload_spritesheet(Sprites["tile.bin"]))
     ui.draw_sprite(98, 4, 0, 1)
     ui.spr(Sprites["tile.bin"], 90, 4)
-    ui.tile(Sprites["tile.bin"], 0, 92, 4)
+    ui.tile(Sprites["tile.bin"], 0, 92, 4, false, true)
     ui.tile(Sprites["tile.bin"], 1024, 94, 4)
     ui.map({ metadata = { width = 2, height = 2, tile_size = 1 }, ["tile.bin"] = { 0, 1024, 2048, 3072 } }, 96, 4)
   end
