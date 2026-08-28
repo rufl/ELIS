@@ -11,6 +11,8 @@ local Campaign = {
 }
 
 local scores = { {}, {}, {} }
+local popup_queue = {}
+for index = 1, 18 do popup_queue[index] = 0 end
 for difficulty = 1, 3 do
   for rank = 1, 10 do
     scores[difficulty][rank] = { active = false, name = "     ", score = 0 }
@@ -24,8 +26,9 @@ function Campaign.reset()
   Campaign.maximum_combo = 0
   Campaign.time_frames = 0
   Campaign.combo_frames = 0
-  Campaign.previous_x = nil
-  Campaign.previous_y = nil
+  Campaign.popup_head = 1
+  Campaign.popup_tail = 1
+  Campaign.popup_count = 0
 end
 
 local function finishCombo()
@@ -38,14 +41,7 @@ function Campaign.updatePlayer(player)
   Campaign.combo_frames = Campaign.combo_frames + 1
   if Campaign.combo_frames > 4 * Profile.update_hz then finishCombo() end
   if player.spraying then Campaign.statistics[2] = Campaign.statistics[2] + 1 / 3 end
-  if Campaign.previous_x ~= nil then
-    local delta_x = player.x - Campaign.previous_x
-    local delta_y = player.y - Campaign.previous_y
-    Campaign.statistics[3] = Campaign.statistics[3] +
-                             math.sqrt(delta_x * delta_x + delta_y * delta_y) / 16
-  end
-  Campaign.previous_x = player.x
-  Campaign.previous_y = player.y
+  Campaign.statistics[3] = Campaign.statistics[3] + player.distance_this_frame
 end
 
 local function rescue()
@@ -53,11 +49,17 @@ local function rescue()
   Campaign.statistics[4] = Campaign.statistics[4] + 1
   Campaign.combo_frames = 0
   Campaign.combo = Campaign.combo + 1
+  local popup = 1
   if Campaign.combo < 3 then
     Campaign.score = Campaign.score + 250
   else
     Campaign.score = Campaign.score + (Campaign.combo - 1) * 250
+    popup = math.min(11, Campaign.combo + 5)
   end
+  assert(Campaign.popup_count < #popup_queue)
+  popup_queue[Campaign.popup_tail] = popup
+  Campaign.popup_tail = Campaign.popup_tail % #popup_queue + 1
+  Campaign.popup_count = Campaign.popup_count + 1
 end
 
 function Campaign.consumeWorld(world)
@@ -66,6 +68,14 @@ function Campaign.consumeWorld(world)
   Campaign.statistics[1] = Campaign.statistics[1] + extinguished
   Campaign.statistics[5] = Campaign.statistics[5] + property_damage
   for _ = 1, rescues do rescue() end
+end
+
+function Campaign.consumePopup()
+  if Campaign.popup_count == 0 then return 0 end
+  local popup = popup_queue[Campaign.popup_head]
+  Campaign.popup_head = Campaign.popup_head % #popup_queue + 1
+  Campaign.popup_count = Campaign.popup_count - 1
+  return popup
 end
 
 function Campaign.floorCleared(award_score)

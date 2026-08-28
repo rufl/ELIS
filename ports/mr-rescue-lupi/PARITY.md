@@ -19,6 +19,9 @@ These are compatible adaptations rather than omitted behavior:
   API recreates the 17 short effects with bounded synthesized voices; waveform
   identity is not claimed.
 - Host key/controller binding and display scaling remain ELIS responsibilities.
+- Highscores and presentation settings are bounded and session-local. The sourced
+  physical API exposes no storage primitive, so the cartridge makes no
+  undocumented filesystem call or false persistence claim.
 
 ## Source content already represented
 
@@ -32,23 +35,31 @@ These are compatible adaptations rather than omitted behavior:
 - Original movement constants, fixed 60 Hz integration, water regeneration and
   overload, heat, difficulty temperature limits, ladders, carry/throw, windows,
   directional water, campaign section thresholds, scoring, rescue combos,
-  cumulative statistics/awards, bounded session highscores, countdown, pause,
-  win/failure, summary, and name-entry states.
+  cumulative statistics/awards, bounded session highscores, countdown and circle
+  transitions, pause, win/failure, summary, name entry, bounded particles,
+  warning indicators, source-textured HUD bars, bounded flying-door/shard
+  rotation frames, indexed lighting, and presentation-only Family mode. Fire
+  storage covers the complete 35-column × 18-row reachable
+  source domain without silent saturation.
 
 ## Required before parity can be checked off
 
-- Differential traces for player collision, doors/windows, civilians, each
-  regular enemy, every boss state, fire spread, items, projectiles, and scoring.
-- Differential proof for section/prescreen/countdown/pause/game-over/win,
-  summary, highscore, score/combo/statistics, maximum-casualty, and progression
-  behavior now represented by the bounded implementation.
-- Remaining particles, lighting substitute, warnings, transitions, HUD details,
-  complete menu/history/options behavior, and effect event timing.
-- A physical-console-supported persistence decision for highscores/settings.
-- Exhaustive converted-file attribution and no unused release assets.
-- Long seed sweeps proving fixed capacities are never reached in accepted play.
-- Complete package, sustained-memory, deterministic-render, and named physical
-  Lupi frame-time proof.
+The converter now fail-closes on 80 pinned source/port mechanics invariants.
+Runtime gates additionally trace source-equation player acceleration, braking,
+jumping, opposed input, directional spray, water and landing vectors; all seven
+regular enemy kinds; projectile activity; civilian states; flow states; boss
+states; scores; capacities; and render hashes. Deterministic edge probes cover
+all regular-enemy hit/recovery/death outcomes, sustained fire spread,
+doors/windows, civilian/fire contact, item theft, and projectile collisions.
+Transition ticks and mapped effect events are asserted alongside intro/menu/
+options/history/highscores/level/countdown/play/pause/resume, section/prescreen,
+game-over/summary/highscore entry, all nine tutorial slides, campaign arithmetic,
+HUD textures, particles, enemy states, and projectile activity. The remaining
+release proof is:
+
+- Longer physical-device soak runs beyond the passing 832-generation simulator
+  sweep and deterministic render matrix.
+- Named physical Lupi frame-time and memory proof.
 
 Until every requirement passes, the port remains under `ports/` and must not be
 listed as a finished ELIS demo.

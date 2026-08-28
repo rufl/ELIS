@@ -20,11 +20,23 @@ local effects = {
   boss_jump = { 16, 38, 0.5 },
   explosion = { 17, 31, 0.5 },
 }
+local certification_counts = {}
+for name in pairs(effects) do certification_counts[name] = 0 end
 
 function Audio.play(name)
   local effect = effects[name]
   assert(effect ~= nil)
+  certification_counts[name] = certification_counts[name] + 1
   sfx.fx(effect[1], effect[2], effect[3])
+end
+
+function Audio.resetCertificationCounts()
+  for name in pairs(effects) do certification_counts[name] = 0 end
+end
+
+function Audio.certificationCount(name)
+  assert(effects[name] ~= nil)
+  return certification_counts[name]
 end
 
 return Audio

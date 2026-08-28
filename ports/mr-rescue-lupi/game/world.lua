@@ -9,7 +9,22 @@ local World = {}
 local tiles_0 = Sprites.find("assets/tiles_0")
 local tiles_1 = Sprites.find("assets/tiles_1")
 local fire_sprite = Sprites.find("assets/fire_wall")
+local small_fire_sprite = Sprites.find("assets/fire_wall_small")
+local floor_fire_sprite = Sprites.find("assets/fire_floor")
 local ash_sprite = Sprites.find("assets/ashes")
+local black_smoke_sprite = Sprites.find("assets/black_smoke")
+local small_smoke_sprite = Sprites.find("assets/black_smoke_small")
+local sparkle_sprite = Sprites.find("assets/sparkles")
+local shard_sprite = Sprites.find("assets/shards_spin")
+local darkness_sprite = Sprites.find("assets/dark_dither")
+local popup_sprites = {
+  Sprites.find("assets/popup_rescue"), Sprites.find("assets/popup_coolant"),
+  Sprites.find("assets/popup_suit"), Sprites.find("assets/popup_tank"),
+  Sprites.find("assets/popup_reserve"), Sprites.find("assets/popup_regen"),
+  Sprites.find("assets/popup_theft"), Sprites.find("assets/popup_combo_3"),
+  Sprites.find("assets/popup_combo_4"), Sprites.find("assets/popup_combo_5"),
+  Sprites.find("assets/popup_mega"),
+}
 local item_sprites = {
   Sprites.find("assets/item_coolant"),
   Sprites.find("assets/item_suit"),
@@ -53,11 +68,15 @@ local enemy_sprites = {
   },
 }
 local fireball_sprite = Sprites.find("assets/enemy_fireball")
+local enemy_health_base = Sprites.find("assets/enemy_health_base")
+local enemy_health_bar = Sprites.find("assets/enemy_health_bar")
 local gasghost_sprite = Sprites.find("assets/gasghost")
 local gasghost_hit_sprite = Sprites.find("assets/gasghost_hit")
 local coalball_sprite = Sprites.find("assets/charcoal_projectile")
 local door_normal_sprite = Sprites.find("assets/door_normal")
 local door_damaged_sprite = Sprites.find("assets/door_damaged")
+local door_normal_spin = Sprites.find("assets/door_normal_spin")
+local door_damaged_spin = Sprites.find("assets/door_damaged_spin")
 local warning_sprites = {
   Sprites.find("assets/warning_0"), Sprites.find("assets/warning_1"),
   Sprites.find("assets/warning_2"), Sprites.find("assets/warning_3"),
@@ -115,6 +134,7 @@ local pending_property_damage = 0
 local boss_score_awarded = false
 local certification_seed_sweep = false
 local enemy_scores = { 100, 125, 200, 200, 200, 300, 350 }
+local spawnSmoke
 
 for index = 1, Profile.fire_max do
   fires[index] = {
@@ -174,6 +194,7 @@ for index = 1, Profile.projectile_max do
     speed_y = 0,
     animation = 0,
     health = 0,
+    hit_frames = 0,
   }
 end
 for index = 1, Profile.item_max do
@@ -193,9 +214,20 @@ for index = 1, Profile.door_max do
   }
 end
 for index = 1, Profile.particle_max do
-  ashes[index] = { active = false, x = 0, y = 0, animation = 0 }
+  ashes[index] = {
+    active = false,
+    kind = 1,
+    x = 0,
+    y = 0,
+    speed_x = 0,
+    speed_y = 0,
+    animation = 0,
+    life = 0,
+    variant = 0,
+    rotation = 0,
+  }
 end
-for index = 1, 9 do
+for index = 1, Profile.room_max do
   generated_rooms[index] = {
     x = 0,
     y = 0,
@@ -243,10 +275,20 @@ function World.ladderPoint(x, y)
          tile == 137 or tile == 153 or tile == 247
 end
 
+function World.basicLadderPoint(x, y)
+  local tile = World.tileAt(math.floor(x / 16), math.floor(y / 16))
+  return tile == 5 or tile == 8 or tile == 13
+end
+
 local function canBurn(cell_x, cell_y)
-  if cell_x < 3 or cell_x > 37 or cell_y < 1 or cell_y >= 15 then return false end
+  if cell_x < 3 or cell_x > 37 or cell_y < -1 or cell_y > 16 then return false end
   if World.solidCell(cell_x, cell_y) then return false end
-  if not World.solidCell(cell_x, cell_y + 1) then return false end
+  local tile = World.tileAt(cell_x, cell_y)
+  local below = World.tileAt(cell_x, cell_y + 1)
+  if tile == 239 or tile == 240 or tile == 255 or tile == 256 or
+     tile == 137 or tile == 153 or tile == 21 or below == 5 then
+    return false
+  end
   for index = 1, Profile.fire_max do
     local fire = fires[index]
     if fire.active and fire.cell_x == cell_x and fire.cell_y == cell_y then return false end
@@ -270,13 +312,12 @@ function World.addFire(cell_x, cell_y)
       fire.cell_y = cell_y
       fire.health = 6
       fire.spread_frames = fireSpreadFrames()
-      fire.animation = random(5) * 8
+      fire.animation = random(25)
       fire_count = fire_count + 1
       return true
     end
   end
-  assert(not certification_seed_sweep)
-  return false
+  assert(false, "derived fire capacity exhausted")
 end
 
 function World.addHuman(x, y)
@@ -379,6 +420,7 @@ local function addProjectile(x, y, speed_x)
       projectile.speed_y = -(100 + random(51)) / Profile.update_hz
       projectile.animation = random(24)
       projectile.health = 15
+      projectile.hit_frames = 0
       projectile_count = projectile_count + 1
       return true
     end
@@ -403,6 +445,7 @@ function World.spawnBossHazard(kind, x, y, speed_x, speed_y)
       projectile.speed_y = speed_y
       projectile.animation = 0
       projectile.health = 15
+      projectile.hit_frames = 0
       projectile_count = projectile_count + 1
       return true
     end
@@ -500,6 +543,34 @@ local function placeItem(kind)
   return addItem(kind, room.x + marker.x, room.y + marker.y)
 end
 
+local function validateBuilding()
+  if room_count < 6 or room_count > Profile.room_max then return false end
+  if start_x < 0 or start_y < 0 then return false end
+  local active_doors = 0
+  for index = 1, Profile.door_max do
+    if doors[index].active then active_doors = active_doors + 1 end
+  end
+  if active_doors < 6 or active_doors > Profile.generated_door_max then return false end
+  for floor = 0, 2 do
+    local has_ladder = false
+    for cell_y = floor * 5, floor * 5 + 4 do
+      for cell_x = 3, Profile.map_width - 4 do
+        local tile = World.tileAt(cell_x, cell_y)
+        if tile == 5 or tile == 8 or tile == 13 or tile == 63 or tile == 79 or
+           tile == 137 or tile == 153 or tile == 247 then
+          has_ladder = true
+        end
+      end
+    end
+    if not has_ladder then return false end
+  end
+  for index = 1, room_count do
+    local room = generated_rooms[index]
+    if room.template == nil or #room.template.objects == 0 then return false end
+  end
+  return true
+end
+
 local function generateBuilding()
   local selected_starts = 0
   for floor_index = 1, 3 do
@@ -542,6 +613,7 @@ local function generateBuilding()
   assert(placeItem(1))
   assert(placeItem(1))
   assert(placeItem(random(5) + 1))
+  assert(validateBuilding())
 end
 
 function World.reset(seed, section, boss_kind)
@@ -630,9 +702,33 @@ function World.clearCertificationHazards()
 end
 
 function World.clearFireAndEnemies()
-  for index = 1, Profile.fire_max do fires[index].active = false end
-  for index = 1, Profile.enemy_max do enemies[index].active = false end
-  for index = 1, Profile.projectile_max do projectiles[index].active = false end
+  for index = 1, Profile.fire_max do
+    local fire = fires[index]
+    if fire.active then
+      fire.active = false
+      spawnSmoke(fire.cell_x * 16 + 8, fire.cell_y * 16 + 8, false)
+    end
+  end
+  for index = 1, Profile.enemy_max do
+    local enemy = enemies[index]
+    if enemy.active then
+      enemy.active = false
+      spawnSmoke(enemy.x, enemy.y - 8, false)
+      pending_score = pending_score + enemy_scores[enemy.kind]
+      pending_extinguished = pending_extinguished + 1
+    end
+  end
+  for index = 1, Profile.projectile_max do
+    local projectile = projectiles[index]
+    if projectile.active then
+      projectile.active = false
+      spawnSmoke(projectile.x, projectile.y, projectile.kind == 1)
+      pending_score = pending_score + (projectile.kind == 1 and 10 or 50)
+      if projectile.kind == 1 then
+        pending_extinguished = pending_extinguished + 1
+      end
+    end
+  end
   fire_count = 0
   enemy_count = 0
   projectile_count = 0
@@ -682,6 +778,25 @@ function World.addCertificationEnemies()
   end
 end
 
+function World.preparePlayerTrace()
+  for index = 1, #cells do cells[index] = 0 end
+  for cell_x = 0, Profile.map_width - 1 do setTile(cell_x, 15, 1) end
+  for index = 1, Profile.fire_max do fires[index].active = false end
+  for index = 1, Profile.human_max do humans[index].active = false end
+  for index = 1, Profile.enemy_max do enemies[index].active = false end
+  for index = 1, Profile.projectile_max do projectiles[index].active = false end
+  for index = 1, Profile.item_max do items[index].active = false end
+  for index = 1, Profile.door_max do doors[index].active = false end
+  for index = 1, Profile.particle_max do ashes[index].active = false end
+  fire_count = 0
+  human_count = 0
+  enemy_count = 0
+  projectile_count = 0
+  active_boss = nil
+  start_x = 200
+  start_y = 240
+end
+
 function World.startPosition()
   return start_x, start_y
 end
@@ -702,16 +817,25 @@ local function humanTouchesFire(human)
   end
   for index = 1, Profile.enemy_max do
     local enemy = enemies[index]
-    if enemy.active and math.abs(enemy.x - human.x) <= 12 and
-       math.abs(enemy.y - human.y) <= 26 then
+    local enemy_top = enemy.y -
+                      ((enemy.kind == 2 or enemy.kind == 5) and 23 or 15)
+    if enemy.active and math.abs(enemy.x - human.x) <= 10 and
+       human.y >= enemy_top and human.y - 16 <= enemy.y then
       return true
     end
   end
   for index = 1, Profile.projectile_max do
     local projectile = projectiles[index]
-    if projectile.active and math.abs(projectile.x - human.x) <= 9 and
-       math.abs(projectile.y - human.y + 8) <= 18 then
-      return true
+    if projectile.active then
+      local half_width = projectile.kind == 1 and 3 or
+                         (projectile.kind == 2 and 6 or 7)
+      local half_height = projectile.kind == 1 and 3 or
+                          (projectile.kind == 2 and 5 or 7)
+      if math.abs(projectile.x - human.x) <= half_width + 5 and
+         human.y >= projectile.y - half_height and
+         human.y - 16 <= projectile.y + half_height then
+        return true
+      end
     end
   end
   return false
@@ -729,17 +853,103 @@ local function setHumanState(human, state)
   end
 end
 
-local function spawnAsh(x, y)
+local function spawnParticle(kind, x, y, speed_x, speed_y, variant, life)
   for index = 1, Profile.particle_max do
-    local ash = ashes[index]
-    if not ash.active then
-      ash.active = true
-      ash.x = x
-      ash.y = y
-      ash.animation = 0
-      return
+    local particle = ashes[index]
+    if not particle.active then
+      particle.active = true
+      particle.kind = kind
+      particle.x = x
+      particle.y = y
+      particle.speed_x = speed_x or 0
+      particle.speed_y = speed_y or 0
+      particle.animation = 0
+      particle.life = life or 0
+      particle.variant = variant or 0
+      particle.rotation = 0
+      return true
     end
   end
+  return false
+end
+
+local function spawnAsh(x, y)
+  spawnParticle(1, x, y, 0, 0, 0, 82)
+end
+
+spawnSmoke = function(x, y, small)
+  spawnParticle(small and 3 or 2, x, y, 0, 0, 0, small and 29 or 36)
+end
+
+local function spawnSparkles(x, y)
+  for index = 1, 15 do
+    local speed_x = (random(201) - 100) / Profile.update_hz
+    local speed_y = -(50 + random(151)) / Profile.update_hz
+    spawnParticle(4, x, y, speed_x, speed_y, index % 3, 120)
+  end
+end
+
+local function spawnShards(x, y, direction)
+  for index = 1, 8 do
+    local speed_x = direction * (100 + random(101)) / Profile.update_hz
+    local speed_y = (random(101) - 50) / Profile.update_hz
+    spawnParticle(5, x, y + index * 3 + 4, speed_x, speed_y, index - 1, 180)
+  end
+end
+
+function World.addPopup(x, y, variant)
+  assert(variant >= 1 and variant <= #popup_sprites)
+  spawnParticle(6, x, y, 0, 0, variant, 43)
+end
+
+function World.spawnBossDeathSmoke(x, y)
+  spawnSmoke(x, y, false)
+end
+
+function World.certificationCapacityBoundaries()
+  World.reset(0x4D52534B, 1, nil)
+
+  for index = 1, Profile.human_max do humans[index].active = true end
+  assert(not World.addHuman(0, 0))
+
+  for index = 1, Profile.enemy_max do enemies[index].active = true end
+  assert(not addEnemy(1, 0, 0))
+
+  for index = 1, Profile.item_max do items[index].active = true end
+  assert(not addItem(1, 0, 0))
+
+  for index = 1, Profile.door_max do doors[index].active = true end
+  assert(not addDoor(0, 0, "left"))
+
+  for index = 1, Profile.projectile_max do projectiles[index].active = true end
+  assert(not World.spawnBossHazard(2, 0, 0, 0, 0))
+
+  for index = 1, Profile.particle_max do ashes[index].active = true end
+  assert(not spawnParticle(1, 0, 0, 0, 0, 0, 1))
+
+  for index = 1, Profile.fire_max do fires[index].active = false end
+  local valid_x = 0
+  local valid_y = 0
+  local found_fire_cell = false
+  for cell_y = 0, Profile.map_height - 2 do
+    for cell_x = 3, Profile.map_width - 4 do
+      if not found_fire_cell and canBurn(cell_x, cell_y) then
+        valid_x = cell_x
+        valid_y = cell_y
+        found_fire_cell = true
+      end
+    end
+  end
+  assert(found_fire_cell)
+  for index = 1, Profile.fire_max do
+    fires[index].active = true
+    fires[index].cell_x = -index
+    fires[index].cell_y = -1
+  end
+  local accepted = pcall(World.addFire, valid_x, valid_y)
+  assert(not accepted)
+
+  ui.log("MR_RESCUE_CAPACITY_BOUNDARIES=PASS")
 end
 
 local function thrownHumanHitsDoor(x, top, bottom, speed)
@@ -748,7 +958,7 @@ local function thrownHumanHitsDoor(x, top, bottom, speed)
     if door.active and door.solid and x >= door.x and x <= door.x + 4 and
        bottom >= door.y and top <= door.y + 47 then
       door.health = door.health - 9.6
-      if door.health <= 0 then
+      if door.health < 0 then
         door.solid = false
         door.speed_x = speed < 0 and -50 / Profile.update_hz or
                        50 / Profile.update_hz
@@ -798,7 +1008,7 @@ local function moveHumanVertical(human)
   return false
 end
 
-local function breakWindowAt(x, y)
+local function breakWindowAt(x, y, direction)
   local cell_x = math.floor(x / 16)
   local cell_y = math.floor(y / 16)
   local tile = World.tileAt(cell_x, cell_y)
@@ -806,12 +1016,14 @@ local function breakWindowAt(x, y)
     setTile(cell_x, cell_y - 1, 239)
     setTile(cell_x, cell_y, 255)
     pending_property_damage = pending_property_damage + 100 + random(101)
+    spawnShards(cell_x * 16 + 6, (cell_y - 1) * 16, direction)
     Audio.play("glass")
     return true
   elseif tile == 39 then
     setTile(cell_x, cell_y - 1, 240)
     setTile(cell_x, cell_y, 256)
     pending_property_damage = pending_property_damage + 100 + random(101)
+    spawnShards(cell_x * 16 + 10, (cell_y - 1) * 16, direction)
     Audio.play("glass")
     return true
   end
@@ -851,7 +1063,6 @@ local function updateHuman(human, player)
     end
   elseif human.state == HUMAN_WALK then
     moveHumanHorizontal(human, human.direction * 50 / Profile.update_hz)
-    human.speed_y = 0
     moveHumanVertical(human)
     local trapped, fire_left, fire_right = humanFireSides(human)
     if trapped then
@@ -876,7 +1087,6 @@ local function updateHuman(human, player)
     end
   elseif human.state == HUMAN_BURN then
     moveHumanHorizontal(human, human.direction * 100 / Profile.update_hz)
-    human.speed_y = 0
     moveHumanVertical(human)
     human.health_frames = human.health_frames - 1
     if human.health_frames <= 0 then
@@ -888,7 +1098,11 @@ local function updateHuman(human, player)
     end
   elseif human.state == HUMAN_FLY then
     local side = human.speed_x < 0 and -5 or 5
-    breakWindowAt(human.x + side + human.speed_x, human.y - 2)
+    breakWindowAt(
+      human.x + side + human.speed_x,
+      human.y - 2,
+      human.speed_x < 0 and -1 or 1
+    )
     moveHumanHorizontal(human, human.speed_x)
     local landed = moveHumanVertical(human)
     if human.speed_x < 0 then
@@ -976,6 +1190,10 @@ local function updateWalkingEnemy(enemy, player)
                           player.regeneration_count
     if upgrade_count > 0 and player.stealItem(random(upgrade_count) + 1) then
       World.addFire(math.floor(enemy.x / 16), math.floor((enemy.y - 4) / 16))
+      World.addPopup(player.x, player.y - 24, 7)
+      spawnSmoke(enemy.x, enemy.y - 8, false)
+      spawnSmoke(enemy.x - 6, enemy.y - 18, false)
+      spawnSmoke(enemy.x + 6, enemy.y - 18, false)
       enemy.active = false
       enemy_count = enemy_count - 1
     end
@@ -1064,6 +1282,10 @@ local function projectileExplosion(projectile)
   World.addFire(cell_x + 1, cell_y)
   World.addFire(cell_x, cell_y - 1)
   World.addFire(cell_x, cell_y + 1)
+  spawnSmoke(projectile.x, projectile.y - 8, false)
+  spawnSmoke(projectile.x - 6, projectile.y - 18, false)
+  spawnSmoke(projectile.x + 6, projectile.y - 18, false)
+  if projectile.kind == 2 then Audio.play("explosion") end
   extinguishProjectile(projectile)
 end
 
@@ -1072,6 +1294,7 @@ local function updateProjectiles(player)
     local projectile = projectiles[index]
     if projectile.active then
       projectile.animation = projectile.animation + 1
+      if projectile.hit_frames > 0 then projectile.hit_frames = projectile.hit_frames - 1 end
       if projectile.kind == 1 then
         projectile.speed_y = projectile.speed_y +
                              350 / (Profile.update_hz * Profile.update_hz)
@@ -1081,10 +1304,25 @@ local function updateProjectiles(player)
         local cell_y = math.floor(projectile.y / 16)
         if projectile.y > Profile.map_height * 16 + 32 or
            World.solidCell(cell_x, cell_y) then
-          if projectile.speed_y > 0 and random(25) == 0 then
-            World.addFire(cell_x, cell_y - 1)
+          if projectile.speed_y > 0 then
+            local tile = World.tileAt(cell_x, cell_y)
+            if tile >= 1 and tile <= 5 and random(25) == 0 then
+              World.addFire(cell_x, cell_y - 1)
+            end
           end
+          spawnSmoke(projectile.x, projectile.y - 1, true)
           extinguishProjectile(projectile)
+        else
+          for door_index = 1, Profile.door_max do
+            local door = doors[door_index]
+            if door.active and door.solid and projectile.x + 3 >= door.x and
+               projectile.x - 3 <= door.x + 4 and projectile.y + 3 >= door.y and
+               projectile.y - 3 <= door.y + 47 then
+              spawnSmoke(projectile.x, projectile.y, true)
+              extinguishProjectile(projectile)
+              break
+            end
+          end
         end
       elseif projectile.kind == 2 then
         projectile.x = projectile.x + projectile.speed_x
@@ -1104,6 +1342,7 @@ local function updateProjectiles(player)
         elseif ((projectile.x < 176 or projectile.x > 480) and
                 projectile.y >= Profile.map_height * 16 - 38) or
                projectile.y >= Profile.map_height * 16 - 22 then
+          spawnSmoke(projectile.x, projectile.y, false)
           extinguishProjectile(projectile)
         end
       end
@@ -1129,7 +1368,7 @@ local function updateDoors()
            fireAtCell(door.cell_x, door.cell_y + 2) then
           door.health = door.health - 0.2
         end
-        if door.health <= 0 then
+        if door.health < 0 then
           door.solid = false
           door.speed_x = (random(101) - 50) / Profile.update_hz
           door.speed_y = -100 / Profile.update_hz
@@ -1145,11 +1384,12 @@ local function updateDoors()
   end
 end
 
-function World.update(player)
+local function updateFires()
   for index = 1, Profile.fire_max do
     local fire = fires[index]
-    if fire.active then
-      fire.animation = (fire.animation + 1) % 40
+    if fire.active and fire.cell_y >= 0 and
+       fire.cell_y < Profile.map_height then
+      fire.animation = (fire.animation + 1) % 100
       if fire.health < 24 then
         fire.health = math.min(24, fire.health + 0.05)
       else
@@ -1159,7 +1399,9 @@ function World.update(player)
         local direction = random(4) + 1
         local target_x = fire.cell_x + spread_x[direction]
         local target_y = fire.cell_y + spread_y[direction]
-        if spread_y[direction] ~= 0 and not canBurn(target_x, target_y) and
+        local can_burn_through = (spread_y[direction] < 0 and target_y > 0) or
+                                 (spread_y[direction] > 0 and target_y < 14)
+        if can_burn_through and not canBurn(target_x, target_y) and
            random(5) == 0 then
           target_y = target_y + spread_y[direction]
         end
@@ -1168,47 +1410,96 @@ function World.update(player)
       end
     end
   end
+end
 
+function World.update(player)
   updateDoors()
   updateEnemies(player)
   updateProjectiles(player)
-  if active_boss then active_boss:update(World, player) end
   for index = 1, Profile.human_max do
     local human = humans[index]
     if human.active then updateHuman(human, player) end
   end
   for index = 1, Profile.item_max do
     local item = items[index]
+    if item.active then item.animation = (item.animation + 1) % 216 end
+  end
+  for index = 1, Profile.particle_max do
+    local particle = ashes[index]
+    if particle.active then
+      particle.animation = particle.animation + 1
+      particle.life = particle.life - 1
+      if particle.kind == 4 or particle.kind == 5 then
+        local gravity = particle.kind == 4 and 500 or 350
+        particle.speed_y = particle.speed_y +
+                           gravity / (Profile.update_hz * Profile.update_hz)
+        particle.x = particle.x + particle.speed_x
+        particle.y = particle.y + particle.speed_y
+        if particle.kind == 5 then
+          particle.rotation = particle.rotation + particle.speed_x * 0.2
+        end
+      end
+      if particle.life <= 0 or
+         (particle.kind == 5 and particle.y > Profile.map_height * 16 + 4) then
+        particle.active = false
+      end
+    end
+  end
+  updateFires()
+  if active_boss then
+    active_boss:update(World, player)
+    if active_boss.just_died and not boss_score_awarded then
+      boss_score_awarded = true
+      pending_score = pending_score + 5000
+    end
+  end
+end
+
+local function playerTouchesHuman(player, human)
+  return player.x - 6 <= human.x + 5 and player.x + 5 >= human.x - 5 and
+         player.y - 22 <= human.y and player.y >= human.y - 16
+end
+
+function World.collectItems(player)
+  if player.dead then return end
+  for index = 1, Profile.item_max do
+    local item = items[index]
     if item.active then
-      item.animation = (item.animation + 1) % 48
-      if not player.dead and math.abs(player.x - item.x - 8) <= 12 and
-         math.abs(player.y - item.y - 10) <= 24 then
+      local item_left = item.x + 4
+      local item_top = item.y
+      if player.x - 6 <= item_left + 7 and player.x + 5 >= item_left and
+         player.y - 22 <= item_top + 20 and player.y >= item_top then
         item.active = false
         pending_score = pending_score + 500
+        spawnSparkles(item.x + 6, item.y + 10)
+        World.addPopup(player.x, player.y - 24, item.kind + 1)
         player.applyItem(item.kind)
       end
     end
   end
-  for index = 1, Profile.particle_max do
-    local ash = ashes[index]
-    if ash.active then
-      ash.animation = ash.animation + 1
-      if ash.animation >= 82 then ash.active = false end
+end
+
+function World.canCarry(player)
+  for index = 1, Profile.human_max do
+    local human = humans[index]
+    if human.active and human.state ~= HUMAN_BURN and
+       playerTouchesHuman(player, human) then
+      return true
     end
   end
+  return false
 end
 
 function World.tryCarry(player)
   if player.carrying ~= 0 then return false end
   for index = 1, Profile.human_max do
     local human = humans[index]
-    if human.active and human.state ~= HUMAN_BURN then
-      if math.abs(human.x - player.x) <= 24 and math.abs(human.y - player.y) <= 28 then
-        human.carried = true
-        setHumanState(human, HUMAN_CARRIED)
-        player.carrying = index
-        return true
-      end
+    if human.active and human.state ~= HUMAN_BURN and
+       playerTouchesHuman(player, human) then
+      human.carried = true
+      setHumanState(human, HUMAN_CARRIED)
+      player.carrying = index
+      return true
     end
   end
   return false
@@ -1231,14 +1522,27 @@ function World.throwCarried(player)
   return true
 end
 
-function World.spray(x, y, direction_x, direction_y, reach)
+function World.spray(x, y, direction_x, direction_y, reach, impact_direction)
+  assert(impact_direction == -1 or impact_direction == 1)
   local closest_fire = 0
   local closest_door = 0
   local closest_human = 0
   local closest_enemy = 0
   local closest_projectile = 0
   local closest_boss = false
+  local closest_wall = false
   local closest_distance = reach + 1
+  local distance = 4
+  while distance <= reach do
+    local point_x = x + direction_x * distance
+    local point_y = y + direction_y * distance
+    if World.solidCell(math.floor(point_x / 16), math.floor(point_y / 16)) then
+      closest_wall = true
+      closest_distance = distance
+      break
+    end
+    distance = distance + 4
+  end
   for index = 1, Profile.fire_max do
     local fire = fires[index]
     if fire.active then
@@ -1359,26 +1663,26 @@ function World.spray(x, y, direction_x, direction_y, reach)
   if closest_door ~= 0 then
     local door = doors[closest_door]
     door.health = door.health - 1
-    if door.health <= 0 then
+    if door.health < 0 then
       door.solid = false
-      door.speed_x = direction_x * 50 / Profile.update_hz
+      door.speed_x = impact_direction * 50 / Profile.update_hz
       door.speed_y = -100 / Profile.update_hz
       pending_score = pending_score + 50
       pending_property_damage = pending_property_damage + 80 + random(41)
       Audio.play("door")
     end
   elseif closest_boss then
-    if active_boss:hit(direction_x) and active_boss.health <= 0 and
-       not boss_score_awarded then
-      boss_score_awarded = true
-      pending_score = pending_score + 5000
-    end
+    active_boss:hit(impact_direction)
   elseif closest_projectile ~= 0 then
     local projectile = projectiles[closest_projectile]
     projectile.health = projectile.health - 1
+    projectile.hit_frames = 6
     if projectile.health <= 0 then
+      spawnSmoke(projectile.x, projectile.y, projectile.kind == 1)
       pending_score = pending_score + (projectile.kind == 1 and 10 or 50)
-      pending_extinguished = pending_extinguished + 1
+      if projectile.kind == 1 then
+        pending_extinguished = pending_extinguished + 1
+      end
       extinguishProjectile(projectile)
     end
   elseif closest_enemy ~= 0 then
@@ -1386,10 +1690,11 @@ function World.spray(x, y, direction_x, direction_y, reach)
     enemy.health = enemy.health - 1
     enemy.hit_frames = 30
     if enemy.kind == 1 or enemy.kind == 4 or enemy.kind == 7 then enemy.state = 2 end
-    if direction_x ~= 0 then enemy.direction = -direction_x end
+    enemy.direction = -impact_direction
     if enemy.health <= 0 then
       enemy.active = false
       enemy_count = enemy_count - 1
+      spawnSmoke(enemy.x, enemy.y - 8, false)
       pending_score = pending_score + enemy_scores[enemy.kind]
       pending_extinguished = pending_extinguished + 1
       Audio.play("enemy")
@@ -1397,23 +1702,134 @@ function World.spray(x, y, direction_x, direction_y, reach)
   elseif closest_human ~= 0 then
     local human = humans[closest_human]
     setHumanState(human, HUMAN_FLY)
-    human.speed_x = direction_x * 100 / Profile.update_hz
-    human.speed_y = direction_y * 100 / Profile.update_hz - 50 / Profile.update_hz
+    human.speed_x = impact_direction * 100 / Profile.update_hz
+    human.speed_y = -50 / Profile.update_hz
     human.butt_hits = 0
   elseif closest_fire ~= 0 then
     local fire = fires[closest_fire]
     fire.health = fire.health - 1
-    if fire.health <= 0 then
+    if fire.health < 0 then
       fire.active = false
       fire_count = fire_count - 1
+      spawnSmoke(fire.cell_x * 16 + 8, fire.cell_y * 16 + 8, false)
       pending_score = pending_score + 20
       pending_extinguished = pending_extinguished + 1
       Audio.play("steam")
     end
+  elseif closest_wall then
+    local hit_x = x + direction_x * closest_distance
+    local hit_y = y + direction_y * closest_distance
+    breakWindowAt(hit_x, hit_y, impact_direction)
   else
     return reach
   end
   return math.max(0, closest_distance)
+end
+
+function World.certificationInteractionTrace(player)
+  Audio.resetCertificationCounts()
+  World.preparePlayerTrace()
+  player.x = 200
+  player.y = 240
+  player.direction = 1
+
+  assert(addDoor(240, 192, "right"))
+  for _ = 1, 19 do World.spray(210, 232, 1, 0, 100, 1) end
+  local door_broken = false
+  for index = 1, Profile.door_max do
+    if doors[index].active and not doors[index].solid then door_broken = true end
+  end
+  assert(door_broken)
+  local door_score, _, _, door_damage = World.consumeEvents()
+  assert(door_score == 50 and door_damage >= 80 and door_damage <= 120)
+
+  setTile(20, 14, 38)
+  player.x = 280
+  World.spray(290, 232, 1, 0, 100, 1)
+  assert(World.tileAt(20, 13) == 239 and World.tileAt(20, 14) == 255)
+  local _, _, _, window_damage = World.consumeEvents()
+  assert(window_damage >= 100 and window_damage <= 200)
+
+  assert(World.addHuman(200, 240))
+  assert(World.addFire(12, 14))
+  for index = 1, Profile.human_max do
+    local human = humans[index]
+    if human.active then
+      updateHuman(human, player)
+      assert(human.state == HUMAN_BURN)
+      break
+    end
+  end
+
+  player.suit_count = 1
+  player.tank_count = 1
+  player.regeneration_count = 1
+  assert(addEnemy(7, player.x, player.y))
+  for index = 1, Profile.enemy_max do
+    local enemy = enemies[index]
+    if enemy.active and enemy.kind == 7 then
+      updateWalkingEnemy(enemy, player)
+      assert(not enemy.active)
+      break
+    end
+  end
+  assert(player.suit_count + player.tank_count + player.regeneration_count == 2)
+
+  assert(World.spawnBossHazard(2, player.x, player.y - 8, 0, 0))
+  updateProjectiles(player)
+  assert(projectile_count == 0 and fire_count >= 1)
+  local interaction_fire_count = fire_count
+  World.consumeEvents()
+
+  local enemy_kills = 0
+  for kind = 1, 7 do
+    World.preparePlayerTrace()
+    player.x = 200
+    player.y = 240
+    player.direction = 1
+    assert(addEnemy(kind, 260, 240))
+    World.spray(210, 232, 1, 0, 100, 1)
+    local target
+    for index = 1, Profile.enemy_max do
+      if enemies[index].active then target = enemies[index] break end
+    end
+    assert(target ~= nil and target.health == target.health_max - 1)
+    if kind == 1 or kind == 4 or kind == 7 then
+      updateEnemies(player)
+      updateEnemies(player)
+      assert(target.state == 3)
+    end
+    for _ = 1, target.health_max + 1 do
+      if target.active then World.spray(210, 232, 1, 0, 100, 1) end
+    end
+    assert(not target.active)
+    local score, extinguished = World.consumeEvents()
+    assert(score == enemy_scores[kind] and extinguished == 1)
+    enemy_kills = enemy_kills + 1
+  end
+
+  World.preparePlayerTrace()
+  assert(World.addFire(12, 14))
+  local spread_frame = 0
+  for frame = 1, 2000 do
+    updateFires()
+    if fire_count > 1 then spread_frame = frame break end
+  end
+  assert(spread_frame > 360 and spread_frame <= 2000)
+  assert(Audio.certificationCount("door") == 1)
+  assert(Audio.certificationCount("glass") == 1)
+  assert(Audio.certificationCount("enemy") == 7)
+  assert(Audio.certificationCount("explosion") == 1)
+
+  ui.log(
+    "MR_RESCUE_INTERACTIONS=PASS DOOR_SCORE=" .. door_score ..
+    " DOOR_DAMAGE=" .. door_damage ..
+    " WINDOW_DAMAGE=" .. window_damage ..
+    " FIRE=" .. interaction_fire_count ..
+    " ENEMY_KILLS=" .. enemy_kills ..
+    " SPREAD_FRAME=" .. spread_frame ..
+    " EFFECTS=10"
+  )
 end
 
 local function drawMapTile(tile, screen_x, screen_y)
@@ -1426,52 +1842,87 @@ local function drawMapTile(tile, screen_x, screen_y)
   end
 end
 
-function World.draw(camera_x, origin_y)
-  if not active_boss then
+function World.draw(camera_x, origin_y, family_presentation, phase)
+  local draw_front = phase == "front"
+  if not draw_front and not active_boss then
     local parallax_x = -math.floor(camera_x * 32 /
                                    (Profile.map_width * 16 - Profile.width))
     for index = 1, 4 do
       ui.tile(night_sprites[index], 0, parallax_x + (index - 1) * 128, origin_y)
     end
   end
-  local first_column = math.floor(camera_x / 16)
-  local last_column = math.min(Profile.map_width - 1, first_column + 30)
-  for cell_y = 0, Profile.map_height - 1 do
-    for cell_x = first_column, last_column do
-      drawMapTile(
-        World.tileAt(cell_x, cell_y),
-        cell_x * 16 - camera_x,
-        cell_y * 16 + origin_y
-      )
+  if not draw_front then
+    local first_column = math.floor(camera_x / 16)
+    local last_column = math.min(Profile.map_width - 1, first_column + 30)
+    for cell_y = 0, Profile.map_height - 1 do
+      for cell_x = first_column, last_column do
+        drawMapTile(
+          World.tileAt(cell_x, cell_y),
+          cell_x * 16 - camera_x,
+          cell_y * 16 + origin_y
+        )
+      end
     end
   end
 
+  if not draw_front then
+    for index = 1, Profile.fire_max do
+      local fire = fires[index]
+      if fire.active then
+        local fire_frame = math.floor(fire.animation / 5) % 5
+        local wall_sprite = fire.health < 12 and small_fire_sprite or fire_sprite
+        ui.tile(
+          wall_sprite,
+          fire_frame,
+          fire.cell_x * 16 - camera_x - 4,
+          fire.cell_y * 16 + origin_y - 16
+        )
+      end
+    end
+  end
+
+  if draw_front then
   for index = 1, Profile.door_max do
     local door = doors[index]
     if door.active then
-      local sprite = door.health > 12 and door_normal_sprite or door_damaged_sprite
-      ui.tile(
-        sprite,
-        0,
-        math.floor(door.x - camera_x - 2),
-        math.floor(door.y + origin_y),
-        false,
-        false
-      )
+      local normal = door.health > 12
+      if door.solid then
+        ui.tile(
+          normal and door_normal_sprite or door_damaged_sprite,
+          0,
+          math.floor(door.x - camera_x - 2),
+          math.floor(door.y + origin_y),
+          false,
+          false
+        )
+      else
+        local angle = (100 + door.speed_y * Profile.update_hz) *
+                      (door.speed_x * Profile.update_hz) * 0.0005
+        local frame = math.floor(angle * 4 / math.pi + 0.5) % 8
+        ui.tile(
+          normal and door_normal_spin or door_damaged_spin,
+          frame,
+          math.floor(door.x - camera_x - 26),
+          math.floor(door.y + origin_y)
+        )
+      end
     end
   end
+  end
 
+  if not draw_front then
   for index = 1, Profile.enemy_max do
     local enemy = enemies[index]
     if enemy.active then
       local sprites = enemy_sprites[enemy.kind]
       local sprite = sprites.run
-      local frame = math.floor(enemy.animation / 8) % 4
+      local animation_delay = (enemy.kind == 3 or enemy.kind == 6) and 10.2 or 7.8
+      local frame = math.floor(enemy.animation / animation_delay) % 4
       local width = enemy.kind == 7 and 18 or 16
       local height = (enemy.kind == 1 or enemy.kind == 4) and 26 or 32
       if enemy.state == 3 and sprites.recover then
         sprite = sprites.recover
-        frame = math.floor(enemy.animation / 4) % sprite.ntiles
+        frame = math.floor(enemy.animation / 4.2) % sprite.ntiles
       elseif enemy.hit_frames > 0 and sprites.hit then
         sprite = sprites.hit
       end
@@ -1491,13 +1942,23 @@ function World.draw(camera_x, origin_y)
         false
       )
       if enemy.hit_frames > 0 then
-        local health_width = math.max(0, math.floor(16 * enemy.health / enemy.health_max))
-        local bar_x = math.floor(enemy.x - camera_x - 8)
-        local bar_y = math.floor(enemy.y + origin_y - height - 5)
-        ui.rect(bar_x - 1, bar_y - 1, bar_x + 16, bar_y + 3, 1)
-        if health_width > 0 then
-          ui.rectfill(bar_x, bar_y, bar_x + health_width - 1, bar_y + 2, 2)
-        end
+        local health_width = math.max(
+          0, math.floor(16 * enemy.health / enemy.health_max + 0.5)
+        )
+        local health_y = enemy.y + origin_y -
+                         ((enemy.kind == 1 or enemy.kind == 4) and 30 or 36)
+        ui.tile(
+          enemy_health_base,
+          0,
+          math.floor(enemy.x - camera_x - 10),
+          math.floor(health_y - 4)
+        )
+        ui.tile(
+          enemy_health_bar,
+          health_width,
+          math.floor(enemy.x - camera_x - 8),
+          math.floor(health_y - 2)
+        )
       end
     end
   end
@@ -1509,7 +1970,7 @@ function World.draw(camera_x, origin_y)
       local frame = math.floor(projectile.animation / 6) % 4
       local offset = 4
       if projectile.kind == 2 then
-        sprite = gasghost_sprite
+        sprite = projectile.hit_frames > 0 and gasghost_hit_sprite or gasghost_sprite
         frame = math.floor(projectile.animation / 9) % 3
         offset = 12
       elseif projectile.kind == 3 then
@@ -1537,7 +1998,7 @@ function World.draw(camera_x, origin_y)
       local sprite = sprites.run
       local frame = 0
       if human.state == HUMAN_WALK then
-        frame = math.floor(human.animation / 13) % 4
+        frame = math.floor(human.animation / 13.2) % 4
       elseif human.state == HUMAN_FLY then
         sprite = sprites.fly
         if human.butt_hits >= 2 then
@@ -1548,8 +2009,13 @@ function World.draw(camera_x, origin_y)
           frame = 2
         end
       elseif human.state == HUMAN_BURN then
-        sprite = sprites.burn
-        frame = math.floor(human.animation / 6) % 4
+        if family_presentation then
+          sprite = sprites.panic
+          frame = math.floor(human.animation / 6) % 6
+        else
+          sprite = sprites.burn
+          frame = math.floor(human.animation / 6) % 4
+        end
       elseif human.state == HUMAN_PANIC then
         sprite = sprites.panic
         frame = math.floor(human.animation / 6) % 6
@@ -1564,39 +2030,136 @@ function World.draw(camera_x, origin_y)
       )
     end
   end
+  end
 
+  if draw_front then
   for index = 1, Profile.item_max do
     local item = items[index]
     if item.active then
       ui.tile(
         item_sprites[item.kind],
-        math.floor(item.animation / 8) % 6,
+        math.floor(item.animation / 7.2) % 6,
         math.floor(item.x - camera_x),
         math.floor(item.y + origin_y)
       )
     end
   end
+  end
 
   for index = 1, Profile.fire_max do
     local fire = fires[index]
     if fire.active then
+      local floor_frame = math.floor(fire.animation / 5) % 4
+      if draw_front and World.solidCell(fire.cell_x, fire.cell_y + 1) then
+        ui.tile(
+          floor_fire_sprite,
+          floor_frame,
+          fire.cell_x * 16 - camera_x,
+          fire.cell_y * 16 + origin_y + 1
+        )
+      end
+      if draw_front and World.solidCell(fire.cell_x, fire.cell_y - 1) then
+        ui.tile(
+          floor_fire_sprite,
+          floor_frame,
+          fire.cell_x * 16 - camera_x,
+          fire.cell_y * 16 + origin_y - 1,
+          false,
+          true
+        )
+      end
+    end
+  end
+  if draw_front then
+  for index = 1, Profile.particle_max do
+    local particle = ashes[index]
+    if particle.active then
+      local sprite = ash_sprite
+      local frame = math.floor(particle.animation / 10) % 8
+      local offset_x = 10
+      local offset_y = 20
+      if particle.kind == 1 and family_presentation then
+        sprite = sparkle_sprite
+        frame = math.floor(particle.animation / 6) % 3
+        offset_x, offset_y = 3, 4
+      elseif particle.kind == 2 then
+        sprite = black_smoke_sprite
+        frame = math.floor(particle.animation / 6) % 6
+      elseif particle.kind == 3 then
+        sprite = small_smoke_sprite
+        frame = math.floor(particle.animation / 7.2) % 4
+        offset_x, offset_y = 4, 4
+      elseif particle.kind == 4 then
+        sprite = sparkle_sprite
+        frame = particle.variant
+        offset_x, offset_y = 3, 3
+      elseif particle.kind == 5 then
+        sprite = shard_sprite
+        local rotation_frame = math.floor(
+          particle.rotation * 4 / math.pi + 0.5
+        ) % 8
+        frame = particle.variant * 8 + rotation_frame
+        offset_x, offset_y = 4, 4
+      elseif particle.kind == 6 then
+        sprite = popup_sprites[particle.variant]
+        frame = 0
+        offset_x = 32
+        offset_y = math.floor(math.sqrt(particle.animation / Profile.update_hz) * 32)
+      end
       ui.tile(
-        fire_sprite,
-        math.floor(fire.animation / 8) % 5,
-        fire.cell_x * 16 - camera_x - 4,
-        fire.cell_y * 16 + origin_y - 16
+        sprite,
+        frame,
+        math.floor(particle.x - camera_x - offset_x),
+        math.floor(particle.y + origin_y - offset_y)
       )
     end
   end
-  for index = 1, Profile.particle_max do
-    local ash = ashes[index]
-    if ash.active then
-      ui.tile(
-        ash_sprite,
-        math.floor(ash.animation / 10) % 8,
-        math.floor(ash.x - camera_x - 10),
-        math.floor(ash.y + origin_y - 20)
-      )
+  end
+end
+
+function World.drawBossHud()
+  if active_boss then active_boss:drawHud() end
+end
+
+local function lightingBlockIsLit(world_x, world_y, player_x, player_y)
+  local player_delta_x = world_x - player_x
+  local player_delta_y = world_y - (player_y - 11)
+  if player_delta_x * player_delta_x + player_delta_y * player_delta_y <= 10000 then
+    return true
+  end
+  for index = 1, Profile.fire_max do
+    local fire = fires[index]
+    if fire.active then
+      local delta_x = world_x - (fire.cell_x * 16 + 8)
+      local delta_y = world_y - (fire.cell_y * 16 + 8)
+      if delta_x * delta_x + delta_y * delta_y <= 2704 then return true end
+    end
+  end
+  for index = 1, Profile.enemy_max do
+    local enemy = enemies[index]
+    if enemy.active then
+      local delta_x = world_x - enemy.x
+      local delta_y = world_y - (enemy.y - 12)
+      if delta_x * delta_x + delta_y * delta_y <= 2025 then return true end
+    end
+  end
+  if active_boss then
+    local delta_x = world_x - active_boss.x
+    local delta_y = world_y - (active_boss.y - 30)
+    if delta_x * delta_x + delta_y * delta_y <= 3600 then return true end
+  end
+  return false
+end
+
+function World.drawLighting(camera_x, origin_y, player_x, player_y)
+  for block_y = 0, 7 do
+    for block_x = 0, 14 do
+      local world_x = camera_x + block_x * 32 + 16
+      local world_y = block_y * 32 + 16
+      if world_x >= 32 and world_x < Profile.map_width * 16 - 32 and
+         not lightingBlockIsLit(world_x, world_y, player_x, player_y) then
+        ui.tile(darkness_sprite, 0, block_x * 32, origin_y + block_y * 32)
+      end
     end
   end
 end
@@ -1618,27 +2181,33 @@ local function drawWarningAt(world_x, world_y, frame, camera_x, origin_y)
   ui.tile(warning_sprites[frame + 1], 0, icon_x, icon_y)
 end
 
-function World.drawWarnings(camera_x, origin_y, frame)
+function World.drawWarnings(camera_x, origin_y, frame, family_presentation)
   local animation = math.floor(frame / 30) % 2
   for index = 1, Profile.human_max do
     local human = humans[index]
     if human.active and (human.state == HUMAN_BURN or human.state == HUMAN_PANIC) then
-      local offset = human.state == HUMAN_BURN and 0 or 2
+      local offset = human.state == HUMAN_BURN and
+                     (family_presentation and 2 or 0) or 2
       drawWarningAt(human.x, human.y - 12, offset + animation, camera_x, origin_y)
     end
   end
   for index = 1, Profile.particle_max do
     local ash = ashes[index]
-    if ash.active then drawWarningAt(ash.x, ash.y - 12, 4, camera_x, origin_y) end
+    if ash.active and ash.kind == 1 then
+      local warning = family_presentation and 2 or 4
+      drawWarningAt(ash.x, ash.y - 12, warning, camera_x, origin_y)
+    end
   end
 end
 
-function World.drawCarried(index, direction, screen_x, screen_y, animation)
+function World.drawCarried(index, direction, screen_x, screen_y, animation, speed_x)
   local human = humans[index]
   if not human or not human.active or human.state ~= HUMAN_CARRIED then return false end
   local sprites = human_sprites[human.id]
   local sprite = direction < 0 and sprites.carry_left or sprites.carry_right
-  ui.tile(sprite, math.floor(animation / 8) % 4, screen_x - 11, screen_y - 32)
+  local frame = math.floor(animation / 7.2) % 4
+  if math.abs(speed_x) < 30 / Profile.update_hz then frame = 0 end
+  ui.tile(sprite, frame, screen_x - 11, screen_y - 32)
   return true
 end
 
@@ -1658,24 +2227,34 @@ function World.heatAt(x, y)
   end
   for index = 1, Profile.enemy_max do
     local enemy = enemies[index]
-    if enemy.active and math.abs(enemy.x - x) <= 12 and math.abs(enemy.y - y) <= 26 then
+    local enemy_top = enemy.y -
+                      ((enemy.kind == 2 or enemy.kind == 5) and 23 or 15)
+    if enemy.active and math.abs(enemy.x - x) <= 11 and
+       y + 11 >= enemy_top and y - 11 <= enemy.y then
       heat = math.max(heat, 1)
     end
   end
   for index = 1, Profile.projectile_max do
     local projectile = projectiles[index]
-    if projectile.active and math.abs(projectile.x - x) <= 9 and
-       math.abs(projectile.y - y) <= 18 then
-      heat = math.max(heat, 1)
+    if projectile.active then
+      local half_width = projectile.kind == 1 and 3 or
+                         (projectile.kind == 2 and 6 or 7)
+      local half_height = projectile.kind == 1 and 3 or
+                          (projectile.kind == 2 and 5 or 7)
+      if math.abs(projectile.x - x) <= half_width + 6 and
+         y + 11 >= projectile.y - half_height and
+         y - 11 <= projectile.y + half_height then
+        heat = math.max(heat, 1)
+      end
     end
   end
   if active_boss then heat = math.max(heat, active_boss:heatAt(x, y)) end
-  return math.min(1.5, heat)
+  return heat
 end
 
 function World.certificationBossPlayerX()
   assert(active_boss ~= nil)
-  if active_boss.x < 328 then return active_boss.x + 60 end
+  if active_boss.x < 254 then return active_boss.x + 60 end
   return active_boss.x - 60
 end
 
@@ -1730,6 +2309,24 @@ function World.logCertificationState()
       " DEFEATED=" .. tostring(active_boss:isDefeated())
     )
   end
+  for index = 1, Profile.enemy_max do
+    local enemy = enemies[index]
+    if enemy.active then
+      ui.log(
+        "MR_RESCUE_ENEMY=" .. enemy.kind ..
+        " X=" .. math.floor(enemy.x) ..
+        " Y=" .. math.floor(enemy.y) ..
+        " STATE=" .. enemy.state ..
+        " HEALTH=" .. enemy.health
+      )
+    end
+  end
+  ui.log(
+    "MR_RESCUE_WORLD FIRE=" .. fire_count ..
+    " PROJECTILES=" .. projectile_count ..
+    " CASUALTIES=" .. casualty_count ..
+    " RESCUED=" .. rescued_count
+  )
   for index = 1, Profile.human_max do
     local human = humans[index]
     if human.active then

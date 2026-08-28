@@ -8,11 +8,15 @@ seeded building assembly, the five upgrades, fixed-capacity fire/civilians,
 Classic burn/casualty states, player movement/ladders/carry/throw/directional
 water, upgrades and doors, seven bounded regular-enemy behaviors, projectiles,
 all three boss state machines, original title/how-to/selection/statistics art,
-score/combo/statistics/highscore arithmetic, pause/countdown/summary flow, all
-17 bounded effect mappings, and all eight streamed music tracks. Current exact
-cartridge is about 11.90 MiB and the largest observed certification heap is below
-668 KiB. Differential parity, physical persistence, remaining feedback art,
-seed sweeps, and physical proof remain staged.
+score/combo/statistics/highscore arithmetic, both intro cards, all nine how-to
+slides, pause/countdown/transition/summary flow, bounded particles and lighting,
+optional Family presentation, all 17
+effect mappings, and all eight streamed music tracks. The exact software
+cartridge is about 12.77 MiB and the largest observed certification heap is below
+1.2 MiB. The software parity boundary and remaining named-board proof are
+recorded in `PARITY.md`. Highscores and presentation settings intentionally
+remain session-local because the sourced physical API has no storage primitive.
+Named physical-board timing proof remains staged.
 
 ## Run the current certification slice
 

@@ -41,7 +41,31 @@ function Input.update()
   Input.pause = ui.btn(BTN_START, 0)
   Input.start = Input.pause or Input.jump
 
-  if PortMode.auto_start then
+  if PortMode.menu_probe then
+    smoke_frame = smoke_frame + 1
+    Input.left = smoke_frame == 25 or smoke_frame == 37
+    Input.right = smoke_frame == 9 or smoke_frame == 23 or smoke_frame == 35
+    Input.up = false
+    Input.down = smoke_frame == 2 or smoke_frame == 4 or smoke_frame == 6 or
+                 smoke_frame == 13 or smoke_frame == 15 or smoke_frame == 17 or
+                 smoke_frame == 19 or smoke_frame == 29 or smoke_frame == 31
+    Input.jump = smoke_frame == 7 or smoke_frame == 21 or smoke_frame == 33
+    Input.spray = false
+    Input.rescue = smoke_frame == 11 or smoke_frame == 27 or smoke_frame == 39
+    Input.pause = smoke_frame == 1
+    Input.start = Input.pause or Input.jump
+  elseif PortMode.player_trace then
+    smoke_frame = smoke_frame + 1
+    Input.left = smoke_frame >= 61 and smoke_frame <= 120
+    Input.right = smoke_frame <= 100
+    Input.up = smoke_frame >= 50 and smoke_frame <= 55
+    Input.down = false
+    Input.jump = smoke_frame == 20
+    Input.spray = smoke_frame >= 40 and smoke_frame <= 70
+    Input.rescue = false
+    Input.pause = false
+    Input.start = false
+  elseif PortMode.auto_start then
     smoke_frame = smoke_frame + 1
     Input.left = smoke_frame <= 260
     Input.right = false
@@ -52,6 +76,14 @@ function Input.update()
     Input.rescue = smoke_frame == 5 or smoke_frame == 75
     Input.start = false
     Input.pause = false
+    if PortMode.failure_probe then
+      Input.left = false
+      Input.jump = false
+      Input.spray = false
+      Input.rescue = false
+      Input.pause = smoke_frame == 220 or smoke_frame == 250 or smoke_frame == 280
+      Input.start = Input.pause
+    end
     if PortMode.boss_kind then
       Input.left = false
       Input.right = false
@@ -59,6 +91,28 @@ function Input.update()
       Input.spray = smoke_frame >= 5
       Input.rescue = false
     end
+  elseif PortMode.flow_probe then
+    smoke_frame = smoke_frame + 1
+    Input.left = false
+    Input.right = false
+    Input.up = false
+    Input.down = false
+    Input.jump = smoke_frame == 3 or smoke_frame == 5
+    Input.spray = false
+    Input.rescue = smoke_frame == 312
+    Input.pause = smoke_frame == 1 or smoke_frame == 310
+    Input.start = Input.pause or Input.jump
+  elseif PortMode.tutorial_probe then
+    smoke_frame = smoke_frame + 1
+    Input.left = false
+    Input.right = smoke_frame >= 5 and smoke_frame <= 19 and smoke_frame % 2 == 1
+    Input.up = false
+    Input.down = smoke_frame == 2
+    Input.jump = smoke_frame == 3
+    Input.spray = false
+    Input.rescue = smoke_frame == 21
+    Input.pause = smoke_frame == 1
+    Input.start = Input.pause or Input.jump
   end
 
   Input.left_pressed = Input.left and not left_was_down

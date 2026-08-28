@@ -17,9 +17,14 @@ The upstream `LICENSE` is preserved as `LICENSE.upstream`.
   plainly marked as an altered Lupi version.
 - ELIS-owned conversion and verification tools remain MIT.
 
-The initial converted set uses `data/tiles.png`, `data/player_running.png`,
-`data/player_gun.png`, `data/human_1_run.png`, `data/fire_wall.png`,
-`data/fire_floor.png`, and `maps/base.lua`. Conversion preserves the original
-RGB555 colors, replaces partial alpha with index-zero transparency, splits the
-256×256 tile sheet below Lupi's per-bitmap ceiling, and stores frames in
-Lupi tile-major order.
+The release converter consumes the pinned title/tutorial/menu/HUD, environment,
+player, civilian, item, enemy, boss, particle, warning, water, fire, and
+transition artwork; all eight OGG tracks; all four floor templates; all 24 room
+templates; and both base maps. `tools/audit_upstream_mechanics.py` checks 80
+pinned source/port movement, water, heat, civilian, fire, door, enemy, boss,
+scoring, and progression invariants during conversion. `tools/audit_release.py`
+rejects unreferenced converted bitmaps/music, undeclared payloads, size drift,
+missing license files, or a changed source revision. Conversion preserves the
+original RGB555 colors,
+replaces source alpha with index-zero transparency, splits or repacks every
+bitmap below Lupi's 49,152-pixel ceiling, and stores frames in tile-major order.

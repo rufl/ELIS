@@ -30,11 +30,30 @@ local Player = {
   spray_reach = 0,
   spray_x = 1,
   spray_y = 0,
+  throwing_frames = 0,
+  can_grab = false,
+  stream_collided = false,
+  water_animation = 0,
+  last_input_direction = 1,
+  distance_this_frame = 0,
+  death_anchor_y = 240,
 }
 
 local running_sprite = Sprites.find("assets/player_running")
 local gun_sprite = Sprites.find("assets/player_gun")
 local climbing_sprite = Sprites.find("assets/player_climb_down")
+local throwing_sprite = Sprites.find("assets/player_throw")
+local exclamation_sprite = Sprites.find("assets/exclamation")
+local water_out_sprites = {
+  Sprites.find("assets/water_out_0"), Sprites.find("assets/water_out_1"),
+}
+local water_end_sprites = {
+  Sprites.find("assets/water_end_0"), Sprites.find("assets/water_end_1"),
+}
+local water_hit_sprites = {
+  Sprites.find("assets/water_hit_0"), Sprites.find("assets/water_hit_1"),
+  Sprites.find("assets/water_hit_2"),
+}
 local death_up_sprite = Sprites.find("assets/player_death_up")
 local death_down_sprite = Sprites.find("assets/player_death_down")
 local death_suit_sprite = Sprites.find("assets/player_death_suit")
@@ -58,6 +77,11 @@ end
 
 function Player.setCertificationDirection(direction)
   Player.direction = direction
+end
+
+function Player.refillCertificationWater()
+  Player.water = Player.water_capacity
+  Player.overloaded = false
 end
 
 function Player.setDifficulty(difficulty)
@@ -97,6 +121,13 @@ function Player.reset(x, y)
   Player.spray_reach = 0
   Player.spray_x = 1
   Player.spray_y = 0
+  Player.throwing_frames = 0
+  Player.can_grab = false
+  Player.stream_collided = false
+  Player.water_animation = 0
+  Player.last_input_direction = 1
+  Player.distance_this_frame = 0
+  Player.death_anchor_y = Player.y
 end
 
 function Player.warp(x, y)
@@ -106,18 +137,26 @@ function Player.warp(x, y)
   Player.speed_y = 0
   Player.on_ground = false
   Player.climbing = false
-  Player.carrying = 0
   Player.spraying = false
   Player.spray_reach = 0
 end
 
 local function moveHorizontal()
+  if Input.left_pressed then Player.last_input_direction = -1 end
+  if Input.right_pressed then Player.last_input_direction = 1 end
   local requested_direction = 0
-  if Input.left and not Input.right then requested_direction = -1 end
-  if Input.right and not Input.left then requested_direction = 1 end
+  if Input.left and Input.right then
+    requested_direction = Player.last_input_direction
+  elseif Input.left then
+    requested_direction = -1
+  elseif Input.right then
+    requested_direction = 1
+  end
 
   if requested_direction ~= 0 then
+    local changed_direction = Player.direction ~= requested_direction
     Player.direction = requested_direction
+    if changed_direction and Player.spray_y == 0 then Player.spray_reach = 0 end
     Player.speed_x = Player.speed_x + requested_direction * acceleration
   end
 
@@ -161,28 +200,37 @@ local function moveVertical()
 end
 
 local function updateSpray()
-  Player.spray_x = Player.direction
-  Player.spray_y = 0
+  local spray_x = Player.direction
+  local spray_y = 0
   if Input.up then
-    Player.spray_x = 0
-    Player.spray_y = -1
+    spray_x = 0
+    spray_y = -1
   elseif Input.down then
-    Player.spray_x = 0
-    Player.spray_y = 1
+    spray_x = 0
+    spray_y = 1
   end
+  if spray_x ~= Player.spray_x or spray_y ~= Player.spray_y then
+    Player.spray_reach = 0
+  end
+  Player.spray_x = spray_x
+  Player.spray_y = spray_y
   Player.spraying = Input.spray and not Player.overloaded and
-                    Player.carrying == 0 and not Player.climbing
+                    Player.carrying == 0 and not Player.climbing and
+                    Player.throwing_frames == 0
   if Player.spraying then
     if Player.spray_reach == 0 then Audio.play("spray") end
     Player.spray_reach = math.min(100, Player.spray_reach + 400 / Profile.update_hz)
+    local requested_reach = Player.spray_reach
     Player.spray_reach = World.spray(
       Player.x + Player.spray_x * 10,
       Player.y - 8 + Player.spray_y * 8,
       Player.spray_x,
       Player.spray_y,
-      Player.spray_reach
+      Player.spray_reach,
+      Player.direction
     )
-    Player.water = Player.water - 2.5
+    Player.stream_collided = Player.spray_reach < requested_reach
+    Player.water = Player.water - (2.5 + Player.regeneration_rate)
     if Player.water <= 0 then
       if Player.has_reserve then
         Player.has_reserve = false
@@ -195,12 +243,13 @@ local function updateSpray()
     end
   else
     Player.spray_reach = 0
-    local rate = Player.overloaded and Player.regeneration_rate * 0.5 or
-                 Player.regeneration_rate
-    Player.water = math.min(Player.water_capacity, Player.water + rate)
-    if Player.overloaded and Player.water >= Player.water_capacity then
-      Player.overloaded = false
-    end
+    Player.stream_collided = false
+  end
+  local rate = Player.overloaded and Player.regeneration_rate * 0.5 or
+               Player.regeneration_rate
+  Player.water = cap(Player.water + rate, 0, Player.water_capacity)
+  if Player.overloaded and Player.water >= Player.water_capacity then
+    Player.overloaded = false
   end
 end
 
@@ -239,59 +288,105 @@ function Player.applyItem(kind)
   end
 end
 
-local function updateClimbing()
-  if Input.left or Input.right then
-    Player.climbing = false
-    return
-  end
-  if Input.up then Player.y = Player.y - 1 end
-  if Input.down then Player.y = Player.y + 1 end
-  Player.speed_x = 0
-  Player.speed_y = 0
-  if not World.ladderPoint(Player.x, Player.y) and
-     not World.ladderPoint(Player.x, Player.y - 20) then
+local function leaveLadder()
+  if not World.basicLadderPoint(Player.x, Player.y) and
+     not World.basicLadderPoint(Player.x, Player.y - 11) and
+     not World.basicLadderPoint(Player.x, Player.y - 22) then
     Player.climbing = false
   end
 end
 
+local function updateClimbing()
+  local old_y = Player.y
+  if Input.up then Player.y = Player.y - 1 end
+  if Input.down then Player.y = Player.y + 1 end
+  Player.speed_x = 0
+  Player.speed_y = 0
+  local bottom_tile = World.tileAt(
+    math.floor(Player.x / 16), math.floor(Player.y / 16)
+  )
+  if bottom_tile == 2 or bottom_tile == 26 or Player.y < 0 or
+     Player.y >= Profile.map_height * 16 then
+    Player.y = old_y
+    Player.climbing = false
+  elseif bottom_tile ~= 5 and bottom_tile ~= 8 and bottom_tile ~= 137 and
+         bottom_tile ~= 153 and bottom_tile ~= 247 and bottom_tile ~= 13 and
+         bottom_tile ~= 63 and bottom_tile ~= 79 then
+    Player.climbing = false
+  end
+end
+
+local function regenerateWater()
+  local rate = Player.overloaded and Player.regeneration_rate * 0.5 or
+               Player.regeneration_rate
+  Player.water = cap(Player.water + rate, 0, Player.water_capacity)
+  if Player.overloaded and Player.water >= Player.water_capacity then
+    Player.overloaded = false
+  end
+end
+
 function Player.update()
+  Player.water_animation = (Player.water_animation + 1) % 120
+  Player.distance_this_frame = 0
   if Player.dead then
     Player.speed_y = Player.speed_y + gravity
-    Player.y = Player.y + Player.speed_y
-    if Player.y > Profile.map_height * 16 + 48 then Player.failed = true end
+    Player.death_anchor_y = Player.death_anchor_y + Player.speed_y
+    regenerateWater()
+    Player.distance_this_frame = math.sqrt(
+      Player.speed_x * Player.speed_x + Player.speed_y * Player.speed_y
+    ) / 16
+    if Player.death_anchor_y > Profile.map_height * 16 + 32 then
+      Player.failed = true
+    end
     return
   end
-  if Player.climbing then
-    updateClimbing()
-  else
-    moveHorizontal()
-    moveVertical()
-    if (Input.up or Input.down) and
-       (World.ladderPoint(Player.x, Player.y) or
-        World.ladderPoint(Player.x, Player.y - 20)) then
-      Player.climbing = true
-      Player.x = math.floor(Player.x / 16) * 16 + 8
-      Player.speed_x = 0
-      Player.speed_y = 0
-    end
-  end
+
   if Input.jump_pressed then
     if Player.climbing then
-      Player.climbing = false
+      leaveLadder()
     elseif Player.on_ground then
       Player.speed_y = -jump_speed
       Audio.play("jump")
     end
   end
-  if Input.rescue_pressed then
-    if Player.carrying == 0 then
+  if Input.rescue_pressed and Player.throwing_frames == 0 then
+    if Player.climbing then
+      leaveLadder()
+    elseif Player.carrying == 0 then
       World.tryCarry(Player)
     else
       World.throwCarried(Player)
+      Player.throwing_frames = 24
+      Player.animation = 0
     end
   end
+
+  if Player.climbing then
+    if Input.left_pressed or Input.right_pressed then leaveLadder() end
+    if Player.climbing then updateClimbing() end
+  else
+    moveHorizontal()
+    moveVertical()
+    if Player.carrying == 0 and Player.throwing_frames == 0 and
+       not Input.spray and (Input.up_pressed or Input.down_pressed) and
+       (World.ladderPoint(Player.x, Player.y + 1) or
+        World.ladderPoint(Player.x, Player.y - 22)) then
+      Player.climbing = true
+      Player.x = math.floor(Player.x / 16) * 16 + 8
+      Player.speed_x = 0
+      Player.speed_y = 0
+      Player.spray_reach = 0
+    end
+  end
+
+  Player.can_grab = Player.carrying == 0 and Player.throwing_frames == 0 and
+                    World.canCarry(Player)
   updateSpray()
-  Player.heat = World.heatAt(Player.x, Player.y - 11)
+  if Player.throwing_frames > 0 then Player.throwing_frames = Player.throwing_frames - 1 end
+  World.collectItems(Player)
+  Player.heat = math.min(
+    Player.maximum_temperature, World.heatAt(Player.x, Player.y - 11)
+  )
   local time_damage = World.isBossBattle() and 0 or 0.008
   Player.temperature = math.min(
     Player.maximum_temperature,
@@ -299,17 +394,26 @@ function Player.update()
   )
   if Player.temperature >= Player.maximum_temperature then
     Player.dead = true
+    Player.death_anchor_y = Player.y
     Player.climbing = false
     Player.spraying = false
     Player.speed_y = -230 / Profile.update_hz
   end
 
-  if Player.climbing and (Input.up or Input.down) then
-    Player.animation = (Player.animation + 1) % 32
-  elseif math.abs(Player.speed_x) > 0.2 then
-    Player.animation = (Player.animation + 1) % 32
-  else
-    Player.animation = 0
+  Player.distance_this_frame = math.sqrt(
+    Player.speed_x * Player.speed_x + Player.speed_y * Player.speed_y
+  ) / 16
+
+  if Player.climbing then
+    if Input.up then
+      Player.animation = (Player.animation - 1) % 32
+    elseif Input.down then
+      Player.animation = (Player.animation + 1) % 32
+    end
+  elseif math.abs(Player.speed_x) > 0 then
+    Player.animation = (
+      Player.animation + math.abs(Player.speed_x) / maximum_speed
+    ) % 32
   end
 end
 
@@ -318,21 +422,47 @@ function Player.cameraX()
 end
 
 function Player.draw(camera_x, origin_y, water_color)
-  local frame = math.floor(Player.animation / 8) % 4
+  local frame = math.floor(Player.animation / 7.2) % 4
   local screen_x = math.floor(Player.x - camera_x)
   local screen_y = math.floor(Player.y + origin_y)
   if Player.dead then
-    local body_sprite = Player.speed_y < 0 and death_up_sprite or death_down_sprite
-    ui.tile(body_sprite, 0, screen_x - 8, screen_y - 24, Player.direction < 0, false)
-    ui.tile(death_suit_sprite, 0, screen_x - 7, screen_y - 10, Player.direction < 0, false)
+    local anchor_y = math.floor(Player.death_anchor_y + origin_y)
+    if Player.speed_y < 0 then
+      ui.tile(death_up_sprite, 0, screen_x - 8, anchor_y - 24,
+              Player.direction < 0, false)
+      ui.tile(death_suit_sprite, 0, screen_x - 7, screen_y - 10,
+              Player.direction < 0, false)
+    else
+      ui.tile(death_suit_sprite, 0, screen_x - 7, screen_y - 10,
+              Player.direction < 0, false)
+      ui.tile(death_down_sprite, 0, screen_x - 8, anchor_y - 25,
+              Player.direction < 0, false)
+    end
     return
   end
   if Player.climbing then
     ui.tile(
       climbing_sprite,
-      math.floor(Player.animation / 8) % 4,
+      math.floor(Player.animation / 7.2) % 4,
       screen_x - 7,
-      screen_y - 23
+      screen_y - 20
+    )
+    return
+  end
+  if Player.throwing_frames > 0 then
+    local throw_frame = math.floor(Player.animation / 7.2) % 4
+    if not Player.on_ground then
+      throw_frame = 1
+    elseif math.abs(Player.speed_x) < 30 / Profile.update_hz then
+      throw_frame = 3
+    end
+    ui.tile(
+      throwing_sprite,
+      throw_frame,
+      screen_x - 8,
+      screen_y - 32,
+      Player.direction < 0,
+      false
     )
     return
   end
@@ -342,8 +472,14 @@ function Player.draw(camera_x, origin_y, water_color)
       Player.direction,
       screen_x,
       screen_y,
-      Player.animation
+      Player.animation,
+      Player.speed_x
     ) then return end
+  end
+  if not Player.on_ground then
+    frame = 1
+  elseif math.abs(Player.speed_x) < 30 / Profile.update_hz then
+    frame = 3
   end
   ui.tile(
     running_sprite,
@@ -364,6 +500,9 @@ function Player.draw(camera_x, origin_y, water_color)
     Player.direction < 0,
     false
   )
+  if Player.can_grab then
+    ui.tile(exclamation_sprite, 0, screen_x - 2, screen_y - 40)
+  end
   if Player.spraying and Player.spray_reach > 0 then
     local start_x = screen_x + Player.spray_x * 10
     local start_y = screen_y - 8 + Player.spray_y * 8
@@ -372,6 +511,28 @@ function Player.draw(camera_x, origin_y, water_color)
     ui.line(start_x, start_y, end_x, end_y, water_color)
     if Player.spray_y == 0 then
       ui.line(start_x, start_y + 1, end_x, end_y + 1, water_color)
+      local water_frame = math.floor(Player.water_animation / 6) % 2 + 1
+      local end_sprite = water_end_sprites[water_frame]
+      if Player.stream_collided then
+        local hit_frame = math.floor(Player.water_animation / 6) % 3 + 1
+        end_sprite = water_hit_sprites[hit_frame]
+      end
+      ui.tile(
+        water_out_sprites[water_frame],
+        0,
+        screen_x + (Player.direction < 0 and -12 or 5),
+        screen_y - 15,
+        Player.direction < 0,
+        false
+      )
+      ui.tile(
+        end_sprite,
+        0,
+        end_x + (Player.direction < 0 and -8 or -7),
+        end_y - 8,
+        Player.direction < 0,
+        false
+      )
     else
       ui.line(start_x + 1, start_y, end_x + 1, end_y, water_color)
     end

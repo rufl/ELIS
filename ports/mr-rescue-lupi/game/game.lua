@@ -5,6 +5,7 @@ local Profile = require("profile")
 local PortMode = require("port_mode")
 local Audio = require("audio")
 local Campaign = require("campaign")
+local Progression = require("progression")
 local Input = require("input")
 local World = require("world")
 local Player = require("player")
@@ -30,10 +31,22 @@ local STATE_PAUSE = 12
 local STATE_SUMMARY = 13
 local STATE_HIGHSCORE_ENTRY = 14
 local STATE_COUNTDOWN = 15
+local STATE_TRANSITION_OUT = 16
+local STATE_COUNTDOWN_IN = 17
+local STATE_TRANSITION_IN = 18
 local splash_left = Sprites.find("assets/splash_left")
 local splash_right = Sprites.find("assets/splash_right")
-local howto_left = Sprites.find("assets/howto_left")
-local howto_right = Sprites.find("assets/howto_right")
+local tangram_left = Sprites.find("assets/tangram_left")
+local tangram_right = Sprites.find("assets/tangram_right")
+local love_left = Sprites.find("assets/love_left")
+local love_right = Sprites.find("assets/love_right")
+local howto_sprites = {}
+for slide = 0, 8 do
+  howto_sprites[slide + 1] = {
+    Sprites.find("assets/howto_" .. slide .. "_left"),
+    Sprites.find("assets/howto_" .. slide .. "_right"),
+  }
+end
 local level_buildings = Sprites.find("assets/level_buildings")
 local building_outlines = {
   Sprites.find("assets/building_outline_1"),
@@ -58,6 +71,38 @@ local stats_panes = {
   Sprites.find("assets/stats_pane_2"),
   Sprites.find("assets/stats_pane_3"),
 }
+local countdown_sprites = {
+  Sprites.find("assets/countdown_0"), Sprites.find("assets/countdown_1"),
+  Sprites.find("assets/countdown_2"), Sprites.find("assets/countdown_3"),
+}
+local hud_sprite = Sprites.find("assets/hud")
+local hud_front_sprite = Sprites.find("assets/hud_front")
+local hud_person_lost = Sprites.find("assets/hud_person_lost")
+local hud_person_safe = Sprites.find("assets/hud_person_safe")
+local item_slot_sprites = {
+  Sprites.find("assets/item_slot_regen"),
+  Sprites.find("assets/item_slot_tank"),
+  Sprites.find("assets/item_slot_suit"),
+}
+local red_hit_sprite = Sprites.find("assets/red_hit")
+local water_bar_sprite = Sprites.find("assets/water_bar")
+local reserve_bar_sprite = Sprites.find("assets/reserve_bar")
+local overloaded_bar_sprite = Sprites.find("assets/overloaded_bar")
+local temperature_bar_sprite = Sprites.find("assets/temperature_bar")
+local temperature_blink_sprite = Sprites.find("assets/temperature_blink")
+local circle_sprites = {}
+for frame = 0, 6 do
+  circle_sprites[frame + 1] = Sprites.find("assets/circle_" .. frame)
+end
+local award_sprites = {}
+for statistic = 1, 6 do
+  award_sprites[statistic] = {
+    NONE = Sprites.find("assets/award_" .. statistic .. "_none"),
+    BRONZE = Sprites.find("assets/award_" .. statistic .. "_bronze"),
+    SILVER = Sprites.find("assets/award_" .. statistic .. "_silver"),
+    GOLD = Sprites.find("assets/award_" .. statistic .. "_gold"),
+  }
+end
 local menu_labels = {
   "START GAME", "HOW TO PLAY", "HIGHSCORES", "OPTIONS", "HISTORY", "EXIT",
 }
@@ -65,13 +110,25 @@ local building_names = {
   "SMALL BUSINESS", "APARTMENT COMPLEX", "BIG CORPORATION",
 }
 local difficulty_names = { "EASY", "NORMAL", "HARD" }
+local no_casualty_messages = {
+  { "REMEMBER: YOUR JOB IS TO RESCUE PEOPLE.", "NOT TO PUT OUT FIRE!" },
+  { "KEEP UP THE GOOD WORK, BUDDY!", "YOU'RE ON FIRE. HE HE HE" },
+  { "REMEMBER TO SCOUT FOR POWERUPS.", "THEY WILL COME IN HANDY LATER." },
+  { "SAVE WATER OPENING DOORS:", "TRY THROWING PEOPLE AT THEM." },
+  { "RESCUE 3 PEOPLE QUICKLY", "TO EARN A COMBO BONUS." },
+  { "COLLECTING COOLANT IS ESSENTIAL", "FOR YOUR SURVIVAL." },
+}
+local boss_messages = {
+  { "WATCH OUT, MR. RESCUE!", "IT'S THE EVIL MR. MAGMA HULK!" },
+  { "WATCH OUT, MR. RESCUE!", "IT'S THE VICIOUS MR. GAS LEAK!" },
+  { "WATCH OUT, MR. RESCUE!", "IT'S THE MALICIOUS MR. CHARCOAL!" },
+}
 local statistic_names = {
   "FIRES EXTINGUISHED", "WATER USED", "DISTANCE MOVED",
   "PEOPLE RESCUED", "PROPERTY DAMAGE", "FLOORS SCALED",
 }
 local statistic_units = { "", " LITERS", " METERS", "", " $", "" }
 local keyboard = "ABCDEFGHIJKLMNOPQRSTUVWXYZ_-<&"
-local boss_sections = { 8, 11, 15 }
 local normal_music = {
   "music/rockerronni.ogg", "music/bundesliga.ogg", "music/scooterfest.ogg",
 }
@@ -86,11 +143,19 @@ local maximum_casualties = 5
 local pause_selection = 1
 local highscore_page = 1
 local history_page = 1
+local howto_slide = 0
 local highscore_rank = 0
 local name_selection = 1
 local name_position = 1
 local name_entry = "_____"
 local failure_message = "YOUR SUIT OVERHEATED!"
+local family_presentation = PortMode.family_presentation or false
+local transition_outcome = 0
+local normal_music_index = 1
+local last_missed = 0
+local last_logged_state = 0
+local last_logged_howto = -1
+local last_logged_menu_detail = ""
 
 assert(_VERSION == "Lua 5.4")
 assert(ui.stat(0) < Profile.lua_heap_bytes_max)
@@ -114,42 +179,53 @@ local function playLevelMusic(boss_kind)
   if boss_kind then
     sfx.music("music/roof.ogg")
   else
-    local track = normal_music[(campaign_section - 1) % #normal_music + 1]
-    sfx.music(track)
+    sfx.music(normal_music[normal_music_index])
   end
   music_state = "play"
 end
 
-local function loadSection(first_section)
+local function loadSection(first_section, fade_in)
   local internal_section = PortMode.auto_start and PortMode.section or
-                           campaign_section + (difficulty - 1) * 5
+                           Progression.internalSection(campaign_section, difficulty)
   local boss_kind = PortMode.boss_kind
-  if not PortMode.auto_start and campaign_section == boss_sections[difficulty] then
+  if not PortMode.auto_start and Progression.isBoss(campaign_section, difficulty) then
     boss_kind = difficulty
   end
   local seed = PortMode.auto_start and 0x4D52534B or
                0x4D52534B + campaign_section * 977 + difficulty * 131
   World.reset(seed, internal_section, boss_kind)
+  if PortMode.player_trace or PortMode.section_exit_probe then
+    World.preparePlayerTrace()
+  end
   if PortMode.all_enemies then World.addCertificationEnemies() end
   local start_x, start_y = World.startPosition()
   if first_section then
     Player.reset(start_x, start_y)
     Player.setDifficulty(difficulty)
     if PortMode.boss_victory then Player.maximum_temperature = 100 end
+    if PortMode.failure_probe then Player.temperature = Player.maximum_temperature end
+    if PortMode.section_exit_probe then Player.y = -10 end
   else
     Player.warp(start_x, start_y)
   end
-  if PortMode.auto_start and not PortMode.boss_kind then
-    World.addCertificationHuman(Player.x - 20, Player.y)
+  if PortMode.auto_start and not PortMode.boss_kind and
+     not PortMode.player_trace and not PortMode.interaction_probe and
+     not PortMode.section_exit_probe then
+    World.addCertificationHuman(Player.x - 10, Player.y)
     World.addCertificationRescue(Player.y)
     World.addCertificationBurningHuman(Player.x + 80, Player.y)
     World.addCertificationScoringTarget(Player.x - 36, Player.y - 40)
+  end
+  if PortMode.interaction_probe then
+    World.certificationInteractionTrace(Player)
   end
   frames = 0
   if first_section and not PortMode.auto_start then
     sfx.music()
     music_state = "stopped"
-    state = STATE_COUNTDOWN
+    state = STATE_COUNTDOWN_IN
+  elseif fade_in then
+    state = STATE_TRANSITION_IN
   else
     playLevelMusic(boss_kind)
     state = STATE_PLAY
@@ -159,8 +235,11 @@ end
 local function beginGame()
   campaign_section = 1
   campaign_casualties = 0
-  maximum_casualties = 6 - difficulty
+  last_missed = 0
+  maximum_casualties = Progression.maximumCasualties(difficulty)
+  normal_music_index = (difficulty - 1) % #normal_music + 1
   Campaign.reset()
+  if PortMode.capacity_probe then World.certificationCapacityBoundaries() end
   if PortMode.seed_sweep and PortMode.seed_sweep > 0 then
     World.certificationSeedSweep(PortMode.seed_sweep)
   end
@@ -168,7 +247,7 @@ local function beginGame()
 end
 
 local function updateTitle()
-  if Input.start_pressed then enterMenu() end
+  if Input.start_pressed or Input.rescue_pressed then enterMenu() end
 end
 
 local function updateMenu()
@@ -184,8 +263,13 @@ local function updateMenu()
   Audio.play("confirm")
   if menu_selection == 1 then
     state = STATE_LEVEL
+    sfx.music("music/menujazz.ogg")
+    music_state = "information"
   elseif menu_selection == 2 then
+    howto_slide = 0
     state = STATE_HOWTO
+    sfx.music("music/menujazz.ogg")
+    music_state = "information"
   elseif menu_selection == 3 then
     highscore_page = 1
     state = STATE_HIGHSCORES
@@ -221,7 +305,18 @@ local function updateLevel()
 end
 
 local function updateInformationScreen()
-  if Input.jump_pressed or Input.rescue_pressed or Input.pause_pressed then enterMenu() end
+  if Input.right_pressed or Input.down_pressed then
+    howto_slide = math.min(8, howto_slide + 1)
+    Audio.play("blip")
+  elseif Input.left_pressed or Input.up_pressed then
+    howto_slide = math.max(0, howto_slide - 1)
+    Audio.play("blip")
+  elseif Input.jump_pressed then
+    howto_slide = math.min(8, howto_slide + 1)
+    Audio.play("blip")
+  elseif Input.rescue_pressed or Input.pause_pressed then
+    enterMenu()
+  end
 end
 
 local function updateHighscores()
@@ -249,7 +344,12 @@ local function updateHistory()
 end
 
 local function updateOptions()
-  if Input.rescue_pressed or Input.pause_pressed then enterMenu() end
+  if Input.left_pressed or Input.right_pressed or Input.jump_pressed then
+    family_presentation = not family_presentation
+    Audio.play("blip")
+  elseif Input.rescue_pressed or Input.pause_pressed then
+    enterMenu()
+  end
 end
 
 local function enterSummary()
@@ -269,13 +369,18 @@ local function updatePlay()
   if PortMode.boss_victory then
     Player.setCertificationPosition(World.certificationBossPlayerX())
     Player.setCertificationDirection(World.bossDirectionFrom(Player.x))
+    Player.refillCertificationWater()
   end
-  Player.update()
   World.update(Player)
   if PortMode.boss_victory then World.clearCertificationHazards() end
+  Player.update()
   Campaign.updatePlayer(Player)
   Campaign.consumeWorld(World)
-  frames = frames + 1
+  local popup = Campaign.consumePopup()
+  while popup ~= 0 do
+    World.addPopup(Player.x, Player.y - 24, popup)
+    popup = Campaign.consumePopup()
+  end
 
   if campaign_casualties + World.casualtyCount() >= maximum_casualties and
      not Player.dead then
@@ -284,18 +389,32 @@ local function updatePlay()
   end
 
   if Player.failed then
-    state = STATE_FAILED
+    transition_outcome = 2
+    state = STATE_TRANSITION_OUT
     frames = 0
-    sfx.music()
-    music_state = "stopped"
   elseif World.bossDefeated() then
-    Campaign.floorCleared(false)
     state = STATE_WON
     frames = 0
     sfx.music("music/victory.ogg")
     music_state = "clear"
   elseif not World.isBossBattle() and Player.y < 0 then
+    transition_outcome = 1
+    state = STATE_TRANSITION_OUT
+    frames = 0
+  elseif Player.y > Profile.map_height * 16 + 32 then
+    transition_outcome = 3
+    state = STATE_TRANSITION_OUT
+    frames = 0
+  end
+end
+
+local function updateTransitionOut()
+  World.update(Player)
+  Campaign.consumeWorld(World)
+  if frames <= 80 then return end
+  if transition_outcome == 1 then
     local missed = World.humanCount()
+    last_missed = missed
     campaign_casualties = campaign_casualties + World.casualtyCount() + missed
     Campaign.floorCleared(campaign_casualties < maximum_casualties)
     if campaign_casualties >= maximum_casualties then
@@ -305,18 +424,55 @@ local function updatePlay()
       music_state = "stopped"
     else
       campaign_section = campaign_section + 1
+      if Progression.isBoss(campaign_section, difficulty) then
+        playLevelMusic(true)
+      end
       state = STATE_PRESCREEN
     end
-    frames = 0
-  elseif Player.y > Profile.map_height * 16 + 32 then
+  elseif transition_outcome == 2 then
+    state = STATE_FAILED
+    sfx.music()
+    music_state = "stopped"
+  else
     Player.warp(World.startPosition())
+    state = STATE_TRANSITION_IN
   end
+  frames = 0
 end
 
 local function updatePrescreen()
-  if Input.start_pressed then
+  if Input.left_pressed or Input.right_pressed then
+    if not Progression.isBoss(campaign_section, difficulty) then
+      if Input.left_pressed then
+        normal_music_index = (normal_music_index - 2) % #normal_music + 1
+      else
+        normal_music_index = normal_music_index % #normal_music + 1
+      end
+      playLevelMusic(false)
+      Audio.play("blip")
+    end
+  elseif Input.start_pressed then
     Audio.play("confirm")
-    loadSection(false)
+    loadSection(false, true)
+  end
+end
+
+local function updateTransitionIn()
+  World.update(Player)
+  Campaign.consumeWorld(World)
+  if frames > 80 then
+    state = STATE_PLAY
+    frames = 0
+  end
+end
+
+local function updateCountdownIn()
+  World.update(Player)
+  Campaign.consumeWorld(World)
+  if frames > 80 then
+    state = STATE_COUNTDOWN
+    frames = 0
+    Audio.play("confirm")
   end
 end
 
@@ -345,8 +501,13 @@ local function updatePause()
 end
 
 local function updateTerminalScreen()
-  frames = frames + 1
   if frames > 30 and Input.start_pressed then enterSummary() end
+end
+
+local function updateWon()
+  World.update(Player)
+  Campaign.consumeWorld(World)
+  if frames > 1 and Input.start_pressed then enterSummary() end
 end
 
 local function beginHighscoreEntry()
@@ -424,8 +585,16 @@ end
 
 local function drawTitle()
   ui.cls(COLOR_BLACK)
-  drawOriginalScreen(splash_left, splash_right)
-  if frames % 96 < 48 then ui.print("PRESS START", 262, 175, COLOR_PAPER) end
+  if frames <= 240 then
+    drawOriginalScreen(tangram_left, tangram_right)
+  elseif frames <= 480 then
+    drawOriginalScreen(love_left, love_right)
+  else
+    drawOriginalScreen(splash_left, splash_right)
+    if frames > 600 and frames % 96 < 48 then
+      ui.print("PRESS START", 262, 175, COLOR_PAPER)
+    end
+  end
 end
 
 local function drawMenu()
@@ -449,8 +618,9 @@ local function drawLevel()
   ui.rect(22, 68, 206, 211, COLOR_PAPER)
   ui.print(building_names[difficulty], 35, 86, COLOR_PAPER)
   ui.print("DIFFICULTY: " .. difficulty_names[difficulty], 35, 111, COLOR_RED)
-  ui.print("FLOORS: " .. ({ 21, 30, 42 })[difficulty], 35, 134, COLOR_PAPER)
-  ui.print("MISSES: " .. (6 - difficulty), 35, 157, COLOR_PAPER)
+  ui.print("FLOORS: " .. Progression.floorCount(difficulty), 35, 134, COLOR_PAPER)
+  ui.print("MISSES: " .. Progression.maximumCasualties(difficulty),
+           35, 157, COLOR_PAPER)
   local name, best = Campaign.highscore(difficulty, 1)
   if name then ui.print("BEST: " .. best, 35, 179, COLOR_GREEN) end
   ui.print("Z START   E BACK", 35, 198, COLOR_BLUE)
@@ -458,8 +628,10 @@ end
 
 local function drawHowto()
   ui.cls(COLOR_BLACK)
-  drawOriginalScreen(howto_left, howto_right)
-  ui.print("Z/E: BACK", 405, 258, COLOR_PAPER)
+  local sprites = howto_sprites[howto_slide + 1]
+  drawOriginalScreen(sprites[1], sprites[2])
+  ui.print((howto_slide + 1) .. "/9  ARROWS/Z: NEXT  E: BACK",
+           260, 258, COLOR_PAPER)
 end
 
 local function drawHighscores()
@@ -483,7 +655,9 @@ local function drawOptions()
   ui.print("FULLSCREEN/VSYNC: ELIS HOST", 145, 117, COLOR_PAPER)
   ui.print("SOUND/MUSIC: PHYSICAL PROFILE", 137, 140, COLOR_PAPER)
   ui.print("CLASSIC GAMEPLAY: ON", 164, 169, COLOR_GREEN)
-  ui.print("E/START: BACK", 194, 214, COLOR_BLUE)
+  ui.print("FAMILY PRESENTATION: " .. (family_presentation and "ON" or "OFF"),
+           145, 190, family_presentation and COLOR_GREEN or COLOR_PAPER)
+  ui.print("LEFT/RIGHT/Z TOGGLE   E BACK", 137, 224, COLOR_BLUE)
 end
 
 local function drawHistory()
@@ -499,61 +673,115 @@ local function drawHistory()
     ui.print(statistic_names[index], 105, y + 11, COLOR_PAPER)
     ui.print(math.floor(Campaign.statistics[index]) .. statistic_units[index],
              105, y + 34, COLOR_GREEN)
-    ui.print(Campaign.award(index), 316, y + 34, COLOR_RED)
+    local award = Campaign.award(index)
+    ui.tile(award_sprites[index][award], 0, 316, y + 24)
+    ui.print(award, 346, y + 34, COLOR_RED)
   end
   ui.print("LEFT/RIGHT PAGE   E BACK", 154, 238, COLOR_BLUE)
 end
 
 local function drawHud()
-  ui.rectfill(0, 0, 479, 13, COLOR_INK)
-  ui.print("SCORE", 4, 3, COLOR_GREEN)
-  ui.print(tostring(Campaign.score), 39, 3, COLOR_PAPER)
-  ui.print("FIRE", 92, 3, COLOR_RED)
-  ui.print(tostring(World.fireCount()), 121, 3, COLOR_PAPER)
-  ui.print("WATER", 143, 3, COLOR_BLUE)
-  ui.rect(179, 3, 235, 10, COLOR_PAPER)
-  local water_end = 180 + math.floor(Player.water * 54 / Player.water_capacity)
-  if water_end >= 180 then ui.rectfill(180, 4, water_end, 9, COLOR_BLUE) end
-  ui.print("TEMP", 244, 3, COLOR_RED)
-  ui.rect(274, 3, 330, 10, COLOR_PAPER)
-  local heat_end = 275 + math.floor(
-    Player.temperature * 54 / Player.maximum_temperature
+  local hud_x = 112
+  local hud_y = 238
+  ui.tile(hud_sprite, 0, hud_x, hud_y)
+
+  local water_width = math.floor(Player.water * 55 / Player.water_capacity + 0.5)
+  local water_sprite = water_bar_sprite
+  if Player.overloaded then
+    water_sprite = overloaded_bar_sprite
+  elseif Player.has_reserve then
+    water_sprite = reserve_bar_sprite
+  end
+  ui.tile(water_sprite, water_width, hud_x + 10, hud_y + 10)
+
+  local temperature_width = math.floor(
+    Player.temperature * 82 / Player.maximum_temperature + 0.5
   )
-  if heat_end >= 275 then ui.rectfill(275, 4, heat_end, 9, COLOR_RED) end
-  ui.print("LOST", 339, 3, COLOR_RED)
-  ui.print(tostring(campaign_casualties + World.casualtyCount()), 368, 3, COLOR_PAPER)
-  ui.print("E: PICK/THROW", 390, 3, COLOR_PAPER)
+  ui.tile(temperature_bar_sprite, temperature_width, hud_x + 75, hud_y + 7)
+  if Player.temperature > Player.maximum_temperature * 0.75 and
+     frames % 60 < 30 then
+    ui.tile(temperature_blink_sprite, 0, hud_x + 74, hud_y + 6)
+  end
+
+  local casualties = campaign_casualties + World.casualtyCount()
+  for index = 1, maximum_casualties do
+    local person = index <= casualties and hud_person_lost or hud_person_safe
+    ui.tile(person, 0, hud_x + 168 + (index - 1) * 5, hud_y + 7)
+  end
+  ui.tile(hud_front_sprite, 0, hud_x, hud_y)
+
+  for index = 1, 3 do
+    if index <= Player.regeneration_count then
+      ui.tile(item_slot_sprites[1], 0, hud_x + 78 + (index - 1) * 6, hud_y + 18)
+    end
+    if index <= Player.tank_count then
+      ui.tile(item_slot_sprites[2], 0, hud_x + 100 + (index - 1) * 6, hud_y + 18)
+    end
+    if index <= Player.suit_count then
+      ui.tile(item_slot_sprites[3], 0, hud_x + 122 + (index - 1) * 6, hud_y + 18)
+    end
+  end
+  ui.print("SCORE: " .. Campaign.score, hud_x + 150, hud_y + 19, COLOR_INK)
+  ui.print("SCORE: " .. Campaign.score, hud_x + 150, hud_y + 18, COLOR_PAPER)
 end
 
-local function drawPlay()
+local function drawPlay(world_offset, hide_boss_hud)
   ui.cls(COLOR_BLACK)
   local camera_x = Player.cameraX()
-  World.draw(camera_x, 14)
-  Player.draw(camera_x, 14, COLOR_BLUE)
-  World.drawWarnings(camera_x, 14, frames)
+  local origin_y = 14 + (world_offset or 0)
+  World.draw(camera_x, origin_y, family_presentation)
+  Player.draw(camera_x, origin_y, COLOR_BLUE)
+  World.draw(camera_x, origin_y, family_presentation, "front")
+  if not World.isBossBattle() then
+    World.drawLighting(camera_x, origin_y, Player.x, Player.y)
+  end
+  if Player.heat > 0 and (not family_presentation or frames % 4 < 2) then
+    ui.tile(red_hit_sprite, 0, 112, 14)
+  end
+  World.drawWarnings(camera_x, origin_y, frames, family_presentation)
+  if not hide_boss_hud then World.drawBossHud() end
   drawHud()
 end
 
 local function drawPrescreen()
   ui.cls(COLOR_INK)
   ui.rect(72, 48, 407, 221, COLOR_PAPER)
-  ui.tile(captain_sprites[math.floor(frames / 20) % 2 + 1], 0, 140, 90)
-  local floor = campaign_section * 3 - 2
-  if campaign_section == boss_sections[difficulty] then
-    ui.print("ROOF", 222, 70, COLOR_RED)
-    ui.print(({ "WATCH OUT: MR. MAGMA HULK!", "WATCH OUT: MR. GAS LEAK!",
-                "WATCH OUT: MR. CHARCOAL!" })[difficulty], 143, 116, COLOR_RED)
+  ui.tile(captain_sprites[math.floor(frames / 20) % 2 + 1], 0, 140, 101)
+  local floor, floor_end = Progression.floorRange(campaign_section)
+  local message
+  if Progression.isBoss(campaign_section, difficulty) then
+    ui.print("ROOF", 222, 68, COLOR_RED)
+    message = boss_messages[difficulty]
+  elseif last_missed == 1 then
+    ui.print("FLOOR " .. floor .. "-" .. floor_end, 199, 68, COLOR_RED)
+    message = { "HEY THERE, BUDDY!", "YOU MISSED 1 PERSON. TRY HARDER." }
+  elseif last_missed > 1 then
+    ui.print("FLOOR " .. floor .. "-" .. floor_end, 199, 68, COLOR_RED)
+    if family_presentation then
+      message = { "HEY THERE, BUDDY!", "YOU MISSED " .. last_missed .. " PEOPLE. TRY HARDER." }
+    else
+      message = { "HEY THERE, BUDDY!", "YOU LET " .. last_missed .. " PEOPLE BURN TO DEATH.",
+                  "TRY A LITTLE HARDER." }
+    end
   else
-    ui.print("FLOOR " .. floor .. "-" .. (floor + 2), 199, 70, COLOR_RED)
-    ui.print("KEEP UP THE GOOD WORK, BUDDY!", 143, 116, COLOR_BLUE)
+    ui.print("FLOOR " .. floor .. "-" .. floor_end, 199, 68, COLOR_RED)
+    message = no_casualty_messages[(campaign_section - 2) % #no_casualty_messages + 1]
   end
-  ui.print("CASUALTIES: " .. campaign_casualties .. "/" .. maximum_casualties,
-           170, 145, COLOR_RED)
-  ui.print("PRESS Z OR START", 190, 194, COLOR_PAPER)
+  for index, line in ipairs(message) do
+    ui.print(line, 205, 108 + (index - 1) * 14, index == 1 and COLOR_BLUE or COLOR_PAPER)
+  end
+  local outcome_label = family_presentation and "MISSED: " or "CASUALTIES: "
+  ui.print(outcome_label .. campaign_casualties .. "/" .. maximum_casualties,
+           205, 163, COLOR_RED)
+  ui.print("PRESS Z OR START", 190, 198, COLOR_PAPER)
+  if not Progression.isBoss(campaign_section, difficulty) then
+    ui.print("LEFT/RIGHT: MUSIC", 183, 213, COLOR_BLUE)
+  end
 end
 
 local function drawWon()
-  drawPlay()
+  local world_offset = math.min(270, math.floor(frames / 3))
+  drawPlay(world_offset, true)
   ui.rectfill(78, 50, 401, 211, COLOR_BLACK)
   ui.rect(78, 50, 401, 211, COLOR_GREEN)
   ui.print("CONGRATULATIONS!", 180, 70, COLOR_GREEN)
@@ -568,17 +796,41 @@ local function drawFailed()
   ui.rectfill(82, 76, 397, 190, COLOR_PAPER)
   ui.rect(82, 76, 397, 190, COLOR_RED)
   ui.tile(captain_sad_sprites[math.floor(frames / 20) % 2 + 1], 0, 140, 90)
-  ui.print(failure_message, 133, 107, COLOR_RED)
+  local message = failure_message
+  if family_presentation and message == "TOO MANY CIVILIANS HAVE DIED!" then
+    message = "TOO MANY CIVILIANS WERE MISSED!"
+  end
+  ui.print(message, 133, 107, COLOR_RED)
   ui.print("GAME OVER", 204, 132, COLOR_INK)
   ui.print("PRESS Z TO CONTINUE", 181, 162, COLOR_INK)
 end
 
 local function drawCountdown()
   drawPlay()
-  local seconds = math.max(1, 4 - math.floor(frames / 60))
-  ui.rectfill(211, 103, 268, 166, COLOR_BLACK)
-  ui.rect(211, 103, 268, 166, COLOR_PAPER)
-  ui.print(tostring(seconds), 234, 127, COLOR_RED)
+  local countdown_frame = math.min(3, math.floor(frames / 60))
+  ui.tile(countdown_sprites[countdown_frame + 1], 0, 208, 122)
+end
+
+local function drawCountdownIn()
+  drawPlay()
+  local transition_frame = math.floor(frames / 4)
+  for cell_y = 0, 8 do
+    for cell_x = 0, 14 do
+      local progress = math.max(0, math.min(6, transition_frame - 13 + cell_x + cell_y))
+      ui.tile(circle_sprites[7 - progress], 0, cell_x * 32, cell_y * 32)
+    end
+  end
+end
+
+local function drawTransitionOut()
+  drawPlay()
+  local transition_frame = math.floor(frames / 4)
+  for cell_y = 0, 8 do
+    for cell_x = 0, 14 do
+      local frame = math.max(0, math.min(6, transition_frame - 13 + cell_x + cell_y))
+      ui.tile(circle_sprites[frame + 1], 0, cell_x * 32, cell_y * 32)
+    end
+  end
 end
 
 local function drawPause()
@@ -652,7 +904,7 @@ function update(frame)
     updatePlay()
     drawPlay()
   elseif state == STATE_WON then
-    updateTerminalScreen()
+    updateWon()
     drawWon()
   elseif state == STATE_PRESCREEN then
     updatePrescreen()
@@ -660,9 +912,18 @@ function update(frame)
   elseif state == STATE_PAUSE then
     updatePause()
     drawPause()
+  elseif state == STATE_COUNTDOWN_IN then
+    updateCountdownIn()
+    drawCountdownIn()
   elseif state == STATE_COUNTDOWN then
     updateCountdown()
     drawCountdown()
+  elseif state == STATE_TRANSITION_IN then
+    updateTransitionIn()
+    drawCountdownIn()
+  elseif state == STATE_TRANSITION_OUT then
+    updateTransitionOut()
+    drawTransitionOut()
   elseif state == STATE_SUMMARY then
     updateSummary()
     drawSummary()
@@ -672,6 +933,52 @@ function update(frame)
   else
     updateTerminalScreen()
     drawFailed()
+  end
+
+  if PortMode.player_trace and
+     (frame == 1 or frame == 20 or frame == 40 or frame == 60 or
+      frame == 80 or frame == 100 or frame == 120) then
+    ui.log(
+      "MR_RESCUE_PLAYER_TRACE FRAME=" .. frame ..
+      " X=" .. string.format("%.4f", Player.x) ..
+      " Y=" .. string.format("%.4f", Player.y) ..
+      " SX=" .. string.format("%.4f", Player.speed_x) ..
+      " SY=" .. string.format("%.4f", Player.speed_y) ..
+      " WATER=" .. string.format("%.2f", Player.water) ..
+      " SPRAY=" .. tostring(Player.spraying)
+    )
+  end
+
+  if PortMode.menu_probe then
+    local menu_detail = ""
+    if state == STATE_OPTIONS then
+      menu_detail = "OPTIONS FAMILY=" .. tostring(family_presentation)
+    elseif state == STATE_HISTORY then
+      menu_detail = "HISTORY PAGE=" .. history_page
+    elseif state == STATE_HIGHSCORES then
+      menu_detail = "HIGHSCORES PAGE=" .. highscore_page
+    end
+    if menu_detail ~= "" and menu_detail ~= last_logged_menu_detail then
+      last_logged_menu_detail = menu_detail
+      ui.log("MR_RESCUE_MENU " .. menu_detail)
+    end
+  end
+
+  if PortMode.tutorial_probe and state == STATE_HOWTO and
+     howto_slide ~= last_logged_howto then
+    last_logged_howto = howto_slide
+    ui.log("MR_RESCUE_HOWTO SLIDE=" .. howto_slide)
+  end
+
+  if (PortMode.flow_probe or PortMode.failure_probe or PortMode.menu_probe or
+      PortMode.section_exit_probe) and state ~= last_logged_state then
+    last_logged_state = state
+    ui.log(
+      "MR_RESCUE_FLOW STATE=" .. state ..
+      " SECTION=" .. campaign_section ..
+      " FRAMES=" .. frames ..
+      " TICK=" .. frame
+    )
   end
 
   if frame % 60 == 0 then

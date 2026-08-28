@@ -23,6 +23,7 @@ declared_bytes="$(awk '{ total += $2 } END { print total }' "$game/lupi_manifest
 payload_bytes="$(find "$game" -type f ! -name lupi_manifest.txt -printf '%s\n' | \
   awk '{ total += $1 } END { print total }')"
 test "$declared_bytes" -eq "$payload_bytes"
+python3 "$port/tools/audit_release.py"
 while read -r _ encoded_bytes relative metadata; do
   if [[ "$metadata" == *'"type":"bitmap"'* ]]; then
     test "$encoded_bytes" -le 49152
@@ -44,6 +45,64 @@ campaign.floorCleared(true)
 assert(campaign.score == 5070)
 assert(campaign.statistics[1] == 2 and campaign.statistics[4] == 6)
 assert(campaign.statistics[5] == 123)
+campaign.score = 4321
+assert(campaign.highscoreRank(2) == 1)
+campaign.addHighscore(2, 1, 'ALPHA')
+local highscore_name, highscore_score = campaign.highscore(2, 1)
+assert(highscore_name == 'ALPHA' and highscore_score == 4321)
+campaign.score = 5000
+assert(campaign.highscoreRank(2) == 1)
+campaign.addHighscore(2, 1, 'BRAVO')
+assert(select(1, campaign.highscore(2, 1)) == 'BRAVO')
+assert(select(1, campaign.highscore(2, 2)) == 'ALPHA')
+campaign.time_frames = (3600 + 120 + 3) * 60
+assert(campaign.timeString() == '01:02:03')
+local award_values = { 301, 60001, 20001, 81, 90001, 161 }
+for index, value in ipairs(award_values) do campaign.statistics[index] = value end
+assert(campaign.award(1) == 'BRONZE')
+assert(campaign.award(2) == 'SILVER')
+assert(campaign.award(3) == 'GOLD')
+assert(campaign.award(4) == 'BRONZE')
+assert(campaign.award(5) == 'GOLD')
+assert(campaign.award(6) == 'SILVER')
+
+local progression = require('progression')
+local expected_bosses = { 8, 11, 15 }
+local expected_floors = { 21, 30, 42 }
+for difficulty = 1, 3 do
+  assert(progression.bossSection(difficulty) == expected_bosses[difficulty])
+  assert(progression.floorCount(difficulty) == expected_floors[difficulty])
+  assert(progression.maximumCasualties(difficulty) == 6 - difficulty)
+  assert(progression.internalSection(1, difficulty) == 1 + (difficulty - 1) * 5)
+  assert(progression.internalSection(expected_bosses[difficulty], difficulty) <= 25)
+end
+
+local profile = require('profile')
+local templates = require('map_templates')
+local maximum_rooms = 0
+local maximum_doors = 0
+local maximum_humans = 0
+for _, floor in ipairs(templates.floors) do
+  local rooms = 0
+  local doors = 0
+  local humans = 0
+  for _, object in ipairs(floor.objects) do
+    if object.type == 'room' then
+      rooms = rooms + 1
+      humans = humans + math.floor((object.width / 16) / 5)
+    elseif object.type == 'door' then
+      doors = doors + 1
+    end
+  end
+  maximum_rooms = math.max(maximum_rooms, rooms)
+  maximum_doors = math.max(maximum_doors, doors)
+  maximum_humans = math.max(maximum_humans, humans)
+end
+assert(maximum_rooms * 3 == profile.room_max)
+assert(maximum_doors * 3 == profile.generated_door_max)
+assert(maximum_humans * 3 == profile.generated_human_max)
+assert(maximum_rooms * 2 * 3 == profile.generated_enemy_max)
+assert(profile.fire_max == 35 * 18)
 LUA
 
 title_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
@@ -52,14 +111,101 @@ if grep -Eqi 'Erro|error:' <<<"$title_output"; then
   printf '%s\n' "$title_output" >&2
   exit 1
 fi
-expected_title="6aa3a188e942aba8ff077a83f5a984fa25bad34cf2a1567545302f3ecf9b8d6f"
+expected_title="ea5c3461ba6f93e18edde83e4b25a2166fde7c9420108d20b779ed95e4bfe324"
 test "$(sha256sum "$tmp/title.ppm" | awk '{print $1}')" = "$expected_title"
 
+cp -R "$game" "$tmp/flow"
+printf 'return { auto_start = false, flow_probe = true }\n' > "$tmp/flow/port_mode.lua"
+flow_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+  ./zig-out/bin/elis --screenshot "$tmp/flow" 360 "$tmp/flow.ppm" 2>&1)"
+for flow_state in 2 3 17 15 8 12; do
+  grep -q "MR_RESCUE_FLOW STATE=$flow_state " <<<"$flow_output"
+done
+test "$(grep -c 'MR_RESCUE_FLOW STATE=8 ' <<<"$flow_output")" -eq 2
+grep -q 'STATE=17 SECTION=1 FRAMES=0 TICK=4.0' <<<"$flow_output"
+grep -q 'STATE=15 SECTION=1 FRAMES=0 TICK=85.0' <<<"$flow_output"
+grep -q 'STATE=8 SECTION=1 FRAMES=0 TICK=295.0' <<<"$flow_output"
+grep -q 'STATE=12 SECTION=1 FRAMES=14 TICK=309.0' <<<"$flow_output"
+
+cp -R "$game" "$tmp/tutorial"
+printf 'return { auto_start = false, tutorial_probe = true }\n' \
+  > "$tmp/tutorial/port_mode.lua"
+tutorial_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+  ./zig-out/bin/elis --screenshot "$tmp/tutorial" 24 "$tmp/tutorial.ppm" 2>&1)"
+for slide in 0 1 2 3 4 5 6 7 8; do
+  grep -q "MR_RESCUE_HOWTO SLIDE=$slide" <<<"$tutorial_output"
+done
+
+cp -R "$game" "$tmp/menu-flow"
+printf 'return { auto_start = false, menu_probe = true }\n' \
+  > "$tmp/menu-flow/port_mode.lua"
+menu_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+  ./zig-out/bin/elis --screenshot "$tmp/menu-flow" 42 \
+  "$tmp/menu-flow.ppm" 2>&1)"
+grep -q 'MR_RESCUE_MENU OPTIONS FAMILY=false' <<<"$menu_output"
+grep -q 'MR_RESCUE_MENU OPTIONS FAMILY=true' <<<"$menu_output"
+grep -q 'MR_RESCUE_MENU HISTORY PAGE=2' <<<"$menu_output"
+grep -q 'MR_RESCUE_MENU HIGHSCORES PAGE=2' <<<"$menu_output"
+test "$(grep -c 'MR_RESCUE_FLOW STATE=2 ' <<<"$menu_output")" -eq 4
+
 cp -R "$game" "$tmp/seed-sweep"
-printf 'return { auto_start = true, seed_sweep = 32 }\n' > "$tmp/seed-sweep/port_mode.lua"
+printf 'return { auto_start = true, seed_sweep = 32, capacity_probe = true }\n' \
+  > "$tmp/seed-sweep/port_mode.lua"
 sweep_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/seed-sweep" 1 "$tmp/sweep.ppm" 2>&1)"
 grep -q 'MR_RESCUE_SEED_SWEEP=32' <<<"$sweep_output"
+grep -q 'MR_RESCUE_CAPACITY_BOUNDARIES=PASS' <<<"$sweep_output"
+
+cp -R "$game" "$tmp/player-trace"
+printf 'return { auto_start = true, player_trace = true }\n' \
+  > "$tmp/player-trace/port_mode.lua"
+player_trace_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+  ./zig-out/bin/elis --screenshot "$tmp/player-trace" 121 \
+  "$tmp/player-trace.ppm" 2>&1)"
+actual_player_trace="$(grep 'MR_RESCUE_PLAYER_TRACE' <<<"$player_trace_output" | \
+  sed 's/^.*MR_RESCUE/MR_RESCUE/')"
+expected_player_trace="$(cat <<'TRACE'
+MR_RESCUE_PLAYER_TRACE FRAME=1.0 X=200.2083 Y=240.0000 SX=0.1389 SY=0.0000 WATER=300.00 SPRAY=false
+MR_RESCUE_PLAYER_TRACE FRAME=20.0 X=216.0417 Y=235.7917 SX=1.4583 SY=-2.0556 WATER=300.00 SPRAY=false
+MR_RESCUE_PLAYER_TRACE FRAME=40.0 X=259.2083 Y=215.0972 SX=2.5972 SY=-0.1111 WATER=295.00 SPRAY=true
+MR_RESCUE_PLAYER_TRACE FRAME=60.0 X=310.9444 Y=233.2917 SX=2.3889 SY=1.8333 WATER=245.00 SPRAY=true
+MR_RESCUE_PLAYER_TRACE FRAME=80.0 X=320.9722 Y=240.0000 SX=-0.5556 SY=0.0000 WATER=255.50 SPRAY=false
+MR_RESCUE_PLAYER_TRACE FRAME=100.0 X=295.2778 Y=240.0000 SX=-1.9444 SY=0.0000 WATER=300.00 SPRAY=false
+MR_RESCUE_PLAYER_TRACE FRAME=120.0 X=246.1528 Y=240.0000 SX=-2.5278 SY=0.0000 WATER=300.00 SPRAY=false
+TRACE
+)"
+test "$actual_player_trace" = "$expected_player_trace"
+
+cp -R "$game" "$tmp/interactions"
+printf 'return { auto_start = true, interaction_probe = true }\n' \
+  > "$tmp/interactions/port_mode.lua"
+interaction_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+  ./zig-out/bin/elis --screenshot "$tmp/interactions" 1 \
+  "$tmp/interactions.ppm" 2>&1)"
+grep -q 'MR_RESCUE_INTERACTIONS=PASS' <<<"$interaction_output"
+
+cp -R "$game" "$tmp/failure-flow"
+printf 'return { auto_start = true, failure_probe = true }\n' \
+  > "$tmp/failure-flow/port_mode.lua"
+failure_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+  ./zig-out/bin/elis --screenshot "$tmp/failure-flow" 300 \
+  "$tmp/failure-flow.ppm" 2>&1)"
+for flow_state in 8 16 10 13 14 5; do
+  grep -q "MR_RESCUE_FLOW STATE=$flow_state " <<<"$failure_output"
+done
+grep -q 'STATE=16 SECTION=1 FRAMES=0 TICK=89.0' <<<"$failure_output"
+grep -q 'STATE=10 SECTION=1 FRAMES=0 TICK=170.0' <<<"$failure_output"
+grep -q 'STATE=13 SECTION=1 FRAMES=49 TICK=219.0' <<<"$failure_output"
+grep -q 'STATE=14 SECTION=1 FRAMES=79 TICK=249.0' <<<"$failure_output"
+
+cp -R "$game" "$tmp/section-flow"
+printf 'return { auto_start = true, section_exit_probe = true }\n' \
+  > "$tmp/section-flow/port_mode.lua"
+section_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+  ./zig-out/bin/elis --screenshot "$tmp/section-flow" 120 \
+  "$tmp/section-flow.ppm" 2>&1)"
+grep -q 'MR_RESCUE_FLOW STATE=16 SECTION=1' <<<"$section_output"
+grep -q 'MR_RESCUE_FLOW STATE=11 SECTION=2 FRAMES=0 TICK=81.0' <<<"$section_output"
 
 # The isolated copy injects deterministic movement, jump, carry, throw, and
 # spray actions; the release cartridge never enables this path.
@@ -80,8 +226,21 @@ grep -Eq 'SAFE=[1-9][0-9]*' <<<"$play_output"
 while read -r lua_bytes; do
   test "$lua_bytes" -lt $((4 * 1024 * 1024))
 done < <(grep -o 'MR_RESCUE_LUA_BYTES=[0-9]*' <<<"$play_output" | cut -d= -f2)
-expected_play="2726d6bf22f332c95d12ceb0dfca1db3e26a7ddfd117e9e7eec983513dd19f4f"
+expected_play="915b5c160153baf009b44e954d6b71ac1340d9e7f042b43c5c987c95b93522fe"
 test "$(sha256sum "$tmp/play.ppm" | awk '{print $1}')" = "$expected_play"
+
+cp -R "$game" "$tmp/family"
+printf 'return { auto_start = true, family_presentation = true }\n' \
+  > "$tmp/family/port_mode.lua"
+family_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+  ./zig-out/bin/elis --screenshot "$tmp/family" 300 "$tmp/family.ppm" 2>&1)"
+test "$(grep 'MR_RESCUE_HUMAN=' <<<"$family_output")" = \
+  "$(grep 'MR_RESCUE_HUMAN=' <<<"$play_output")"
+test "$(grep 'MR_RESCUE_LUA_BYTES=' <<<"$family_output" | tail -1 | \
+  grep -o 'X=.*')" = \
+  "$(grep 'MR_RESCUE_LUA_BYTES=' <<<"$play_output" | tail -1 | grep -o 'X=.*')"
+expected_family="389e745cb7d5f34009c45bd8265c1dcbfad769f50322516d9ef4c51ea8b1c1e0"
+test "$(sha256sum "$tmp/family.ppm" | awk '{print $1}')" = "$expected_family"
 
 cp -R "$game" "$tmp/high"
 printf 'return { auto_start = true, section = 26, all_enemies = true }\n' \
@@ -95,13 +254,18 @@ fi
 while read -r lua_bytes; do
   test "$lua_bytes" -lt $((4 * 1024 * 1024))
 done < <(grep -o 'MR_RESCUE_LUA_BYTES=[0-9]*' <<<"$high_output" | cut -d= -f2)
-expected_high="2123db6700a07d297275e859eafd7fa099dfe4274834075757aa63519cdc29ff"
+for enemy_kind in 1 2 3 4 5 6 7; do
+  grep -q "MR_RESCUE_ENEMY=$enemy_kind " <<<"$high_output"
+done
+grep -Eq 'MR_RESCUE_ENEMY=(2|5) .*STATE=2' <<<"$high_output"
+grep -Eq 'MR_RESCUE_WORLD .*PROJECTILES=[1-9][0-9]*' <<<"$high_output"
+expected_high="1e99a9105fdc0f37c6dc921200b757d3c956be8e9410d14e1447874802d40cf2"
 test "$(sha256sum "$tmp/high.ppm" | awk '{print $1}')" = "$expected_high"
 
 boss_hashes=(
-  bac6816a2b78027db9b2a00347c452c3fd25ce48b87e33f9ff311825dba837ba
-  e01fcd8a326d151e6fcde8acd81846a38687639aef039b9514dc3394d8021922
-  df930f9b111b44682b299de192e63941db8323503d0bd6b3486f9b911b56cee7
+  4354671916c7d39b9c36c3bc5765a4d40c868663c236d50f37a6f8c897130680
+  4f9601f7f36da691c442cd33d956039c861ca7bac40c8ac1561fc4d36215a226
+  fd9c1d5711ac461df96433afbfffa5609d2fc0bdbd658348f3a4e3b9ec9fc545
 )
 for boss in 1 2 3; do
   cp -R "$game" "$tmp/boss-$boss"
@@ -122,9 +286,9 @@ done
 
 victory_frames=(3500 3500 5500)
 victory_hashes=(
-  81bc9a1cee0c2411eebcb1bc3fd6c1c73a2c1094f77bb0cd30aba4e127701843
-  212d4c721641bacae139251b203b79a8b4c6d85390886246668039efabe3a405
-  f500c51c1d3bb349aeec1bf25810f9503fac7b0a1b31e12d2d589f7f8cfd2959
+  72e5c5c0ee8642ef8509760c9434cb60929d008a490e80ac558126bec0a6d821
+  f2bc05b80325a3e9f3a2461b8cda95472e0c5e092419ef1a2db1f53d7c87e130
+  b8ddca2f76b8ef8d967d66fdbe32a2fc2eaee2195d801b29daa5f7e120674cf1
 )
 for boss in 1 2 3; do
   cp -R "$game" "$tmp/victory-$boss"

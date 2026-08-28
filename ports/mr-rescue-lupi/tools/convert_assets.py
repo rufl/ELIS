@@ -7,6 +7,7 @@ import argparse
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from PIL import Image
@@ -18,6 +19,7 @@ FRAME_SPECS = [
     ("player_throw", 16, 32, 4, 16),
     ("player_climb_down", 14, 23, 4, 14),
     ("fire_wall", 24, 32, 5, 24),
+    ("fire_wall_small", 24, 32, 5, 24),
     ("fire_floor", 16, 16, 4, 16),
     ("ashes", 20, 20, 8, 20),
     ("item_coolant", 16, 20, 6, 16),
@@ -73,6 +75,9 @@ FRAME_SPECS = [
     ("charcoal_daze_hit", 40, 64, 4, 40),
     ("charcoal_daze_rage", 40, 64, 4, 40),
     ("charcoal_projectile", 15, 15, 12, 15),
+    ("black_smoke", 20, 20, 6, 20),
+    ("black_smoke_small", 8, 8, 4, 8),
+    ("sparkles", 7, 7, 3, 8),
 ]
 for human_id in range(1, 5):
     FRAME_SPECS.extend([
@@ -91,8 +96,10 @@ CROP_SPECS = [
     ("gasleak_transition_1", "gasleak_transition", 360, 0, 40, 128),
     ("splash_left", "splash", 0, 0, 128, 200),
     ("splash_right", "splash", 128, 0, 128, 200),
-    ("howto_left", "howto", 0, 0, 128, 200),
-    ("howto_right", "howto", 128, 0, 128, 200),
+    ("tangram_left", "tangram", 0, 0, 128, 200),
+    ("tangram_right", "tangram", 128, 0, 128, 200),
+    ("love_left", "lovesplashpixel", 0, 0, 128, 200),
+    ("love_right", "lovesplashpixel", 128, 0, 128, 200),
     ("level_buildings", "level_buildings", 0, 0, 134, 159),
     ("building_outline_1", "level_buildings", 144, 0, 37, 40),
     ("building_outline_2", "level_buildings", 192, 0, 43, 75),
@@ -103,12 +110,25 @@ CROP_SPECS = [
     ("night_1", "backgrounds/night", 128, 0, 128, 256),
     ("night_2", "backgrounds/night", 256, 0, 128, 256),
     ("night_3", "backgrounds/night", 384, 0, 128, 256),
-    ("mountains_0", "backgrounds/mountains", 0, 0, 128, 256),
-    ("mountains_1", "backgrounds/mountains", 128, 0, 128, 256),
-    ("mountains_2", "backgrounds/mountains", 256, 0, 128, 256),
-    ("mountains_3", "backgrounds/mountains", 384, 0, 128, 256),
+    ("exclamation", "exclamation", 0, 0, 4, 16),
+    ("water_out_0", "water", 0, 0, 8, 15),
+    ("water_out_1", "water", 16, 0, 8, 15),
+    ("water_end_0", "water", 32, 0, 16, 15),
+    ("water_end_1", "water", 48, 0, 16, 15),
+    ("water_hit_0", "water", 0, 16, 16, 19),
+    ("water_hit_1", "water", 16, 16, 16, 19),
+    ("water_hit_2", "water", 32, 16, 16, 19),
+    ("boss_health", "boss_health", 0, 0, 256, 38),
     ("hud", "hud", 0, 0, 256, 32),
     ("hud_front", "hud2", 0, 0, 256, 32),
+    ("hud_person_lost", "hud_people", 0, 0, 4, 8),
+    ("hud_person_safe", "hud_people", 4, 0, 4, 8),
+    ("item_slot_regen", "item_slots", 0, 0, 3, 6),
+    ("item_slot_tank", "item_slots", 3, 0, 3, 6),
+    ("item_slot_suit", "item_slots", 6, 0, 3, 6),
+    ("red_hit", "red_screen", 0, 0, 256, 169),
+    ("temperature_blink", "temperature_bar_blink", 0, 0, 128, 8),
+    ("enemy_health_base", "enemy_healthbar", 0, 0, 20, 8),
     ("captain_0", "captain_dialog", 0, 0, 200, 56),
     ("captain_1", "captain_dialog", 0, 64, 200, 56),
     ("captain_sad_0", "captain_dialog_sad", 0, 0, 200, 56),
@@ -126,7 +146,45 @@ CROP_SPECS = [
     ("warning_2", "warning_icons", 44, 0, 22, 20),
     ("warning_3", "warning_icons", 66, 0, 22, 20),
     ("warning_4", "warning_icons", 88, 0, 22, 20),
+    ("popup_rescue", "popup_text", 0, 0, 64, 8),
+    ("popup_coolant", "popup_text", 0, 8, 64, 8),
+    ("popup_suit", "popup_text", 0, 16, 64, 8),
+    ("popup_tank", "popup_text", 0, 24, 64, 8),
+    ("popup_reserve", "popup_text", 0, 32, 64, 8),
+    ("popup_regen", "popup_text", 0, 40, 64, 8),
+    ("popup_theft", "popup_text", 0, 48, 64, 8),
+    ("popup_combo_3", "popup_text", 0, 56, 64, 8),
+    ("popup_combo_4", "popup_text", 0, 64, 64, 8),
+    ("popup_combo_5", "popup_text", 0, 72, 64, 8),
+    ("popup_mega", "popup_text", 0, 80, 64, 16),
+    ("countdown_0", "countdown", 0, 0, 64, 26),
+    ("countdown_1", "countdown", 0, 26, 64, 26),
+    ("countdown_2", "countdown", 0, 52, 64, 26),
+    ("countdown_3", "countdown", 0, 78, 64, 26),
 ]
+for slide in range(9):
+    CROP_SPECS.extend([
+        (f"howto_{slide}_left", "howto", 0, slide * 200, 128, 200),
+        (f"howto_{slide}_right", "howto", 128, slide * 200, 128, 200),
+    ])
+for frame in range(7):
+    CROP_SPECS.append(
+        (f"circle_{frame}", "circles", frame * 32, 0, 32, 32)
+    )
+for frame in range(10):
+    CROP_SPECS.append(
+        (f"shockwave_{frame}", "shockwave", 0, frame * 32, 73, 32)
+    )
+for boss in ("magmahulk", "gasleak", "charcoal"):
+    for frame in range(4):
+        CROP_SPECS.append(
+            (f"{boss}_portrait_{frame}", f"{boss}_portrait", frame * 48, 0, 46, 30)
+        )
+for statistic in range(6):
+    for award, row in (("none", 0), ("bronze", 25), ("silver", 50), ("gold", 75)):
+        CROP_SPECS.append(
+            (f"award_{statistic + 1}_{award}", "awards", statistic * 24, row, 24, 25)
+        )
 
 
 def rgb555(red: int, green: int, blue: int) -> int:
@@ -200,6 +258,8 @@ def convert(upstream: Path, output_root: Path) -> None:
     if revision != UPSTREAM_REVISION:
         raise SystemExit(f"expected upstream {UPSTREAM_REVISION}, found {revision}")
 
+    shutil.rmtree(output_root / "assets", ignore_errors=True)
+    shutil.rmtree(output_root / "music", ignore_errors=True)
     (output_root / "assets").mkdir(parents=True, exist_ok=True)
     palette = source_palette(data_root)
     color_indexes = {color: index for index, color in enumerate(palette)}
@@ -217,6 +277,14 @@ def convert(upstream: Path, output_root: Path) -> None:
     write_asset(output_root, "tiles_0", tile_frames[:128], 16, 16, manifest)
     write_asset(output_root, "tiles_1", tile_frames[128:], 16, 16, manifest)
 
+    dark_color = rgb555(30, 23, 18)
+    dark_index = color_indexes[dark_color]
+    darkness = bytes(
+        dark_index if (x + y) % 2 == 0 else 0
+        for y in range(32) for x in range(32)
+    )
+    write_asset(output_root, "dark_dither", [darkness], 32, 32, manifest)
+
     for name, width, height, count, stride in FRAME_SPECS:
         image = Image.open(data_root / f"{name}.png").convert("RGBA")
         frames = [
@@ -229,6 +297,97 @@ def convert(upstream: Path, output_root: Path) -> None:
         image = Image.open(data_root / f"{source}.png").convert("RGBA")
         frame = encode_frame(image, x, y, width, height, color_indexes)
         write_asset(output_root, name, [frame], width, height, manifest)
+
+    for name, source in (
+        ("water_bar", "water_bar"),
+        ("reserve_bar", "reserve_bar"),
+        ("overloaded_bar", "overloaded_bar"),
+    ):
+        image = Image.open(data_root / f"{source}.png").convert("RGBA")
+        frames = []
+        for length in range(56):
+            frame = Image.new("RGBA", (55, 11))
+            if length > 0:
+                frame.paste(image.crop((0, 0, length, 11)), (0, 0))
+            frames.append(encode_frame(frame, 0, 0, 55, 11, color_indexes))
+        write_asset(output_root, name, frames, 55, 11, manifest)
+
+    temperature = Image.open(data_root / "temperature_bar.png").convert("RGBA")
+    temperature_frames = []
+    temperature_end = temperature.crop((82, 0, 84, 6))
+    for length in range(83):
+        frame = Image.new("RGBA", (84, 6))
+        if length > 0:
+            frame.paste(temperature.crop((0, 0, length, 6)), (0, 0))
+        frame.paste(temperature_end, (length, 0))
+        temperature_frames.append(
+            encode_frame(frame, 0, 0, 84, 6, color_indexes)
+        )
+    write_asset(
+        output_root, "temperature_bar", temperature_frames, 84, 6, manifest
+    )
+
+    shards_image = Image.open(data_root / "shards.png").convert("RGBA")
+    shard_frames = []
+    for shard in range(8):
+        source = shards_image.crop((shard * 8, 0, shard * 8 + 8, 8))
+        for angle in range(8):
+            rotated = source.rotate(
+                -angle * 45, resample=Image.Resampling.NEAREST
+            )
+            shard_frames.append(
+                encode_frame(rotated, 0, 0, 8, 8, color_indexes)
+            )
+    write_asset(output_root, "shards_spin", shard_frames, 8, 8, manifest)
+
+    door_image = Image.open(data_root / "door.png").convert("RGBA")
+    for name, source_x in (("door_normal_spin", 0), ("door_damaged_spin", 16)):
+        base = Image.new("RGBA", (48, 48))
+        base.paste(door_image.crop((source_x, 0, source_x + 8, 48)), (24, 0))
+        frames = [
+            encode_frame(
+                base.rotate(-frame * 45, resample=Image.Resampling.NEAREST),
+                0,
+                0,
+                48,
+                48,
+                color_indexes,
+            )
+            for frame in range(8)
+        ]
+        write_asset(output_root, name, frames, 48, 48, manifest)
+
+    enemy_health = Image.open(data_root / "enemy_healthbar.png").convert("RGBA")
+    enemy_bar_pixel = enemy_health.crop((21, 2, 22, 6))
+    enemy_bar_frames = []
+    for length in range(17):
+        frame = Image.new("RGBA", (16, 4))
+        for x in range(length):
+            frame.paste(enemy_bar_pixel, (x, 0))
+        enemy_bar_frames.append(encode_frame(frame, 0, 0, 16, 4, color_indexes))
+    write_asset(output_root, "enemy_health_bar", enemy_bar_frames, 16, 4, manifest)
+
+    boss_health = Image.open(data_root / "boss_health.png").convert("RGBA")
+    boss_bar_frames = []
+    boss_bar_pixel = boss_health.crop((0, 48, 1, 53))
+    boss_bar_end = boss_health.crop((1, 48, 2, 53))
+    for length in range(179):
+        frame = Image.new("RGBA", (179, 5))
+        for x in range(length):
+            frame.paste(boss_bar_pixel, (x, 0))
+        frame.paste(boss_bar_end, (length, 0))
+        boss_bar_frames.append(encode_frame(frame, 0, 0, 179, 5, color_indexes))
+    for group in range(4):
+        first = group * 45
+        last = min(first + 45, len(boss_bar_frames))
+        write_asset(
+            output_root,
+            f"boss_bar_{group}",
+            boss_bar_frames[first:last],
+            179,
+            5,
+            manifest,
+        )
 
     music_root = output_root / "music"
     music_root.mkdir(parents=True, exist_ok=True)
@@ -248,6 +407,11 @@ def convert(upstream: Path, output_root: Path) -> None:
         ["lua5.4", str(map_converter), str(upstream)], text=True
     )
     (output_root / "map_templates.lua").write_text(map_output, encoding="utf-8")
+
+    mechanics_audit = Path(__file__).with_name("audit_upstream_mechanics.py")
+    subprocess.check_call(
+        [sys.executable, str(mechanics_audit), str(upstream), str(output_root)]
+    )
 
     for source in sorted(output_root.rglob("*.lua")):
         relative = source.relative_to(output_root).as_posix()
