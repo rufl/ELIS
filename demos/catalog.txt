@@ -3,3 +3,4 @@ Caio Pernocas|https://github.com/lupi-org-br/caio-pernocas
 Balão Gatinho|https://github.com/lupi-org-br/balao-gatinho
 Le Pendu|https://github.com/lupi-org-br/le-pendu
 Mazestein 3D|builtin:mazestein3d
+Mr. Rescue: Lupi Edition (physical validation)|builtin:mr-rescue/current

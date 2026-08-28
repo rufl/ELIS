@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-GAME = ROOT / "game"
+GAME = ROOT / "current"
 EXPECTED_REVISION = "a5be73c60acb8d1be506f7b5e48e784492ba96ce"
 DYNAMIC_ASSET = re.compile(
     r"^(human_[1-4]_|award_[1-6]_|howto_[0-8]_(?:left|right)$|"

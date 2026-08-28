@@ -10,10 +10,10 @@ ZIG_LOCAL_CACHE_DIR="$tmp/build-cache" \
 ZIG_GLOBAL_CACHE_DIR="$tmp/global-cache" \
 zig build native -Doptimize=ReleaseSafe >/dev/null
 
-port="ports/mr-rescue-lupi"
-game="$port/game"
-test ! -e demos/mr-rescue
-test ! -e demos/mr-rescue-lupi
+port="demos/mr-rescue"
+game="$port/current"
+test -d "$port"
+test ! -e ports/mr-rescue-lupi
 test -f "$port/LICENSE.upstream"
 grep -q 'a5be73c60acb8d1be506f7b5e48e784492ba96ce' "$port/SOURCE.md"
 
@@ -32,7 +32,7 @@ while read -r _ encoded_bytes relative metadata; do
 done < "$game/lupi_manifest.txt"
 
 lua5.4 - <<'LUA'
-package.path = 'ports/mr-rescue-lupi/game/?.lua;' .. package.path
+package.path = 'demos/mr-rescue/current/?.lua;' .. package.path
 local campaign = require('campaign')
 campaign.reset()
 local events = { consumeEvents = function() return 70, 2, 6, 123 end }

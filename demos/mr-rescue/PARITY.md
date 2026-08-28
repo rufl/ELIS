@@ -61,5 +61,6 @@ release proof is:
   sweep and deterministic render matrix.
 - Named physical Lupi frame-time and memory proof.
 
-Until every requirement passes, the port remains under `ports/` and must not be
-listed as a finished ELIS demo.
+The cartridge is available at `demos/mr-rescue/` only for explicit local
+named-board validation. Until every requirement passes, it must not be described
+as hardware-approved or a finished ELIS release.

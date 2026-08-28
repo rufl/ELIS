@@ -10,6 +10,6 @@
 
 ## Active Work
 
-- [ ] [status:yellow] [truth:source] Complete Mr. Rescue: Lupi Edition as a separately licensed, full-fidelity port with original Classic mechanics and an optional child-friendly presentation mode. Keep it staged under `ports/` until all campaigns, room sets, enemies, bosses, progression, menus, audio, deterministic bounded generation, package limits, 4 MiB Lua ceiling, sustained simulator proof, and named-device proof pass.
-- [ ] [status:yellow] [truth:source] Port all 100 Hex-a-Hop levels only after Mr. Rescue enters the demo catalog. Preserve its undo/no-timer accessibility, isolate GPL/CC attribution, and apply the same fail-closed package and physical-device gates.
+- [ ] [status:yellow] [truth:source] Complete Mr. Rescue: Lupi Edition as a separately licensed, full-fidelity port with original Classic mechanics and an optional child-friendly presentation mode. `demos/mr-rescue/` is explicitly authorized only as a named-board physical-validation candidate; hardware approval still requires its frame-time, memory, and soak proof.
+- [ ] [status:yellow] [truth:source] Port all 100 Hex-a-Hop levels only after Mr. Rescue receives named-device approval. Preserve its undo/no-timer accessibility, isolate GPL/CC attribution, and apply the same fail-closed package and physical-device gates.
 - [ ] [status:yellow] [truth:source] Close the newer provisional console-API gaps (`ui.grid`, `ui.mouse`, pressure-valued input, and Clay layout) only against executable firmware semantics; the public pinned simulator does not implement enough of that provisional documentation to support a truthful parity claim yet.

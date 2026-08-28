@@ -1,8 +1,9 @@
 # Mr. Rescue: Lupi Edition
 
-This is the staged, bounded port of Tangram Games' Mr. Rescue. It is intentionally
-outside `demos/` until the complete game passes every acceptance gate. The exact
-meaning and remaining proof are recorded in [PARITY.md](PARITY.md). The
+This is the bounded physical-validation candidate for Tangram Games' Mr.
+Rescue. It is in `demos/` only by explicit authorization for local named-board
+testing; it is not hardware-approved or a finished release. The exact remaining
+proof is recorded in [PARITY.md](PARITY.md). The
 current slice proves exact RGB555 art conversion, all floor/room templates,
 seeded building assembly, the five upgrades, fixed-capacity fire/civilians,
 Classic burn/casualty states, player movement/ladders/carry/throw/directional
@@ -22,7 +23,7 @@ Named physical-board timing proof remains staged.
 
 ```sh
 bash scripts/mr_rescue_smoke.sh
-zig build run -- ports/mr-rescue-lupi/game
+zig build run -- demos/mr-rescue/current
 ```
 
 Controls use Lupi actions rather than host keys:
@@ -34,7 +35,7 @@ Controls use Lupi actions rather than host keys:
 
 ## Non-negotiable release gate
 
-The port moves to `demos/mr-rescue/` only when all are true:
+The physical-validation candidate becomes a finished release only when all are true:
 
 - all three campaigns, procedural room sets, seven regular enemy variants,
   three bosses, civilians, five upgrades, menus, tutorial, pause, summaries,
@@ -59,8 +60,8 @@ Pillow is only an offline conversion dependency; it is not part of ELIS or the
 cartridge runtime.
 
 ```sh
-python3 ports/mr-rescue-lupi/tools/convert_assets.py \
-  /path/to/pinned/mrrescue ports/mr-rescue-lupi/game
+python3 demos/mr-rescue/tools/convert_assets.py \
+  /path/to/pinned/mrrescue demos/mr-rescue/current
 ```
 
 The converter refuses any upstream revision other than the one recorded in

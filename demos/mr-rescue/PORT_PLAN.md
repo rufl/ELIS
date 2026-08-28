@@ -1,7 +1,8 @@
 # Mr. Rescue: Lupi Edition port plan
 
-A checked item means implemented and covered by the focused port gate. It does
-not mean the game is eligible for `demos/`; only the final promotion gate does.
+A checked item means implemented and covered by the focused port gate. The
+cartridge is exposed in `demos/` only for explicit physical validation; only the
+final gate makes it a hardware-approved release.
 
 ## 0. Intake and bounded foundation
 
@@ -57,5 +58,5 @@ not mean the game is eligible for `demos/`; only the final promotion gate does.
 - [x] A 32-seed × 26-section sweep and deterministic screenshot matrix pass.
 - [x] License, attribution, exact-manifest, and release-use audit passes for every shipped file.
 - [ ] Named physical Lupi worst cases meet the accepted frame and memory budgets.
-- [ ] Move the complete cartridge to `demos/mr-rescue/` and update the catalog.
+- [x] Move the cartridge to `demos/mr-rescue/` and update the catalog as an explicitly unapproved physical-validation candidate.
 - [ ] Begin Hex-a-Hop only after every item above is checked.

@@ -515,9 +515,11 @@ fn addCatalogDemos() void {
         var fields = std.mem.splitScalar(u8, line_text, '|');
         const display_name = fields.next() orelse continue;
         const source = fields.next() orelse continue;
-        if (!std.mem.startsWith(u8, source, "https://github.com/")) continue;
-        const slash = std.mem.lastIndexOfScalar(u8, source, '/') orelse continue;
-        const slug = source[slash + 1 ..];
+        const slug = if (std.mem.startsWith(u8, source, "https://github.com/")) blk: {
+            const slash = std.mem.lastIndexOfScalar(u8, source, '/') orelse continue;
+            break :blk source[slash + 1 ..];
+        } else if (std.mem.startsWith(u8, source, "builtin:")) source["builtin:".len..] else continue;
+        if (slug.len == 0) continue;
         var path_buffer: [256]u8 = undefined;
         const path = std.fmt.bufPrint(&path_buffer, "demos/{s}", .{slug}) catch continue;
         addDemo(display_name, path, true);

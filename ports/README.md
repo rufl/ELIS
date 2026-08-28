@@ -13,5 +13,4 @@ Promotion to `demos/` requires:
 
 Current order:
 
-1. Mr. Rescue: Lupi Edition
-2. Hex-a-Hop, all 100 levels
+1. Hex-a-Hop, all 100 levels, after Mr. Rescue receives named-board approval.
