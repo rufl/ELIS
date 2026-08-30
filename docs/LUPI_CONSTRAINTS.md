@@ -32,6 +32,7 @@ profile and must not use host capacity as evidence of console performance.
 | Companion CPU | RP2350, overclocked to 345 MHz | Treat as a CPU/coprocessor, not a GPU |
 | External RAM | 8 MiB ESP32 PSRAM | Lua heap hard-capped at 4 MiB |
 | Flash | 16 MiB ESP32 flash | Reported by `--lupi-constraints` |
+| Archive entries | Not published | ELIS admission capped at 4,096 entries |
 | RP2350 SRAM | 520 KiB | Not combined with ESP32 PSRAM as one heap |
 | Discrete GPU | None documented | Indexed software framebuffer is authoritative |
 | Display | 480×270 at a 60 Hz target | 16.667 ms total frame budget |
@@ -41,7 +42,9 @@ profile and must not use host capacity as evidence of console performance.
 The 4 MiB Lua ceiling is an ELIS safety reserve, not a claimed firmware
 partition: it leaves half of PSRAM for engine state, assets, archives, audio,
 and transient buffers. An allocation beyond that ceiling fails through Lua's
-normal out-of-memory path. `ui.stat(0)` reports Lua memory, `ui.stat(1)` reports
+normal out-of-memory path. Archive input bytes, extracted bytes, and manifest
+payload totals each remain within 16 MiB; archive metadata work is independently
+bounded to 4,096 entries. `ui.stat(0)` reports Lua memory, `ui.stat(1)` reports
 frame-budget CPU utilization, and `ui.stat(7)` reports FPS.
 
 The public Lupinho WebAssembly build allocates 64 MiB total memory and a 1 MiB

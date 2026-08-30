@@ -24,8 +24,10 @@ editor map preview, not a claim that game-specific mechanics are running.
   `foreground`.
 - Every layer owns an independent Lupi tileset name. A `--game-root` workspace
   reads compatible bitmap choices from `lupi_manifest.txt`; only assets matching
-  the project's square tile size appear in the shelf. Session controls can hide
-  a visual layer or lock it against painting without changing saved/exported data.
+  the project's square tile size appear in the shelf. Tileset changes use the
+  shared undo/redo history and refresh their atlas after traversal. Session
+  controls can hide a visual layer or lock it against painting without changing
+  saved/exported data.
 - The source project retains tile IDs from 0 through 1023; `65535` represents
   an empty cell and exports as `-1`.
 - Line and rectangle gestures use bounded integer rasterization and commit as

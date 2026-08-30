@@ -26,6 +26,7 @@ function Campaign.reset()
   Campaign.maximum_combo = 0
   Campaign.time_frames = 0
   Campaign.combo_frames = 0
+  for index = 1, #Campaign.statistics do Campaign.statistics[index] = 0 end
   Campaign.popup_head = 1
   Campaign.popup_tail = 1
   Campaign.popup_count = 0

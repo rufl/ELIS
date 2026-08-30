@@ -17,6 +17,15 @@ test ! -e ports/mr-rescue-lupi
 test -f "$port/LICENSE.upstream"
 grep -q 'a5be73c60acb8d1be506f7b5e48e784492ba96ce' "$port/SOURCE.md"
 
+refresh_port_mode_manifest() {
+  local root="$1"
+  local size
+  size="$(stat -c %s "$root/port_mode.lua")"
+  awk -v size="$size" 'BEGIN { OFS=" " } $3 == "port_mode.lua" { $2=size } { print }' \
+    "$root/lupi_manifest.txt" > "$root/lupi_manifest.txt.new"
+  mv "$root/lupi_manifest.txt.new" "$root/lupi_manifest.txt"
+}
+
 total_bytes="$(find "$game" -type f -printf '%s\n' | awk '{ total += $1 } END { print total }')"
 test "$total_bytes" -le $((16 * 1024 * 1024))
 declared_bytes="$(awk '{ total += $2 } END { print total }' "$game/lupi_manifest.txt")"
@@ -34,7 +43,10 @@ done < "$game/lupi_manifest.txt"
 lua5.4 - <<'LUA'
 package.path = 'demos/mr-rescue/current/?.lua;' .. package.path
 local campaign = require('campaign')
+campaign.statistics[1] = 99
+campaign.statistics[6] = 99
 campaign.reset()
+for index = 1, 6 do assert(campaign.statistics[index] == 0) end
 local events = { consumeEvents = function() return 70, 2, 6, 123 end }
 campaign.consumeWorld(events)
 assert(campaign.score == 4070)
@@ -116,6 +128,7 @@ test "$(sha256sum "$tmp/title.ppm" | awk '{print $1}')" = "$expected_title"
 
 cp -R "$game" "$tmp/flow"
 printf 'return { auto_start = false, flow_probe = true }\n' > "$tmp/flow/port_mode.lua"
+refresh_port_mode_manifest "$tmp/flow"
 flow_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/flow" 360 "$tmp/flow.ppm" 2>&1)"
 for flow_state in 2 3 17 15 8 12; do
@@ -130,6 +143,7 @@ grep -q 'STATE=12 SECTION=1 FRAMES=14 TICK=309.0' <<<"$flow_output"
 cp -R "$game" "$tmp/tutorial"
 printf 'return { auto_start = false, tutorial_probe = true }\n' \
   > "$tmp/tutorial/port_mode.lua"
+refresh_port_mode_manifest "$tmp/tutorial"
 tutorial_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/tutorial" 24 "$tmp/tutorial.ppm" 2>&1)"
 for slide in 0 1 2 3 4 5 6 7 8; do
@@ -139,6 +153,7 @@ done
 cp -R "$game" "$tmp/menu-flow"
 printf 'return { auto_start = false, menu_probe = true }\n' \
   > "$tmp/menu-flow/port_mode.lua"
+refresh_port_mode_manifest "$tmp/menu-flow"
 menu_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/menu-flow" 42 \
   "$tmp/menu-flow.ppm" 2>&1)"
@@ -151,6 +166,7 @@ test "$(grep -c 'MR_RESCUE_FLOW STATE=2 ' <<<"$menu_output")" -eq 4
 cp -R "$game" "$tmp/seed-sweep"
 printf 'return { auto_start = true, seed_sweep = 32, capacity_probe = true }\n' \
   > "$tmp/seed-sweep/port_mode.lua"
+refresh_port_mode_manifest "$tmp/seed-sweep"
 sweep_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/seed-sweep" 1 "$tmp/sweep.ppm" 2>&1)"
 grep -q 'MR_RESCUE_SEED_SWEEP=32' <<<"$sweep_output"
@@ -159,6 +175,7 @@ grep -q 'MR_RESCUE_CAPACITY_BOUNDARIES=PASS' <<<"$sweep_output"
 cp -R "$game" "$tmp/player-trace"
 printf 'return { auto_start = true, player_trace = true }\n' \
   > "$tmp/player-trace/port_mode.lua"
+refresh_port_mode_manifest "$tmp/player-trace"
 player_trace_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/player-trace" 121 \
   "$tmp/player-trace.ppm" 2>&1)"
@@ -179,6 +196,7 @@ test "$actual_player_trace" = "$expected_player_trace"
 cp -R "$game" "$tmp/interactions"
 printf 'return { auto_start = true, interaction_probe = true }\n' \
   > "$tmp/interactions/port_mode.lua"
+refresh_port_mode_manifest "$tmp/interactions"
 interaction_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/interactions" 1 \
   "$tmp/interactions.ppm" 2>&1)"
@@ -187,6 +205,7 @@ grep -q 'MR_RESCUE_INTERACTIONS=PASS' <<<"$interaction_output"
 cp -R "$game" "$tmp/failure-flow"
 printf 'return { auto_start = true, failure_probe = true }\n' \
   > "$tmp/failure-flow/port_mode.lua"
+refresh_port_mode_manifest "$tmp/failure-flow"
 failure_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/failure-flow" 300 \
   "$tmp/failure-flow.ppm" 2>&1)"
@@ -201,6 +220,7 @@ grep -q 'STATE=14 SECTION=1 FRAMES=79 TICK=249.0' <<<"$failure_output"
 cp -R "$game" "$tmp/section-flow"
 printf 'return { auto_start = true, section_exit_probe = true }\n' \
   > "$tmp/section-flow/port_mode.lua"
+refresh_port_mode_manifest "$tmp/section-flow"
 section_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/section-flow" 120 \
   "$tmp/section-flow.ppm" 2>&1)"
@@ -211,6 +231,7 @@ grep -q 'MR_RESCUE_FLOW STATE=11 SECTION=2 FRAMES=0 TICK=81.0' <<<"$section_outp
 # spray actions; the release cartridge never enables this path.
 cp -R "$game" "$tmp/game"
 printf 'return { auto_start = true }\n' > "$tmp/game/port_mode.lua"
+refresh_port_mode_manifest "$tmp/game"
 play_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/game" 300 "$tmp/play.ppm" 2>&1)"
 if grep -Eqi 'Erro|error:' <<<"$play_output"; then
@@ -232,6 +253,7 @@ test "$(sha256sum "$tmp/play.ppm" | awk '{print $1}')" = "$expected_play"
 cp -R "$game" "$tmp/family"
 printf 'return { auto_start = true, family_presentation = true }\n' \
   > "$tmp/family/port_mode.lua"
+refresh_port_mode_manifest "$tmp/family"
 family_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/family" 300 "$tmp/family.ppm" 2>&1)"
 test "$(grep 'MR_RESCUE_HUMAN=' <<<"$family_output")" = \
@@ -245,6 +267,7 @@ test "$(sha256sum "$tmp/family.ppm" | awk '{print $1}')" = "$expected_family"
 cp -R "$game" "$tmp/high"
 printf 'return { auto_start = true, section = 26, all_enemies = true }\n' \
   > "$tmp/high/port_mode.lua"
+refresh_port_mode_manifest "$tmp/high"
 high_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/high" 600 "$tmp/high.ppm" 2>&1)"
 if grep -Eqi 'Erro|error:' <<<"$high_output"; then
@@ -271,6 +294,7 @@ for boss in 1 2 3; do
   cp -R "$game" "$tmp/boss-$boss"
   printf 'return { auto_start = true, section = 26, all_enemies = false, boss_kind = %d }\n' \
     "$boss" > "$tmp/boss-$boss/port_mode.lua"
+  refresh_port_mode_manifest "$tmp/boss-$boss"
   boss_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
     ./zig-out/bin/elis --screenshot "$tmp/boss-$boss" 900 "$tmp/boss-$boss.ppm" 2>&1)"
   if grep -Eqi 'Erro|error:' <<<"$boss_output"; then
@@ -294,6 +318,7 @@ for boss in 1 2 3; do
   cp -R "$game" "$tmp/victory-$boss"
   printf 'return { auto_start = true, boss_kind = %d, boss_victory = true }\n' \
     "$boss" > "$tmp/victory-$boss/port_mode.lua"
+  refresh_port_mode_manifest "$tmp/victory-$boss"
   victory_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
     ./zig-out/bin/elis --screenshot "$tmp/victory-$boss" \
     "${victory_frames[$((boss - 1))]}" "$tmp/victory-$boss.ppm" 2>&1)"

@@ -18,6 +18,7 @@ grep -q '^LUPI_CONSTRAINTS_V1$' <<<"$constraints"
 grep -q '^lua=5.4$' <<<"$constraints"
 grep -q '^esp32_psram_bytes=8388608$' <<<"$constraints"
 grep -q '^lua_heap_bytes_max=4194304$' <<<"$constraints"
+grep -q '^archive_entries_max=4096$' <<<"$constraints"
 grep -q '^discrete_gpu=none$' <<<"$constraints"
 grep -q '^player_slots=3$' <<<"$constraints"
 grep -q '^tileset_pixels_max=49152$' <<<"$constraints"
@@ -74,6 +75,47 @@ flash_rc=$?
 set -e
 test "$flash_rc" -ne 0
 grep -q 'InvalidLupiArchive' <<<"$flash_output"
+
+# Compressed input and central-directory work are bounded even when payloads
+# are tiny, preventing oversized or metadata-heavy archives from stalling load.
+cp "$tmp/game.lupi" "$tmp/oversized-archive.lupi"
+dd if=/dev/zero bs=1M count=17 status=none >> "$tmp/oversized-archive.lupi"
+set +e
+archive_output="$(./zig-out/bin/elis "$tmp/oversized-archive.lupi" 2>&1)"
+archive_rc=$?
+set -e
+test "$archive_rc" -ne 0
+grep -q 'InvalidLupiArchive' <<<"$archive_output"
+python3 - "$tmp/entry-limit.lupi" <<'PY'
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    for index in range(4097):
+        archive.writestr(f"empty/{index}", b"")
+PY
+set +e
+entry_output="$(./zig-out/bin/elis "$tmp/entry-limit.lupi" 2>&1)"
+entry_rc=$?
+set -e
+test "$entry_rc" -ne 0
+grep -q 'InvalidLupiArchive' <<<"$entry_output"
+escape_name="elis-runtime-smoke-escape-$$"
+python3 - "$tmp/traversal.lupi" "$escape_name" <<'PY'
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    archive.writestr("../" + sys.argv[2], b"unsafe")
+PY
+set +e
+traversal_output="$(./zig-out/bin/elis "$tmp/traversal.lupi" 2>&1)"
+traversal_rc=$?
+set -e
+test "$traversal_rc" -ne 0
+grep -q 'InvalidLupiArchive' <<<"$traversal_output"
+test ! -e "/tmp/$escape_name"
+
 mkdir -p "$tmp/manifest-limit"
 printf 'function update() end\n' > "$tmp/manifest-limit/game.lua"
 printf '1 %d payload.bin {"type":"data"}\n' $((17 * 1024 * 1024)) \
@@ -84,9 +126,38 @@ manifest_rc=$?
 set -e
 test "$manifest_rc" -ne 0
 grep -q 'GameExceedsLupiFlash' <<<"$manifest_output"
+mkdir -p "$tmp/manifest-malformed"
+printf 'function update() end\n' > "$tmp/manifest-malformed/game.lua"
+printf 'malformed\n' > "$tmp/manifest-malformed/lupi_manifest.txt"
+set +e
+malformed_output="$(./zig-out/bin/elis --screenshot "$tmp/manifest-malformed" 1 "$tmp/malformed.ppm" 2>&1)"
+malformed_rc=$?
+set -e
+test "$malformed_rc" -ne 0
+grep -q 'GameExceedsLupiFlash' <<<"$malformed_output"
+mkdir -p "$tmp/manifest-mismatch"
+printf 'function update() end\n' > "$tmp/manifest-mismatch/game.lua"
+printf '1 1 game.lua {"type":"lua_code"}\n' > "$tmp/manifest-mismatch/lupi_manifest.txt"
+set +e
+mismatch_output="$(./zig-out/bin/elis --screenshot "$tmp/manifest-mismatch" 1 "$tmp/mismatch.ppm" 2>&1)"
+mismatch_rc=$?
+set -e
+test "$mismatch_rc" -ne 0
+grep -q 'GameExceedsLupiFlash' <<<"$mismatch_output"
+mkdir -p "$tmp/manifest-duplicate"
+printf 'function update() end\n' > "$tmp/manifest-duplicate/game.lua"
+game_size="$(stat -c %s "$tmp/manifest-duplicate/game.lua")"
+printf '1 %s game.lua {"type":"lua_code"}\n2 %s game.lua {"type":"lua_code"}\n' \
+  "$game_size" "$game_size" > "$tmp/manifest-duplicate/lupi_manifest.txt"
+set +e
+duplicate_output="$(./zig-out/bin/elis --screenshot "$tmp/manifest-duplicate" 1 "$tmp/duplicate.ppm" 2>&1)"
+duplicate_rc=$?
+set -e
+test "$duplicate_rc" -ne 0
+grep -q 'GameExceedsLupiFlash' <<<"$duplicate_output"
 
 run_game "$root/mazestein3d"
-for demo in "$root"/demos/*; do
-  [[ -f "$demo/game.lua" ]] && run_game "$demo"
-done
+while IFS= read -r -d '' game_file; do
+  run_game "$(dirname "$game_file")"
+done < <(find "$root/demos" -mindepth 2 -maxdepth 3 -name game.lua -print0)
 echo "runtime smoke: pass"

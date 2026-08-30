@@ -61,6 +61,8 @@ const Atlas = struct {
     tile_width: i32 = 16,
     tile_height: i32 = 16,
     tile_count: u16 = 0,
+    asset_name: [128]u8 = .{0} ** 128,
+    asset_name_length: u8 = 0,
 
     fn deinit(self: *Atlas) void {
         if (self.texture) |texture| c.SDL_DestroyTexture(texture);
@@ -779,7 +781,11 @@ pub fn main(init: std.process.Init) !void {
                     } else if (studio.mode == .edit and (event.key.keysym.sym == c.SDLK_COMMA or event.key.keysym.sym == c.SDLK_PERIOD)) {
                         try cycleLayerAsset(allocator, renderer, &studio, &atlases, game_root, &workspace_assets, if (event.key.keysym.sym == c.SDLK_COMMA) -1 else 1);
                     } else try handleKey(
+                        allocator,
+                        renderer,
                         &studio,
+                        &atlases,
+                        game_root,
                         &workspace_assets,
                         event.key.keysym.sym,
                         event.key.keysym.mod,
@@ -864,7 +870,11 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn handleKey(
+    allocator: std.mem.Allocator,
+    renderer: *c.SDL_Renderer,
     studio: *Studio,
+    atlases: *[model.layer_count]Atlas,
+    game_root: ?[]const u8,
     workspace: *const WorkspaceAssets,
     key: c.SDL_Keycode,
     modifiers: c.SDL_Keymod,
@@ -989,10 +999,34 @@ fn handleKey(
         },
         c.SDLK_PAGEDOWN => studio.palette_page = @min(studio.palette_page + 1, 15),
         c.SDLK_z => {
-            if (ctrl and try studio.history.undo(&studio.project)) studio.syncGeometry();
+            if (ctrl and try studio.history.undo(&studio.project)) {
+                studio.syncGeometry();
+                if (atlasesNeedReload(studio.project, atlases.*)) {
+                    try reloadProjectAtlases(
+                        allocator,
+                        renderer,
+                        studio,
+                        atlases,
+                        game_root,
+                        workspace,
+                    );
+                }
+            }
         },
         c.SDLK_y => {
-            if (ctrl and try studio.history.redo(&studio.project)) studio.syncGeometry();
+            if (ctrl and try studio.history.redo(&studio.project)) {
+                studio.syncGeometry();
+                if (atlasesNeedReload(studio.project, atlases.*)) {
+                    try reloadProjectAtlases(
+                        allocator,
+                        renderer,
+                        studio,
+                        atlases,
+                        game_root,
+                        workspace,
+                    );
+                }
+            }
         },
         c.SDLK_v => {
             if (ctrl) {
@@ -1881,7 +1915,56 @@ fn loadCatalogAtlas(
     if (asset.width != tile_size or asset.height != tile_size) return .{};
     var path_buffer: [2048]u8 = undefined;
     const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}", .{ root, asset.name() });
-    return loadAtlas(allocator, renderer, path, tile_size, workspace.palette);
+    var atlas = try loadAtlas(allocator, renderer, path, tile_size, workspace.palette);
+    const asset_name = asset.name();
+    std.debug.assert(asset_name.len < atlas.asset_name.len);
+    @memcpy(atlas.asset_name[0..asset_name.len], asset_name);
+    atlas.asset_name_length = @intCast(asset_name.len);
+    return atlas;
+}
+
+fn atlasesNeedReload(project: model.Project, atlases: [model.layer_count]Atlas) bool {
+    for (atlases, 0..) |atlas, layer| {
+        if (atlas.asset_name_length == 0) continue;
+        const asset_name = atlas.asset_name[0..atlas.asset_name_length];
+        if (!std.mem.eql(u8, project.layerTilesetName(layer), asset_name)) return true;
+    }
+    return false;
+}
+
+fn reloadProjectAtlases(
+    allocator: std.mem.Allocator,
+    renderer: *c.SDL_Renderer,
+    studio: *Studio,
+    atlases: *[model.layer_count]Atlas,
+    game_root: ?[]const u8,
+    workspace: *const WorkspaceAssets,
+) !void {
+    var replacements = try loadProjectAtlases(
+        allocator,
+        renderer,
+        game_root,
+        workspace,
+        studio.project,
+        null,
+    );
+    for (0..model.layer_count) |layer| {
+        const asset_index = workspace.catalog.find(
+            studio.project.layerTilesetName(layer),
+        ) orelse continue;
+        if (workspace.asset_file_verified[asset_index] and replacements[layer].texture == null) {
+            for (&replacements) |*replacement| replacement.deinit();
+            studio.notice = .asset_incompatible;
+            return;
+        }
+    }
+    for (atlases) |*atlas| atlas.deinit();
+    atlases.* = replacements;
+    const active = atlases[studio.active_layer];
+    if (active.tile_count > 0) {
+        studio.selected_tile = @min(studio.selected_tile, active.tile_count - 1);
+    }
+    studio.palette_page = studio.selected_tile / 64;
 }
 
 fn assignLayerAsset(
@@ -1903,10 +1986,14 @@ fn assignLayerAsset(
     if (std.mem.eql(u8, studio.project.layerTilesetName(layer), asset.name())) return;
     var replacement = try loadCatalogAtlas(allocator, renderer, game_root, workspace, asset.name(), studio.project.tile_size);
     errdefer replacement.deinit();
+    if (replacement.texture == null) {
+        studio.notice = .asset_incompatible;
+        return;
+    }
+    const changed = try studio.history.setLayerTilesetName(&studio.project, layer, asset.name());
+    std.debug.assert(changed);
     atlases[layer].deinit();
     atlases[layer] = replacement;
-    studio.project.setLayerTilesetName(layer, asset.name());
-    studio.project.revision +%= 1;
     studio.selected_tile = @min(studio.selected_tile, if (replacement.tile_count > 0) replacement.tile_count - 1 else model.max_tile_id);
     studio.palette_page = studio.selected_tile / 64;
     studio.notice = .asset_selected;

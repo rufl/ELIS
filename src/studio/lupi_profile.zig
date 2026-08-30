@@ -4,6 +4,8 @@ pub const frame_width: u32 = 480;
 pub const frame_height: u32 = 270;
 pub const frame_rate_target_hz: u32 = 60;
 pub const flash_bytes: usize = 16 * 1024 * 1024;
+/// Bounds hostile archive metadata work independently of extracted bytes.
+pub const archive_entries_max: usize = 4096;
 pub const psram_bytes: usize = 8 * 1024 * 1024;
 /// Half of PSRAM remains reserved for engine, bitmap, archive, and audio data.
 pub const lua_heap_bytes_max: usize = psram_bytes / 2;

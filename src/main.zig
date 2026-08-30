@@ -15,6 +15,7 @@ const lupi_profile = @import("studio/lupi_profile.zig");
 const W = 480;
 const H = 270;
 const lupi_flash_bytes = lupi_profile.flash_bytes;
+const lupi_archive_entries_max = lupi_profile.archive_entries_max;
 const lupi_psram_bytes = lupi_profile.psram_bytes;
 const lupi_lua_heap_bytes_max = lupi_profile.lua_heap_bytes_max;
 const lupi_tileset_pixels_max = lupi_profile.tileset_pixels_max;
@@ -479,6 +480,24 @@ fn clearDemos() void {
         A.free(demo.path);
     }
     demo_count = 0;
+}
+
+fn closeGameLua() void {
+    c.lua_close(L);
+    std.debug.assert(lua_heap.used_bytes == 0);
+}
+
+fn unloadGame(loaded: *bool, active_archive: *?[]u8) void {
+    if (loaded.*) {
+        audio_state.stopMusic();
+        closeGameLua();
+        loaded.* = false;
+    }
+    if (active_archive.*) |root| {
+        removeTree(root);
+        A.free(root);
+        active_archive.* = null;
+    }
 }
 fn scanDemoDirectoryDepth(base: []const u8, depth: usize, official: bool) void {
     var z: [2048]u8 = undefined;
@@ -1076,16 +1095,38 @@ fn gameFitsFlash(root: []const u8) bool {
     const manifest = assetAll(manifest_path) orelse return !fileExists(manifest_path);
     defer A.free(manifest);
     var declared_bytes: usize = 0;
+    var entry_count: usize = 0;
+    var declared_paths = std.StringHashMapUnmanaged(void){};
+    defer declared_paths.deinit(A);
     var lines = std.mem.splitScalar(u8, manifest, '\n');
     while (lines.next()) |manifest_line| {
+        if (manifest_line.len == 0) continue;
         var tokens = std.mem.tokenizeScalar(u8, manifest_line, ' ');
-        _ = tokens.next() orelse continue;
-        const size_text = tokens.next() orelse continue;
+        const identifier_text = tokens.next() orelse return false;
+        _ = std.fmt.parseUnsigned(usize, identifier_text, 10) catch return false;
+        const size_text = tokens.next() orelse return false;
         const size = std.fmt.parseUnsigned(usize, size_text, 10) catch return false;
+        const relative = tokens.next() orelse return false;
+        if (relative.len == 0 or
+            relative[0] == '/' or
+            relative[0] == '\\' or
+            archivePathUnsafe(relative)) return false;
+        if (std.mem.indexOfScalar(u8, relative, 0) != null) return false;
+        const path_result = declared_paths.getOrPut(A, relative) catch return false;
+        if (path_result.found_existing) return false;
+        if (tokens.rest().len == 0) return false;
+        if (entry_count == lupi_archive_entries_max) return false;
+        entry_count += 1;
         if (size > lupi_flash_bytes - declared_bytes) return false;
         declared_bytes += size;
+        const payload_path = std.fmt.bufPrint(
+            &path_buffer,
+            "{s}/{s}",
+            .{ root, relative },
+        ) catch return false;
+        if (fileSize(payload_path) != size) return false;
     }
-    return true;
+    return entry_count > 0;
 }
 
 fn endsWith(path: []const u8, suffix: []const u8) bool {
@@ -1125,6 +1166,7 @@ fn removeTree(path: []const u8) void {
 /// Extracts an archive into a unique temporary directory. The caller owns the
 /// returned path and must remove the directory and free the slice.
 fn extractArchive(path: []const u8) ?[]u8 {
+    if (fileSize(path) == null) return null;
     var template: [256]u8 = undefined;
     const t = std.fmt.bufPrintZ(&template, "/tmp/elis-archive-XXXXXX", .{}) catch return null;
     const root = c.mkdtemp(t.ptr) orelse return null;
@@ -1136,6 +1178,7 @@ fn extractArchive(path: []const u8) ?[]u8 {
     const za = c.zip_open(archive_z.ptr, 0, &err) orelse return null;
     defer _ = c.zip_close(za);
     const count = c.zip_get_num_entries(za, 0);
+    if (count < 0 or count > lupi_archive_entries_max) return null;
     var extracted_bytes: u64 = 0;
     var index: usize = 0;
     while (index < count) : (index += 1) {
@@ -1143,20 +1186,27 @@ fn extractArchive(path: []const u8) ?[]u8 {
         if (c.zip_stat_index(za, index, 0, &entry) != 0) return null;
         if (entry.size > lupi_flash_bytes - extracted_bytes) return null;
         extracted_bytes += entry.size;
-        const name_ptr = c.zip_get_name(za, index, 0) orelse continue;
+        const name_ptr = c.zip_get_name(za, index, 0) orelse return null;
         const name = std.mem.span(name_ptr);
         // Reject traversal components rather than harmless names containing
         // two dots (for example "version..old").
-        if (name.len == 0 or name[0] == '/' or archivePathTraverses(name)) return null;
+        if (name.len == 0 or
+            name[0] == '/' or
+            name[0] == '\\' or
+            archivePathUnsafe(name)) return null;
         var out: [2048]u8 = undefined;
-        const out_path = std.fmt.bufPrintZ(&out, "{s}/{s}", .{ std.mem.span(root), name }) catch continue;
+        const out_path = std.fmt.bufPrintZ(
+            &out,
+            "{s}/{s}",
+            .{ std.mem.span(root), name },
+        ) catch return null;
         if (name[name.len - 1] == '/') {
             makeParentDirs(out_path);
             _ = c.mkdir(out_path.ptr, 0o755);
             continue;
         }
         makeParentDirs(out_path);
-        const zf = c.zip_fopen_index(za, index, 0) orelse continue;
+        const zf = c.zip_fopen_index(za, index, 0) orelse return null;
         const file = c.fopen(out_path.ptr, "wb") orelse {
             _ = c.zip_fclose(zf);
             return null;
@@ -1181,12 +1231,15 @@ fn extractArchive(path: []const u8) ?[]u8 {
     return owned_root;
 }
 
-fn archivePathTraverses(path: []const u8) bool {
-    var components = std.mem.splitScalar(u8, path, '/');
+fn archivePathUnsafe(path: []const u8) bool {
+    var component_count: usize = 0;
+    var components = std.mem.tokenizeAny(u8, path, "/\\");
     while (components.next()) |component| {
         if (std.mem.eql(u8, component, "..")) return true;
+        if (component_count == 32) return true;
+        component_count += 1;
     }
-    return false;
+    return component_count == 0;
 }
 fn bitmapData(b: []const u8, w: i32, h: i32, tile_id: i32, x: i32, y: i32, flip_x: bool, flip_y: bool) void {
     if (w <= 0 or h <= 0 or tile_id < 0) return;
@@ -2117,7 +2170,7 @@ fn load(path: []const u8) !void {
     legacy_sprite_ref = c.LUA_NOREF;
     lua_heap.reset();
     L = c.lua_newstate(luaAllocate, &lua_heap) orelse return error.LuaInit;
-    errdefer c.lua_close(L);
+    errdefer closeGameLua();
     c.luaL_openlibs(L);
     bind();
     c.lua_pushcclosure(L, @as(c.lua_CFunction, @ptrCast(&luaCompileFile)), 0);
@@ -2521,7 +2574,7 @@ fn runBenchmark(path: []const u8, frame_count: usize) !void {
     defer c.SDL_Quit();
 
     try load(path);
-    defer c.lua_close(L);
+    defer closeGameLua();
     registerConstants();
 
     // Warm Lua and asset caches before the measured interval.
@@ -2558,7 +2611,7 @@ fn captureFrame(path: []const u8, frame_count: usize, output_path: []const u8) !
     if (c.SDL_Init(c.SDL_INIT_TIMER) != 0) return error.SdlInit;
     defer c.SDL_Quit();
     try load(path);
-    defer c.lua_close(L);
+    defer closeGameLua();
     registerConstants();
     for (0..frame_count) |frame| {
         update();
@@ -2772,6 +2825,7 @@ fn printLupiConstraints() void {
         \\framebuffer_bytes={d}
         \\esp32_s3_clock_mhz=240
         \\esp32_flash_bytes={d}
+        \\archive_entries_max={d}
         \\esp32_psram_bytes={d}
         \\rp2350_clock_mhz=345
         \\discrete_gpu=none
@@ -2787,6 +2841,7 @@ fn printLupiConstraints() void {
     , .{
         @sizeOf(@TypeOf(fb)),
         lupi_flash_bytes,
+        lupi_archive_entries_max,
         lupi_psram_bytes,
         lupi_tileset_pixels_max,
         lupi_profile.workshop_visual_layers,
@@ -2841,10 +2896,7 @@ pub fn main(init: std.process.Init) !void {
     var browser_mode = browser_mode_at_start;
     var loaded = false;
     var active_archive: ?[]u8 = null;
-    defer if (active_archive) |root| {
-        removeTree(root);
-        A.free(root);
-    };
+    defer unloadGame(&loaded, &active_archive);
     if (browser_mode) {
         discoverDemos();
     } else {
@@ -2971,6 +3023,7 @@ pub fn main(init: std.process.Init) !void {
                 browser_notice = .none;
             }
             if (!handled_settings and !update_dialog and !quit_dialog and (menuKeyPressed(c.SDL_SCANCODE_ESCAPE) or input_state.cancel_pressed)) {
+                quit_selection = 0;
                 quit_dialog = true;
                 opened_quit = true;
             }
@@ -3006,23 +3059,25 @@ pub fn main(init: std.process.Init) !void {
                     settings_page = .controls;
                     controls_notice = .none;
                 } else if (selected_demo == demo_count + 2) {
+                    quit_selection = 0;
                     quit_dialog = true;
                 } else if (demo_count > 0) {
                     const requested_demo = demos[selected_demo].path;
                     const is_archive = endsWith(requested_demo, ".lupi");
-                    if (loaded) {
-                        audio_state.stopMusic();
-                        c.lua_close(L);
-                        loaded = false;
+                    unloadGame(&loaded, &active_archive);
+                    if (is_archive) {
+                        active_archive = extractArchive(requested_demo);
+                        if (active_archive == null) {
+                            browser_notice = .demo_prepare_failed;
+                            continue;
+                        }
                     }
-                    if (active_archive) |root| {
-                        removeTree(root);
-                        A.free(root);
-                        active_archive = null;
-                    }
-                    if (is_archive) active_archive = extractArchive(requested_demo) orelse return;
                     const game = active_archive orelse requested_demo;
-                    try load(game);
+                    load(game) catch {
+                        unloadGame(&loaded, &active_archive);
+                        browser_notice = .demo_prepare_failed;
+                        continue;
+                    };
                     registerConstants();
                     input_state.clearText();
                     ticks = 0;
@@ -3044,19 +3099,19 @@ pub fn main(init: std.process.Init) !void {
             // Face B is a game action (BTN_X), so only Escape or Select opens
             // the application menu while a demo is running.
             if (!quit_dialog and (menuKeyPressed(c.SDL_SCANCODE_ESCAPE) or menuPressed(c.SDL_CONTROLLER_BUTTON_BACK))) {
+                quit_selection = 0;
                 quit_dialog = true;
                 opened_quit = true;
             }
             if (quit_dialog) {
                 if (!opened_quit and (menuKeyPressed(c.SDL_SCANCODE_ESCAPE) or input_state.cancel_pressed)) {
                     quit_dialog = false;
-                    browser_mode = true;
                 }
                 if (menuKeyPressed(c.SDL_SCANCODE_UP) or menuPressed(c.SDL_CONTROLLER_BUTTON_DPAD_UP)) quit_selection = if (quit_selection == 0) 1 else 0;
                 if (menuKeyPressed(c.SDL_SCANCODE_DOWN) or menuPressed(c.SDL_CONTROLLER_BUTTON_DPAD_DOWN)) quit_selection = if (quit_selection == 1) 0 else 1;
                 if (input_state.confirm_pressed) {
                     if (quit_selection == 0) {
-                        audio_state.stopMusic();
+                        unloadGame(&loaded, &active_archive);
                         quit_dialog = false;
                         browser_mode = true;
                         input_state.clearText();
@@ -3127,5 +3182,4 @@ pub fn main(init: std.process.Init) !void {
         if (sampled and loaded) updateLuaMemoryStats();
         @memset(&fb, [_]u8{0} ** W);
     }
-    if (loaded) c.lua_close(L);
 }

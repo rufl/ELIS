@@ -76,8 +76,9 @@ and the controls do not alter Lua-visible state or API results.
 all ASCII glyphs, primitive edge cases, camera/clip/pattern interactions, SDL
 alpha composition, deterministic asset resolution, and deterministic map
 layering across independent Lua processes. `./scripts/runtime_smoke.sh` proves the Lua 5.4 link, machine-readable hardware
-profile, 4 MiB Lua heap ceiling, 16 MiB directory/archive release ceilings, and
-runs directories, `.lupi` archives, Mazestein, and every installed demo.
+profile, 4 MiB Lua heap ceiling, 16 MiB directory/archive release ceilings,
+4,096-entry archive metadata bound, exact fail-closed manifests, and runs
+directories, `.lupi` archives, Mazestein, and every installed demo.
 `./scripts/studio_smoke.sh` separately proves native editor startup, manifest
 and exact-palette intake, roomy and minimum-size presentations, atomic project
 save, deterministic Lua export, exact saved-project reload, and simulator

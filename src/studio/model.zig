@@ -1074,6 +1074,26 @@ pub const History = struct {
         return true;
     }
 
+    pub fn setLayerTilesetName(
+        self: *History,
+        project: *Project,
+        layer: usize,
+        name: []const u8,
+    ) !bool {
+        if (layer >= layer_count or name.len == 0 or name.len >= project.tilesets[layer].len) {
+            return error.InvalidTilesetName;
+        }
+        if (std.mem.eql(u8, project.layerTilesetName(layer), name)) return false;
+        var changed = try cloneProject(project.*);
+        errdefer changed.deinit();
+        changed.setLayerTilesetName(layer, name);
+        changed.revision +%= 1;
+        const command = try buildProjectSnapshotCommand(self.allocator, project.*, changed);
+        try self.commit(command);
+        replaceProjectOwned(project, changed);
+        return true;
+    }
+
     pub fn setEntitySchemaName(
         self: *History,
         project: *Project,
@@ -2307,6 +2327,26 @@ test "typed entities are undoable and warn when blocked" {
     try std.testing.expectEqual(EntityKind.none, project.entityKindAt(index));
     try std.testing.expect(try history.redo(&project));
     try std.testing.expectEqual(EntityKind.trigger, project.entityKindAt(index));
+}
+
+test "layer tileset assignments participate in unified history" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "tiles/world");
+    defer project.deinit();
+    var history = History.init(std.testing.allocator);
+    defer history.deinit();
+
+    const revision_before = project.revision;
+    try std.testing.expect(try history.setLayerTilesetName(&project, 2, "props/castle"));
+    try std.testing.expectEqual(revision_before +% 1, project.revision);
+    try std.testing.expectEqualStrings("props/castle", project.layerTilesetName(2));
+    try std.testing.expect(try history.undo(&project));
+    try std.testing.expectEqualStrings("tiles/world", project.layerTilesetName(2));
+    try std.testing.expect(try history.redo(&project));
+    try std.testing.expectEqualStrings("props/castle", project.layerTilesetName(2));
+    try std.testing.expectError(
+        error.InvalidTilesetName,
+        history.setLayerTilesetName(&project, layer_count, "props/invalid"),
+    );
 }
 
 test "project templates are valid deterministic and undoable" {
