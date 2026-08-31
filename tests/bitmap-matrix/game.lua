@@ -22,6 +22,17 @@ function update()
     ui.tile(Sprites.sheet, 1025, 40, 10)
     ui.map(map_flips, 50, 10)
 
+    -- Drawing is immediate: later opaque sprite pixels replace earlier ones,
+    -- while palette index zero reveals the earlier call at that pixel.
+    ui.tile(Sprites.sheet, 0, 70, 10)
+    ui.tile(Sprites.sheet, 1, 70, 10)
+    ui.tile(Sprites.sheet, 1, 80, 10)
+    ui.tile(Sprites.sheet, 0, 80, 10)
+
+    -- Ordering is shared across draw categories, not sorted by primitive type.
+    ui.spr(Sprites.sheet, 90, 10)
+    ui.rectfill(90, 10, 91, 11, 7)
+
     ui.camera(3, 4)
     ui.clip(60, 20, 1, 1)
     ui.spr(Sprites.sheet, 63, 24)

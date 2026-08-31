@@ -1,2 +1,2 @@
 1 8 sheet {"type":"bitmap","width":2,"height":2,"tiles":2}
-2 776 game.lua {"type":"lua_code"}
+2 1229 game.lua {"type":"lua_code"}
