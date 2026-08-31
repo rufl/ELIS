@@ -1,8 +1,8 @@
-/// Shared C ABI declarations.
-///
-/// Keeping the import in one module guarantees that every Zig subsystem uses
-/// the same generated C types. Separate `@cImport` blocks can produce types
-/// that look identical but are not interchangeable at module boundaries.
+//! Shared C ABI declarations.
+//!
+//! Keeping the import in one module guarantees that every Zig subsystem uses
+//! the same generated C types. Separate `@cImport` blocks can produce types
+//! that look identical but are not interchangeable at module boundaries.
 pub const c = @cImport({
     @cInclude("SDL2/SDL.h");
     @cInclude("lua.h");

@@ -25,5 +25,7 @@ within seven days; coordinated disclosure timing will be agreed after triage.
   `LUPI_CODEC_DIR` remains the operator's trust decision. Built-in acquisition
   permits HTTPS and HTTPS redirects only, rejects failed libcurl options, and
   stops each source archive at 64 MiB before the stricter 16 MiB package gate.
+  Installation copies regular files and directories only and fails if staging
+  directory creation, output flushing, or output closure fails.
 - Keep credentials, tokens, and local profile data out of the repository and test fixtures.
 - Dependency or toolchain upgrades should be verified with `bash scripts/verify.sh` before release.

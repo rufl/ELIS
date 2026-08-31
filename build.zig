@@ -1,3 +1,9 @@
+//! Host-native build graph for the simulator, Workshop, and maintained gates.
+//!
+//! C dependency discovery and the GCC CRT compatibility copy remain in
+//! `scripts/build_native.sh`; this graph intentionally exposes no target that
+//! the host-specific linker path cannot honor.
+
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {

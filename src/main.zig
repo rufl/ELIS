@@ -198,23 +198,33 @@ fn copyFileRaw(source: []const u8, destination: []const u8) bool {
     const input = c.fopen(src.ptr, "rb") orelse return false;
     defer _ = c.fclose(input);
     const output = c.fopen(dst.ptr, "wb") orelse return false;
-    defer _ = c.fclose(output);
+    var output_open = true;
+    defer {
+        if (output_open) _ = c.fclose(output);
+    }
     var buffer: [8192]u8 = undefined;
     while (true) {
         const got = c.fread(&buffer, 1, buffer.len, input);
         if (got > 0 and c.fwrite(&buffer, 1, got, output) != got) return false;
         if (got < buffer.len) {
-            if (c.ferror(input) != 0) return false;
-            return c.fflush(output) == 0;
+            if (c.ferror(input) != 0 or c.fflush(output) != 0) return false;
+            const close_result = c.fclose(output);
+            output_open = false;
+            return close_result == 0;
         }
     }
 }
+
+/// Copies only regular files and directories from a private extracted tree.
+/// Symlinks and unsupported node types fail closed before installation.
 fn copyTree(source: []const u8, destination: []const u8) bool {
     var source_z: [2048]u8 = undefined;
     var destination_z: [2048]u8 = undefined;
     const src = std.fmt.bufPrintZ(&source_z, "{s}", .{source}) catch return false;
     const dst = std.fmt.bufPrintZ(&destination_z, "{s}", .{destination}) catch return false;
-    _ = c.mkdir(dst.ptr, 0o755);
+    if (c.mkdir(dst.ptr, 0o755) != 0 and packageEntryKind(destination) != .directory) {
+        return false;
+    }
     const dir = c.opendir(src.ptr) orelse return false;
     defer _ = c.closedir(dir);
     while (c.readdir(dir)) |entry| {
@@ -3325,6 +3335,7 @@ pub fn main(init: std.process.Init) !void {
     defer c.SDL_StopTextInput();
     const win = c.SDL_CreateWindow("ELIS  |  Editor for Lupi with Integrated Simulator", c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED, W * 2, H * 2, c.SDL_WINDOW_SHOWN | c.SDL_WINDOW_RESIZABLE | c.SDL_WINDOW_ALLOW_HIGHDPI) orelse return error.SdlWindow;
     defer c.SDL_DestroyWindow(win);
+    input_state.setFocused(c.SDL_GetWindowFlags(win) & c.SDL_WINDOW_INPUT_FOCUS != 0);
     c.SDL_SetWindowMinimumSize(win, W, H);
     const ren = c.SDL_CreateRenderer(win, -1, c.SDL_RENDERER_ACCELERATED | c.SDL_RENDERER_PRESENTVSYNC) orelse return error.SdlRenderer;
     defer c.SDL_DestroyRenderer(ren);

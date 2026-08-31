@@ -16,7 +16,7 @@ The executables share types and constraints, not mutable runtime state. Workshop
 | Path | Responsibility |
 |---|---|
 | `src/main.zig` | Simulator lifecycle, package admission, Lua bindings, software rasterizer, browser, overlays, and SDL presentation |
-| `src/input.zig` | Three-player keyboard/controller/joystick state, remapping, hotplug, and UTF-8 text queue |
+| `src/input.zig` | Three-player keyboard/controller/joystick state, focus ownership, remapping, hotplug, and validated UTF-8 text queue |
 | `src/audio.zig` | Locked SDL audio state, libsndfile music decode, and bounded procedural effects |
 | `src/debug.zig` | Allocation-free frame statistics and rendering-category/layer controls |
 | `src/settings.zig` | Transactional preferences parsing and atomic persistence |
@@ -61,6 +61,7 @@ A new intentional difference from the pinned Lupinho baseline belongs in `COMPAT
 - SDL windows, renderers, textures, controllers, and audio devices are paired with immediate `defer` cleanup.
 - `Audio` state is read by SDL's callback thread. Public mutations lock the device; helpers ending in `Unlocked` require the caller to hold that lock.
 - Workshop `Project`, `History`, `Command`, and `Stamp` values have explicit ownership. Project snapshots are encoded byte slices owned by their history command.
+- Focus loss clears queued input edges and text. Analog state is sampled without an edge when focus returns, and Workshop ignores queued pointer/keyboard events while suspended.
 - Project and settings replacement use Zig's atomic-file API after syncing the new file.
 
 Expected runtime failures reject input or show a user-facing notice. Assertions are reserved for violated internal ownership or range invariants.

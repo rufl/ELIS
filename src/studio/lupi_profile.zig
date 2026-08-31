@@ -1,3 +1,9 @@
+//! Shared executable limits for the physical-console compatibility profile.
+//!
+//! Runtime admission and Workshop export must consume these constants rather
+//! than duplicating values. Conservative limits are enforcement policy, not
+//! proof of timing or free memory on an unnamed physical board.
+
 const std = @import("std");
 
 pub const frame_width: u32 = 480;

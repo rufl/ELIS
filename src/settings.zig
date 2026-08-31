@@ -28,7 +28,7 @@ pub const Settings = struct {
 
         var contents: [maximum_file_size]u8 = undefined;
         const length = c.fread(&contents, 1, contents.len, file);
-        if (length == 0 or length == contents.len) return result;
+        if (c.ferror(file) != 0 or length == 0 or length == contents.len) return result;
 
         var candidate = Settings{};
         var found_version = false;

@@ -24,6 +24,8 @@
 - Made the native linker workaround resolve the selected compiler's multiarch CRT instead of assuming Arch Linux paths, removed the hard-coded x86-64 dynamic linker, and made formatting and shell syntax part of the maintained gate.
 - Prepared public contribution and release infrastructure with architecture, contribution, accessibility, conduct, third-party notice, release, issue, pull-request, dependency-update, and REUSE-compliant machine-readable licensing documentation.
 - Rolled back live Workshop edits if history allocation fails, removed no-op history/dirty revisions when a gesture returns to its source value, bounded host demo downloads to 64 MiB with HTTPS-only redirects and correct libcurl write accounting, and added focused regressions.
+- Suspended queued keyboard, pointer, text, button, and analog-stick input while runtime or Workshop focus belongs to another window; text admission now preserves complete valid UTF-8 at queue capacity.
+- Hardened demo-tree installation against failed destination creation and delayed output-close errors, rejected preference reads reporting I/O failure, and reset closed audio mixer state.
 
 ## History
 

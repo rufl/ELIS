@@ -8,7 +8,7 @@ ELIS supports keyboard, mouse, and controller operation, but its current custom 
 - All twelve console actions can be remapped, with duplicate-binding feedback and reset-to-default recovery.
 - Workshop's primary painting, erasing, selection, shape, layer, preview, save, and template workflows have keyboard and controller paths.
 - Workshop supports `--reduce-motion`; information does not depend on guide animation.
-- Focus loss clears or finalizes active input ownership so returning to the application does not continue a stale pointer gesture or turn a held controller button into a new editor command.
+- Focus loss clears or finalizes active input ownership. Queued keyboard, pointer, text, and button input is ignored while suspended, and a held analog stick is sampled without creating a new edge when focus returns.
 - Important states use text and shape in addition to color: selection outlines, marker letters, status labels, errors, warnings, and lock/visibility labels.
 - The simulator scales the exact indexed surface with nearest-neighbor pixels. Workshop has tested compact 960×600 and roomy 1280×760 compositions.
 

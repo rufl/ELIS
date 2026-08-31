@@ -34,6 +34,8 @@ pub const Audio = struct {
     }
 
     pub fn init(self: *Audio) bool {
+        std.debug.assert(self.device == 0);
+        std.debug.assert(self.music == null);
         var desired = std.mem.zeroes(c.SDL_AudioSpec);
         var obtained = std.mem.zeroes(c.SDL_AudioSpec);
         desired.freq = sample_rate;
@@ -54,7 +56,7 @@ pub const Audio = struct {
         self.closeMusicUnlocked();
         c.SDL_UnlockAudioDevice(self.device);
         c.SDL_CloseAudioDevice(self.device);
-        self.device = 0;
+        self.* = .{};
     }
 
     pub fn playMusic(self: *Audio, path: [:0]const u8) bool {

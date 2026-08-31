@@ -1,8 +1,8 @@
-/// Canonical Lupi 5x8 bitmap font used by the ELIS simulator.
-///
-/// Glyphs are indexed by ASCII code point minus 32. Each byte is one column,
-/// with bit zero representing the top pixel. Keeping the data byte-for-byte
-/// compatible with upstream makes `ui.print` deterministic across runtimes.
+//! Canonical Lupi 5x8 bitmap font used by the ELIS simulator.
+//!
+//! Glyphs are indexed by ASCII code point minus 32. Each byte is one column,
+//! with bit zero representing the top pixel. Keeping the data byte-for-byte
+//! compatible with upstream makes `ui.print` deterministic across runtimes.
 pub const width = 5;
 pub const height = 8;
 pub const advance = 6;

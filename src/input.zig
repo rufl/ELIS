@@ -97,6 +97,8 @@ pub const Input = struct {
     text_len: usize = 0,
     confirm_pressed: bool = false,
     cancel_pressed: bool = false,
+    focused: bool = true,
+    suppress_axis_edges: bool = false,
 
     pub fn init(self: *Input) void {
         self.openAvailableDevices();
@@ -124,6 +126,15 @@ pub const Input = struct {
     }
 
     pub fn handleEvent(self: *Input, event: *const c.SDL_Event) void {
+        if (event.type == c.SDL_WINDOWEVENT) {
+            switch (event.window.event) {
+                c.SDL_WINDOWEVENT_FOCUS_LOST => self.setFocused(false),
+                c.SDL_WINDOWEVENT_FOCUS_GAINED => self.setFocused(true),
+                else => {},
+            }
+            return;
+        }
+        if (!self.focused and !deviceLifecycleEvent(event.type)) return;
         switch (event.type) {
             c.SDL_KEYDOWN => if (event.key.repeat == 0) {
                 const scancode: usize = @intCast(event.key.keysym.scancode);
@@ -142,12 +153,7 @@ pub const Input = struct {
                 const bytes = event.text.text;
                 var length: usize = 0;
                 while (length < bytes.len and bytes[length] != 0) : (length += 1) {}
-                const available = text_capacity - self.text_len;
-                const copied = @min(length, available);
-                if (copied > 0) {
-                    @memcpy(self.text[self.text_len..][0..copied], bytes[0..copied]);
-                    self.text_len += copied;
-                }
+                self.queueText(bytes[0..length]);
             },
             c.SDL_CONTROLLERDEVICEADDED => self.openDevice(event.cdevice.which),
             c.SDL_CONTROLLERDEVICEREMOVED => self.closeDevice(event.cdevice.which),
@@ -158,13 +164,29 @@ pub const Input = struct {
             c.SDL_CONTROLLERBUTTONUP => self.setControllerButton(event.cbutton.which, event.cbutton.button, false),
             c.SDL_JOYBUTTONDOWN => self.setJoystickButton(event.jbutton.which, event.jbutton.button, true),
             c.SDL_JOYBUTTONUP => self.setJoystickButton(event.jbutton.which, event.jbutton.button, false),
-            c.SDL_WINDOWEVENT => if (event.window.event == c.SDL_WINDOWEVENT_FOCUS_LOST) self.clearHeldState(),
             else => {},
+        }
+    }
+
+    /// Suspends gameplay input while another window owns keyboard focus.
+    /// Axis state is sampled on return without turning a held stick into a new edge.
+    pub fn setFocused(self: *Input, focused: bool) void {
+        self.focused = focused;
+        if (!focused) {
+            self.clearState();
+            self.suppress_axis_edges = false;
+        } else {
+            self.suppress_axis_edges = true;
         }
     }
 
     /// Poll analog axes once per frame. Button state remains event-driven.
     pub fn refreshAxes(self: *Input) void {
+        if (!self.focused) {
+            for (&self.axes) |*row| @memset(row, false);
+            for (&self.previous_axes) |*row| @memset(row, false);
+            return;
+        }
         for (self.devices, 0..) |device, slot| {
             const values = switch (device) {
                 .controller => |value| .{
@@ -181,6 +203,10 @@ pub const Input = struct {
             self.axes[slot][@intFromEnum(AxisDirection.right)] = values[0] > axis_dead_zone;
             self.axes[slot][@intFromEnum(AxisDirection.up)] = values[1] < -axis_dead_zone;
             self.axes[slot][@intFromEnum(AxisDirection.down)] = values[1] > axis_dead_zone;
+        }
+        if (self.suppress_axis_edges) {
+            self.previous_axes = self.axes;
+            self.suppress_axis_edges = false;
         }
     }
 
@@ -281,14 +307,14 @@ pub const Input = struct {
     }
 
     /// Returns the first complete UTF-8 codepoint queued by SDL text input.
-    /// Invalid or incomplete input is consumed one byte at a time so a broken
-    /// event can never stall the queue.
+    /// Enqueue validation guarantees malformed or truncated bytes never enter
+    /// the Lua-visible queue.
     pub fn peekText(self: *const Input) ?[]const u8 {
         if (self.text_len == 0) return null;
-        const expected: usize = std.unicode.utf8ByteSequenceLength(self.text[0]) catch 1;
-        if (expected > self.text_len) return self.text[0..1];
+        const expected: usize = std.unicode.utf8ByteSequenceLength(self.text[0]) catch return null;
+        if (expected > self.text_len) return null;
         const candidate = self.text[0..expected];
-        _ = std.unicode.utf8Decode(candidate) catch return self.text[0..1];
+        _ = std.unicode.utf8Decode(candidate) catch return null;
         return candidate;
     }
 
@@ -301,6 +327,13 @@ pub const Input = struct {
 
     pub fn clearText(self: *Input) void {
         self.text_len = 0;
+    }
+
+    fn queueText(self: *Input, source: []const u8) void {
+        const copied = validUtf8Prefix(source, text_capacity - self.text_len);
+        if (copied == 0) return;
+        @memcpy(self.text[self.text_len..][0..copied], source[0..copied]);
+        self.text_len += copied;
     }
 
     fn openAvailableDevices(self: *Input) void {
@@ -407,6 +440,24 @@ pub const Input = struct {
     }
 };
 
+fn deviceLifecycleEvent(event_type: u32) bool {
+    return event_type == c.SDL_CONTROLLERDEVICEADDED or
+        event_type == c.SDL_CONTROLLERDEVICEREMOVED or
+        event_type == c.SDL_JOYDEVICEADDED or
+        event_type == c.SDL_JOYDEVICEREMOVED;
+}
+
+fn validUtf8Prefix(source: []const u8, capacity: usize) usize {
+    var offset: usize = 0;
+    while (offset < source.len and offset < capacity) {
+        const width: usize = std.unicode.utf8ByteSequenceLength(source[offset]) catch break;
+        if (width > source.len - offset or width > capacity - offset) break;
+        _ = std.unicode.utf8Decode(source[offset..][0..width]) catch break;
+        offset += width;
+    }
+    return offset;
+}
+
 fn isConfirmKey(scancode: c_uint) bool {
     return scancode == c.SDL_SCANCODE_RETURN or
         scancode == c.SDL_SCANCODE_KP_ENTER or
@@ -471,17 +522,54 @@ fn genericButton(button: u8) ?i32 {
     };
 }
 
-test "text queue returns only complete valid UTF-8 codepoints" {
+test "text queue admits only complete valid UTF-8 codepoints" {
     var state = Input{};
-    const text = "€A";
-    @memcpy(state.text[0..text.len], text);
-    state.text_len = text.len;
+    state.queueText("€A");
     try std.testing.expectEqualStrings("€", state.peekText().?);
     state.consumeText(3);
     try std.testing.expectEqualStrings("A", state.peekText().?);
 
-    state.text[0] = 0xe2;
-    state.text[1] = 0x28;
-    state.text_len = 2;
-    try std.testing.expectEqualSlices(u8, &.{0xe2}, state.peekText().?);
+    state.clearText();
+    state.queueText(&.{ 0xe2, 0x28 });
+    try std.testing.expectEqual(@as(usize, 0), state.text_len);
+    try std.testing.expect(state.peekText() == null);
+
+    @memset(state.text[0 .. text_capacity - 2], 'x');
+    state.text_len = text_capacity - 2;
+    state.queueText("A€");
+    try std.testing.expectEqual(text_capacity - 1, state.text_len);
+    try std.testing.expectEqual(@as(u8, 'A'), state.text[state.text_len - 1]);
+}
+
+test "focus loss clears edges and ignores queued gameplay input" {
+    var state = Input{};
+    state.keys[c.SDL_SCANCODE_A] = true;
+    state.key_pressed[c.SDL_SCANCODE_A] = true;
+    state.confirm_pressed = true;
+    state.queueText("A");
+
+    var event = std.mem.zeroes(c.SDL_Event);
+    event.type = c.SDL_WINDOWEVENT;
+    event.window.event = c.SDL_WINDOWEVENT_FOCUS_LOST;
+    state.handleEvent(&event);
+    try std.testing.expect(!state.focused);
+    try std.testing.expect(!state.keys[c.SDL_SCANCODE_A]);
+    try std.testing.expect(!state.key_pressed[c.SDL_SCANCODE_A]);
+    try std.testing.expect(!state.confirm_pressed);
+    try std.testing.expectEqual(@as(usize, 0), state.text_len);
+
+    event = std.mem.zeroes(c.SDL_Event);
+    event.type = c.SDL_KEYDOWN;
+    event.key.keysym.scancode = c.SDL_SCANCODE_B;
+    state.handleEvent(&event);
+    try std.testing.expect(!state.keys[c.SDL_SCANCODE_B]);
+
+    event = std.mem.zeroes(c.SDL_Event);
+    event.type = c.SDL_WINDOWEVENT;
+    event.window.event = c.SDL_WINDOWEVENT_FOCUS_GAINED;
+    state.handleEvent(&event);
+    try std.testing.expect(state.focused);
+    try std.testing.expect(state.suppress_axis_edges);
+    state.refreshAxes();
+    try std.testing.expect(!state.suppress_axis_edges);
 }

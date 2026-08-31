@@ -719,6 +719,15 @@ const Studio = struct {
 // -----------------------------------------------------------------------------
 // SDL application lifecycle
 
+fn workshopEventRequiresFocus(event_type: u32) bool {
+    return event_type == c.SDL_KEYDOWN or
+        event_type == c.SDL_TEXTINPUT or
+        event_type == c.SDL_MOUSEBUTTONDOWN or
+        event_type == c.SDL_MOUSEBUTTONUP or
+        event_type == c.SDL_MOUSEMOTION or
+        event_type == c.SDL_MOUSEWHEEL;
+}
+
 fn verifyAtlasIdentity(allocator: std.mem.Allocator) !void {
     var project = try model.Project.init(allocator, 4, 4, 8, "tiles/first");
     defer project.deinit();
@@ -878,7 +887,7 @@ pub fn main(init: std.process.Init) !void {
         controllerButtons(controller)
     else
         [_]bool{false} ** c.SDL_CONTROLLER_BUTTON_MAX;
-    var window_focused = true;
+    var window_focused = c.SDL_GetWindowFlags(window) & c.SDL_WINDOW_INPUT_FOCUS != 0;
     var running = true;
     var frame_count: u32 = 0;
     var capture_pending = capture_path != null;
@@ -891,6 +900,9 @@ pub fn main(init: std.process.Init) !void {
         const layout = layoutFor(window_w, window_h, studio.presentation);
         const canvas = canvasLayout(studio.project, window_w, window_h, studio.mode, layout);
         while (c.SDL_PollEvent(&event) != 0) {
+            // SDL can retain input events queued immediately before focus loss.
+            // Device lifecycle, quit, and focus events still run while suspended.
+            if (!window_focused and workshopEventRequiresFocus(event.type)) continue;
             switch (event.type) {
                 c.SDL_QUIT => studio.requestQuit(&running),
                 c.SDL_CONTROLLERDEVICEADDED => {

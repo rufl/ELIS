@@ -35,7 +35,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md), [COMPATIBILITY.md](COMPATIBILITY.md), a
 - Prefer a regression fixture before changing compatibility-sensitive code.
 - Preserve explicit resource ceilings and fail closed on malformed external input.
 - Pass allocators explicitly and pair every allocation, C handle, temporary tree, and SDL resource with cleanup on success and failure paths.
-- Explain surprising invariants and ownership decisions. Do not comment syntax the code already states.
+- Give each subsystem a module-level ownership comment. Keep named section boundaries in cohesive files and explain surprising invariants, cleanup duties, compatibility decisions, and proof limits; do not comment syntax the code already states.
 - Run `zig fmt` on Zig files and keep Zig source lines within 100 columns.
 - Do not add dependencies when an existing Zig, SDL, Lua, or repository facility is sufficient.
 - Do not commit `.zig-cache/`, `zig-out/`, downloaded demos, local projects, captures, or credentials.
