@@ -43,7 +43,12 @@ zig-out/bin/elis --update-demos
 zig build verify
 ```
 
-The game directory must contain `game.lua`. Games use the original `ui.*` and `sfx.*` APIs and may define `update()`, called once per frame. Escape opens the simulator menu instead of terminating the process directly.
+The game directory must contain `game.lua`. Games use the original `ui.*` and
+`sfx.*` APIs and may define `update()`, called once per frame. Escape opens the
+simulator menu instead of terminating the process directly. Manifest-backed
+cartridges admit only normalized unique paths, valid metadata, exact files, and
+complete packages within 16 MiB; undeclared executable files and malformed
+archives fail closed.
 
 ## ELIS Workshop
 
@@ -69,7 +74,8 @@ over the same authoritative project and command history:
   official per-layer `ui.map` exports, an optional combined map, and semantic
   terrain/entities retained as reserved metadata;
 - responsive 960×600 compact and roomy layouts, reduced-motion mode, friendly
-  contextual teaching, and a one-key presentation switch;
+  contextual teaching, a one-key presentation switch, and an unsaved-close
+  Save/Discard guard for mouse, keyboard, and controller users;
 - a chrome-free validated map preview plus native save/export/reload smoke.
 
 Open a project using the game manifest and exact palette as its asset workspace:
@@ -180,7 +186,11 @@ The explicit aliases `SNES_A`, `SNES_B`, `SNES_X`, `SNES_Y`, `SNES_L`,
 `SNES_R`, `BTN_SELECT` and `BTN_START` are also available. `BTN_X` retains its
 historical Lupi meaning (the secondary/right-face action).
 
-`open_github_demo.sh` accepts a public GitHub repository URL. It runs already-encoded repositories directly; source repositories such as `caio-pernocas` are prepared with the official `lupi-codec` (Lua and ImageMagick are required). Set `LUPI_CODEC_DIR` to reuse a local codec checkout instead of downloading it.
+`open_github_demo.sh` accepts a public GitHub repository URL. It runs
+already-encoded repositories directly; source repositories such as
+`caio-pernocas` are prepared with pinned `lupi-codec` revision
+`3e8c66299a4606b36b9f490212acc44e084a6aa2` (Lua and ImageMagick are required).
+Set `LUPI_CODEC_DIR` to use an explicitly supplied local codec checkout instead.
 
 With no command-line game argument, the simulator opens its demo browser. It discovers `example`, `mazestein3d`, `.lupi` files, and encoded releases under `demos/`, `games/`, and `examples/`. Use Up/Down or the controller d-pad, then Enter/controller A to launch. Press `U` to fetch the official catalog. The confirmation dialog is the only GUI path that permits replacement; cancelling leaves every installed version untouched. After confirmation, a localized status bar is presented before network work starts and remains visible throughout the blocking download. It changes to an explicit finished or failed result when discovery completes. The catalog currently includes Caio Pernocas, Balão Gatinho and Le Pendu, while Mazestein remains under Demos ELIS. Future entries can be added to `demos/catalog.txt`.
 

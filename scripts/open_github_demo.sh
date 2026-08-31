@@ -13,6 +13,7 @@ command -v lua >/dev/null || { echo "Lua 5.3+ is required for source-format demo
 
 work_dir="$(mktemp -d -t elis-github-XXXXXX)"
 trap 'rm -rf "$work_dir"' EXIT
+codec_revision="3e8c66299a4606b36b9f490212acc44e084a6aa2"
 source_dir="$work_dir/source"
 git clone --depth 1 "$target.git" "$source_dir"
 
@@ -25,7 +26,10 @@ if [[ ! -f "$game_dir/lupi_manifest.txt" ]]; then
   codec_dir="${LUPI_CODEC_DIR:-}"
   if [[ -z "$codec_dir" ]]; then
     codec_dir="$work_dir/lupi-codec"
-    git clone --depth 1 https://github.com/lupi-org-br/lupi-codec.git "$codec_dir"
+    git init -q "$codec_dir"
+    git -C "$codec_dir" remote add origin https://github.com/lupi-org-br/lupi-codec.git
+    git -C "$codec_dir" fetch -q --depth 1 origin "$codec_revision"
+    git -C "$codec_dir" checkout -q --detach FETCH_HEAD
   fi
   [[ -f "$codec_dir/run.lua" ]] || { echo "Invalid LUPI_CODEC_DIR: $codec_dir" >&2; exit 1; }
   release_dir="$work_dir/release"

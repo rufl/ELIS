@@ -282,9 +282,11 @@ pub const Input = struct {
     /// event can never stall the queue.
     pub fn peekText(self: *const Input) ?[]const u8 {
         if (self.text_len == 0) return null;
-        const first = self.text[0];
-        const expected: usize = if (first < 0x80) 1 else if (first & 0xe0 == 0xc0) 2 else if (first & 0xf0 == 0xe0) 3 else if (first & 0xf8 == 0xf0) 4 else 1;
-        return self.text[0..@min(expected, self.text_len)];
+        const expected: usize = std.unicode.utf8ByteSequenceLength(self.text[0]) catch 1;
+        if (expected > self.text_len) return self.text[0..1];
+        const candidate = self.text[0..expected];
+        _ = std.unicode.utf8Decode(candidate) catch return self.text[0..1];
+        return candidate;
     }
 
     pub fn consumeText(self: *Input, count: usize) void {
@@ -453,4 +455,19 @@ fn genericButton(button: u8) ?i32 {
         7 => c.SDL_CONTROLLER_BUTTON_START,
         else => null,
     };
+}
+
+test "text queue returns only complete valid UTF-8 codepoints" {
+    var state = Input{};
+    const text = "€A";
+    @memcpy(state.text[0..text.len], text);
+    state.text_len = text.len;
+    try std.testing.expectEqualStrings("€", state.peekText().?);
+    state.consumeText(3);
+    try std.testing.expectEqualStrings("A", state.peekText().?);
+
+    state.text[0] = 0xe2;
+    state.text[1] = 0x28;
+    state.text_len = 2;
+    try std.testing.expectEqualSlices(u8, &.{0xe2}, state.peekText().?);
 }

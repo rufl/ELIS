@@ -19,6 +19,7 @@ const lupi_archive_entries_max = lupi_profile.archive_entries_max;
 const lupi_psram_bytes = lupi_profile.psram_bytes;
 const lupi_lua_heap_bytes_max = lupi_profile.lua_heap_bytes_max;
 const lupi_tileset_pixels_max = lupi_profile.tileset_pixels_max;
+const lupi_codec_revision = "3e8c66299a4606b36b9f490212acc44e084a6aa2";
 comptime {
     std.debug.assert(W == lupi_profile.frame_width);
     std.debug.assert(H == lupi_profile.frame_height);
@@ -138,7 +139,8 @@ fn downloadFile(url: []const u8, path: []const u8) bool {
     _ = c.curl_easy_setopt(easy, c.CURLOPT_USERAGENT, "elis/1.0");
     _ = c.curl_easy_setopt(easy, c.CURLOPT_WRITEFUNCTION, @as(c.curl_write_callback, @ptrCast(&curlWrite)));
     _ = c.curl_easy_setopt(easy, c.CURLOPT_WRITEDATA, file);
-    return c.curl_easy_perform(easy) == c.CURLE_OK;
+    if (c.curl_easy_perform(easy) != c.CURLE_OK) return false;
+    return c.fflush(file) == 0;
 }
 fn copyFileRaw(source: []const u8, destination: []const u8) bool {
     var source_z: [2048]u8 = undefined;
@@ -153,9 +155,11 @@ fn copyFileRaw(source: []const u8, destination: []const u8) bool {
     while (true) {
         const got = c.fread(&buffer, 1, buffer.len, input);
         if (got > 0 and c.fwrite(&buffer, 1, got, output) != got) return false;
-        if (got < buffer.len) break;
+        if (got < buffer.len) {
+            if (c.ferror(input) != 0) return false;
+            return c.fflush(output) == 0;
+        }
     }
-    return true;
 }
 fn copyTree(source: []const u8, destination: []const u8) bool {
     var source_z: [2048]u8 = undefined;
@@ -172,14 +176,39 @@ fn copyTree(source: []const u8, destination: []const u8) bool {
         var child_destination: [2048]u8 = undefined;
         const cs = std.fmt.bufPrint(&child_source, "{s}/{s}", .{ source, name }) catch return false;
         const cd = std.fmt.bufPrint(&child_destination, "{s}/{s}", .{ destination, name }) catch return false;
-        if (entry.*.d_type == c.DT_DIR) {
-            if (!copyTree(cs, cd)) return false;
-        } else if (!copyFileRaw(cs, cd)) return false;
+        switch (packageEntryKind(cs)) {
+            .directory => if (!copyTree(cs, cd)) return false,
+            .regular => if (!copyFileRaw(cs, cd)) return false,
+            .invalid => return false,
+        }
     }
     return true;
 }
 fn isRuntimeMedia(path: []const u8) bool {
     return endsWith(path, ".mp3") or endsWith(path, ".ogg") or endsWith(path, ".wav") or endsWith(path, ".flac");
+}
+
+fn githubRepositorySlug(url: []const u8) ?[]const u8 {
+    const prefix = "https://github.com/";
+    if (!std.mem.startsWith(u8, url, prefix)) return null;
+    const repository = url[prefix.len..];
+    const slash = std.mem.indexOfScalar(u8, repository, '/') orelse return null;
+    if (std.mem.indexOfScalarPos(u8, repository, slash + 1, '/') != null) return null;
+    const owner = repository[0..slash];
+    const slug = repository[slash + 1 ..];
+    if (!githubPathComponent(owner) or !githubPathComponent(slug)) return null;
+    return slug;
+}
+
+fn githubPathComponent(component: []const u8) bool {
+    if (component.len == 0 or std.mem.eql(u8, component, ".") or
+        std.mem.eql(u8, component, "..")) return false;
+    for (component) |byte| {
+        if (!std.ascii.isAlphanumeric(byte) and byte != '_' and byte != '-' and byte != '.') {
+            return false;
+        }
+    }
+    return true;
 }
 
 /// The official codec currently discards files it does not transform. Keep
@@ -199,14 +228,14 @@ fn copyRuntimeMedia(source: []const u8, destination: []const u8, replace_existin
         var destination_child: [2048]u8 = undefined;
         const source_path = std.fmt.bufPrint(&source_child, "{s}/{s}", .{ source, name }) catch return .{ .success = false };
         const destination_path = std.fmt.bufPrint(&destination_child, "{s}/{s}", .{ destination, name }) catch return .{ .success = false };
-        if (entry.*.d_type == c.DT_DIR) {
+        if (packageEntryKind(source_path) == .directory) {
             var destination_z: [2048]u8 = undefined;
             const target = std.fmt.bufPrintZ(&destination_z, "{s}", .{destination_path}) catch return .{ .success = false };
             _ = c.mkdir(target.ptr, 0o755);
             const nested = copyRuntimeMedia(source_path, destination_path, replace_existing);
             if (!nested.success) return nested;
             result.changed = result.changed or nested.changed;
-        } else if (isRuntimeMedia(name)) {
+        } else if (packageEntryKind(source_path) == .regular and isRuntimeMedia(name)) {
             if (!replace_existing and fileExists(destination_path)) continue;
             makeParentDirs(destination_path);
             if (!copyFileRaw(source_path, destination_path)) return .{ .success = false };
@@ -226,9 +255,10 @@ fn findGameRoot(root: []const u8, depth: usize) ?[]const u8 {
     defer _ = c.closedir(dir);
     while (c.readdir(dir)) |entry| {
         const name = std.mem.sliceTo(entry.*.d_name[0..], 0);
-        if (name.len == 0 or name[0] == '.' or entry.*.d_type != c.DT_DIR) continue;
+        if (name.len == 0 or name[0] == '.') continue;
         var child: [2048]u8 = undefined;
         const child_path = std.fmt.bufPrint(&child, "{s}/{s}", .{ root, name }) catch continue;
+        if (packageEntryKind(child_path) != .directory) continue;
         if (findGameRoot(child_path, depth - 1)) |found| return found;
     }
     return null;
@@ -244,9 +274,10 @@ fn findFileRoot(root: []const u8, filename: []const u8, depth: usize) ?[]const u
     defer _ = c.closedir(dir);
     while (c.readdir(dir)) |entry| {
         const name = std.mem.sliceTo(entry.*.d_name[0..], 0);
-        if (name.len == 0 or name[0] == '.' or entry.*.d_type != c.DT_DIR) continue;
+        if (name.len == 0 or name[0] == '.') continue;
         var child: [2048]u8 = undefined;
         const child_path = std.fmt.bufPrint(&child, "{s}/{s}", .{ root, name }) catch continue;
+        if (packageEntryKind(child_path) != .directory) continue;
         if (findFileRoot(child_path, filename, depth - 1)) |found| return found;
     }
     return null;
@@ -307,7 +338,8 @@ fn normalizeCodecPaletteOrder(codec_root: []const u8) bool {
     const path_z = std.fmt.bufPrintZ(&path_z_buffer, "{s}", .{path}) catch return false;
     const file = c.fopen(path_z.ptr, "wb") orelse return false;
     defer _ = c.fclose(file);
-    return c.fwrite(source.ptr, 1, source.len, file) == source.len;
+    return c.fwrite(source.ptr, 1, source.len, file) == source.len and
+        c.fflush(file) == 0;
 }
 fn updateCatalog(replace_existing: bool) bool {
     browser_notice = .searching;
@@ -335,7 +367,12 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
 
     const codec_zip = std.fmt.allocPrint(A, "{s}/codec.zip", .{work}) catch return false;
     defer A.free(codec_zip);
-    const codec_url = "https://github.com/lupi-org-br/lupi-codec/archive/refs/heads/main.zip";
+    var codec_url_buffer: [256]u8 = undefined;
+    const codec_url = std.fmt.bufPrint(
+        &codec_url_buffer,
+        "https://github.com/lupi-org-br/lupi-codec/archive/{s}.zip",
+        .{lupi_codec_revision},
+    ) catch return false;
     if (!downloadFile(codec_url, codec_zip)) {
         browser_notice = .codec_download_failed;
         return false;
@@ -368,10 +405,8 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
         const name = parts.next() orelse continue;
         const url = parts.next() orelse continue;
         if (std.mem.startsWith(u8, url, "builtin:")) continue;
-        if (!std.mem.startsWith(u8, url, "https://github.com/")) continue;
-        const slash = std.mem.lastIndexOfScalar(u8, url, '/') orelse continue;
-        const slug = url[slash + 1 ..];
-        if (slug.len == 0 or slug.len > 80) continue;
+        const slug = githubRepositorySlug(url) orelse continue;
+        if (slug.len > 80) continue;
         var target: [2048]u8 = undefined;
         const target_path = std.fmt.bufPrint(&target, "demos/{s}", .{slug}) catch continue;
         const target_exists = fileExists(target_path);
@@ -383,39 +418,45 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
             const master_url = std.fmt.bufPrint(&source_url, "{s}/archive/refs/heads/master.zip", .{url}) catch continue;
             if (!downloadFile(master_url, source_zip_path)) continue;
         }
-        const source_archive = extractArchive(source_zip_path) orelse continue;
-        defer {
-            removeTree(source_archive);
-            A.free(source_archive);
+        {
+            const source_archive = extractArchive(source_zip_path) orelse continue;
+            defer {
+                removeTree(source_archive);
+                A.free(source_archive);
+            }
+            const source_root = findGameRoot(source_archive, 2) orelse continue;
+            defer A.free(source_root);
+            // Safe fetches never replace encoded game data, but may add runtime
+            // media omitted by older codec runs.
+            if (target_exists and !replace_existing) {
+                const media = copyRuntimeMedia(source_root, target_path, false);
+                if (media.success and media.changed) updated = true;
+                continue;
+            }
+            var output: [2048]u8 = undefined;
+            const output_path = std.fmt.bufPrint(
+                &output,
+                "{s}/{s}-release",
+                .{ work, slug },
+            ) catch continue;
+            if (!runCodec(codec_root, source_root, output_path)) {
+                browser_notice = .demo_prepare_failed;
+                continue;
+            }
+            var current: [2048]u8 = undefined;
+            const current_path = std.fmt.bufPrint(
+                &current,
+                "{s}/current",
+                .{output_path},
+            ) catch continue;
+            if (!fileExists(current_path)) continue;
+            if (!copyRuntimeMedia(source_root, current_path, true).success) {
+                browser_notice = .audio_copy_failed;
+                continue;
+            }
+            _ = c.mkdir("demos", 0o755);
+            if (installTreeAtomically(current_path, target_path)) updated = true;
         }
-        const source_root = findGameRoot(source_archive, 2) orelse {
-            continue;
-        };
-        defer A.free(source_root);
-        // Safe fetches never replace encoded game data, but may add runtime
-        // media omitted by older codec runs.
-        if (target_exists and !replace_existing) {
-            const media = copyRuntimeMedia(source_root, target_path, false);
-            if (media.success and media.changed) updated = true;
-            continue;
-        }
-        var output: [2048]u8 = undefined;
-        const output_path = std.fmt.bufPrint(&output, "{s}/{s}-release", .{ work, slug }) catch continue;
-        if (!runCodec(codec_root, source_root, output_path)) {
-            browser_notice = .demo_prepare_failed;
-            continue;
-        }
-        var current: [2048]u8 = undefined;
-        const current_path = std.fmt.bufPrint(&current, "{s}/current", .{output_path}) catch continue;
-        if (!fileExists(current_path)) {
-            continue;
-        }
-        if (!copyRuntimeMedia(source_root, current_path, true).success) {
-            browser_notice = .audio_copy_failed;
-            continue;
-        }
-        _ = c.mkdir("demos", 0o755);
-        if (installTreeAtomically(current_path, target_path)) updated = true;
         _ = name;
     }
     browser_notice = if (updated) .demos_updated else .no_updates;
@@ -435,8 +476,17 @@ fn installTreeAtomically(source: []const u8, target: []const u8) bool {
     var staging_buf: [2048]u8 = undefined;
     var backup_buf: [2048]u8 = undefined;
     const target_z = std.fmt.bufPrintZ(&target_z_buf, "{s}", .{target}) catch return false;
-    const staging = std.fmt.bufPrintZ(&staging_buf, "{s}.new", .{target}) catch return false;
-    const backup = std.fmt.bufPrintZ(&backup_buf, "{s}.old", .{target}) catch return false;
+    const process_id = c.getpid();
+    const staging = std.fmt.bufPrintZ(
+        &staging_buf,
+        "{s}.new.{d}",
+        .{ target, process_id },
+    ) catch return false;
+    const backup = std.fmt.bufPrintZ(
+        &backup_buf,
+        "{s}.old.{d}",
+        .{ target, process_id },
+    ) catch return false;
 
     removeTree(staging);
     removeTree(backup);
@@ -509,7 +559,7 @@ fn scanDemoDirectoryDepth(base: []const u8, depth: usize, official: bool) void {
         if (name.len == 0 or name[0] == '.') continue;
         var path: [2048]u8 = undefined;
         const full = std.fmt.bufPrint(&path, "{s}/{s}", .{ base, name }) catch continue;
-        if (entry.*.d_type == c.DT_DIR) {
+        if (packageEntryKind(full) == .directory) {
             var game_path: [2048]u8 = undefined;
             const game = std.fmt.bufPrint(&game_path, "{s}/game.lua", .{full}) catch continue;
             if (fileExists(game)) addDemo(name, full, official);
@@ -517,7 +567,7 @@ fn scanDemoDirectoryDepth(base: []const u8, depth: usize, official: bool) void {
             const manifest = std.fmt.bufPrint(&manifest_path, "{s}/lupi_manifest.txt", .{full}) catch continue;
             if (fileExists(manifest)) addDemo(name, full, official);
             if (depth > 0) scanDemoDirectoryDepth(full, depth - 1, official);
-        } else if (endsWith(name, ".lupi")) {
+        } else if (packageEntryKind(full) == .regular and endsWith(name, ".lupi")) {
             addDemo(name[0 .. name.len - 5], full, official);
         }
     }
@@ -534,11 +584,11 @@ fn addCatalogDemos() void {
         var fields = std.mem.splitScalar(u8, line_text, '|');
         const display_name = fields.next() orelse continue;
         const source = fields.next() orelse continue;
-        const slug = if (std.mem.startsWith(u8, source, "https://github.com/")) blk: {
-            const slash = std.mem.lastIndexOfScalar(u8, source, '/') orelse continue;
-            break :blk source[slash + 1 ..];
-        } else if (std.mem.startsWith(u8, source, "builtin:")) source["builtin:".len..] else continue;
-        if (slug.len == 0) continue;
+        const slug = if (std.mem.startsWith(u8, source, "builtin:")) blk: {
+            const builtin_path = source["builtin:".len..];
+            if (archivePathUnsafe(builtin_path)) continue;
+            break :blk builtin_path;
+        } else githubRepositorySlug(source) orelse continue;
         var path_buffer: [256]u8 = undefined;
         const path = std.fmt.bufPrint(&path_buffer, "demos/{s}", .{slug}) catch continue;
         addDemo(display_name, path, true);
@@ -1091,15 +1141,21 @@ fn assetAll(path: []const u8) ?[]u8 {
 }
 fn gameFitsFlash(root: []const u8) bool {
     var path_buffer: [2048]u8 = undefined;
-    const manifest_path = std.fmt.bufPrint(&path_buffer, "{s}/lupi_manifest.txt", .{root}) catch return false;
+    const manifest_path = std.fmt.bufPrint(
+        &path_buffer,
+        "{s}/lupi_manifest.txt",
+        .{root},
+    ) catch return false;
     const manifest = assetAll(manifest_path) orelse return !fileExists(manifest_path);
     defer A.free(manifest);
-    var declared_bytes: usize = 0;
+    var declared_bytes = manifest.len;
+    if (declared_bytes > lupi_flash_bytes) return false;
     var entry_count: usize = 0;
     var declared_paths = std.StringHashMapUnmanaged(void){};
     defer declared_paths.deinit(A);
     var lines = std.mem.splitScalar(u8, manifest, '\n');
-    while (lines.next()) |manifest_line| {
+    while (lines.next()) |raw_line| {
+        const manifest_line = std.mem.trim(u8, raw_line, " \t\r");
         if (manifest_line.len == 0) continue;
         var tokens = std.mem.tokenizeScalar(u8, manifest_line, ' ');
         const identifier_text = tokens.next() orelse return false;
@@ -1107,14 +1163,15 @@ fn gameFitsFlash(root: []const u8) bool {
         const size_text = tokens.next() orelse return false;
         const size = std.fmt.parseUnsigned(usize, size_text, 10) catch return false;
         const relative = tokens.next() orelse return false;
-        if (relative.len == 0 or
-            relative[0] == '/' or
-            relative[0] == '\\' or
-            archivePathUnsafe(relative)) return false;
-        if (std.mem.indexOfScalar(u8, relative, 0) != null) return false;
+        if (archivePathUnsafe(relative)) return false;
         const path_result = declared_paths.getOrPut(A, relative) catch return false;
         if (path_result.found_existing) return false;
-        if (tokens.rest().len == 0) return false;
+        const metadata = std.mem.trim(u8, tokens.rest(), " \t\r");
+        if (metadata.len < 2 or metadata[0] != '{' or metadata[metadata.len - 1] != '}') {
+            return false;
+        }
+        const metadata_valid = std.json.validate(A, metadata) catch return false;
+        if (!metadata_valid) return false;
         if (entry_count == lupi_archive_entries_max) return false;
         entry_count += 1;
         if (size > lupi_flash_bytes - declared_bytes) return false;
@@ -1126,7 +1183,87 @@ fn gameFitsFlash(root: []const u8) bool {
         ) catch return false;
         if (fileSize(payload_path) != size) return false;
     }
-    return entry_count > 0;
+    if (entry_count == 0) return false;
+    var scan = PackageScan{};
+    return scanPackageTree(root, "", &declared_paths, &scan, 0) and
+        scan.bytes <= lupi_flash_bytes;
+}
+
+const PackageScan = struct {
+    bytes: usize = 0,
+    entries: usize = 0,
+};
+
+const PackageEntryKind = enum { regular, directory, invalid };
+
+fn packageEntryKind(path: []const u8) PackageEntryKind {
+    var path_buffer: [2048]u8 = undefined;
+    const path_z = std.fmt.bufPrintZ(&path_buffer, "{s}", .{path}) catch return .invalid;
+    var info: c.struct_stat = undefined;
+    if (c.lstat(path_z.ptr, &info) != 0) return .invalid;
+    const kind = info.st_mode & c.S_IFMT;
+    if (kind == c.S_IFREG) return .regular;
+    if (kind == c.S_IFDIR) return .directory;
+    return .invalid;
+}
+
+fn scanPackageTree(
+    root: []const u8,
+    relative_root: []const u8,
+    declared_paths: *const std.StringHashMapUnmanaged(void),
+    scan: *PackageScan,
+    depth: usize,
+) bool {
+    if (depth > 32) return false;
+    var directory_buffer: [2048]u8 = undefined;
+    const directory_path = if (relative_root.len == 0)
+        std.fmt.bufPrintZ(&directory_buffer, "{s}", .{root}) catch return false
+    else
+        std.fmt.bufPrintZ(
+            &directory_buffer,
+            "{s}/{s}",
+            .{ root, relative_root },
+        ) catch return false;
+    const directory = c.opendir(directory_path.ptr) orelse return false;
+    defer _ = c.closedir(directory);
+    while (c.readdir(directory)) |entry| {
+        const name = std.mem.sliceTo(entry.*.d_name[0..], 0);
+        if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
+        if (name.len == 0 or scan.entries == lupi_archive_entries_max) return false;
+        scan.entries += 1;
+        var relative_buffer: [2048]u8 = undefined;
+        const relative = if (relative_root.len == 0)
+            std.fmt.bufPrint(&relative_buffer, "{s}", .{name}) catch return false
+        else
+            std.fmt.bufPrint(
+                &relative_buffer,
+                "{s}/{s}",
+                .{ relative_root, name },
+            ) catch return false;
+        var full_buffer: [2048]u8 = undefined;
+        const full = std.fmt.bufPrint(
+            &full_buffer,
+            "{s}/{s}",
+            .{ root, relative },
+        ) catch return false;
+        switch (packageEntryKind(full)) {
+            .directory => if (!scanPackageTree(root, relative, declared_paths, scan, depth + 1)) {
+                return false;
+            },
+            .regular => {
+                if (!std.mem.eql(u8, relative, "lupi_manifest.txt") and
+                    !declared_paths.contains(relative) and !isRuntimeMedia(relative))
+                {
+                    return false;
+                }
+                const size = fileSize(full) orelse return false;
+                if (size > lupi_flash_bytes - scan.bytes) return false;
+                scan.bytes += size;
+            },
+            .invalid => return false,
+        }
+    }
+    return true;
 }
 
 fn endsWith(path: []const u8, suffix: []const u8) bool {
@@ -1149,16 +1286,19 @@ fn makeParentDirs(path: []const u8) void {
 fn removeTree(path: []const u8) void {
     var path_z_buf: [2048]u8 = undefined;
     const path_z = std.fmt.bufPrintZ(&path_z_buf, "{s}", .{path}) catch return;
-    const dir = c.opendir(path_z.ptr) orelse {
+    if (packageEntryKind(path) != .directory) {
         _ = c.remove(path_z.ptr);
         return;
-    };
+    }
+    const dir = c.opendir(path_z.ptr) orelse return;
     while (c.readdir(dir)) |entry| {
         const name = std.mem.sliceTo(entry.*.d_name[0..], 0);
         if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
         var child: [2048]u8 = undefined;
         const child_path = std.fmt.bufPrintZ(&child, "{s}/{s}", .{ path, name }) catch continue;
-        if (entry.*.d_type == c.DT_DIR) removeTree(child_path) else _ = c.remove(child_path.ptr);
+        if (packageEntryKind(child_path) == .directory) {
+            removeTree(child_path);
+        } else _ = c.remove(child_path.ptr);
     }
     _ = c.closedir(dir);
     _ = c.rmdir(path_z.ptr);
@@ -1179,6 +1319,8 @@ fn extractArchive(path: []const u8) ?[]u8 {
     defer _ = c.zip_close(za);
     const count = c.zip_get_num_entries(za, 0);
     if (count < 0 or count > lupi_archive_entries_max) return null;
+    var extracted_paths = std.StringHashMapUnmanaged(void){};
+    defer extracted_paths.deinit(A);
     var extracted_bytes: u64 = 0;
     var index: usize = 0;
     while (index < count) : (index += 1) {
@@ -1190,10 +1332,10 @@ fn extractArchive(path: []const u8) ?[]u8 {
         const name = std.mem.span(name_ptr);
         // Reject traversal components rather than harmless names containing
         // two dots (for example "version..old").
-        if (name.len == 0 or
-            name[0] == '/' or
-            name[0] == '\\' or
-            archivePathUnsafe(name)) return null;
+        if (archivePathUnsafe(name)) return null;
+        const canonical_name = if (name[name.len - 1] == '/') name[0 .. name.len - 1] else name;
+        const path_result = extracted_paths.getOrPut(A, canonical_name) catch return null;
+        if (path_result.found_existing) return null;
         var out: [2048]u8 = undefined;
         const out_path = std.fmt.bufPrintZ(
             &out,
@@ -1212,15 +1354,26 @@ fn extractArchive(path: []const u8) ?[]u8 {
             return null;
         };
         var valid = true;
+        var written_bytes: u64 = 0;
         var buf: [8192]u8 = undefined;
         while (true) {
             const got = c.zip_fread(zf, &buf, buf.len);
             if (got == 0) break;
-            if (got < 0 or c.fwrite(&buf, 1, @intCast(got), file) != @as(usize, @intCast(got))) {
+            if (got < 0) {
                 valid = false;
                 break;
             }
+            const got_bytes: usize = @intCast(got);
+            const got_bytes_u64: u64 = @intCast(got_bytes);
+            if (got_bytes_u64 > entry.size - written_bytes or
+                c.fwrite(&buf, 1, got_bytes, file) != got_bytes)
+            {
+                valid = false;
+                break;
+            }
+            written_bytes += got_bytes_u64;
         }
+        if (written_bytes != entry.size) valid = false;
         if (c.fclose(file) != 0) valid = false;
         if (c.zip_fclose(zf) != 0) valid = false;
         if (!valid) return null;
@@ -1232,11 +1385,21 @@ fn extractArchive(path: []const u8) ?[]u8 {
 }
 
 fn archivePathUnsafe(path: []const u8) bool {
+    if (path.len == 0 or path[0] == '/' or
+        std.mem.indexOfScalar(u8, path, '\\') != null)
+    {
+        return true;
+    }
+    const relative = if (path[path.len - 1] == '/') path[0 .. path.len - 1] else path;
+    if (relative.len == 0) return true;
     var component_count: usize = 0;
-    var components = std.mem.tokenizeAny(u8, path, "/\\");
+    var components = std.mem.splitScalar(u8, relative, '/');
     while (components.next()) |component| {
-        if (std.mem.eql(u8, component, "..")) return true;
-        if (component_count == 32) return true;
+        if (component.len == 0 or std.mem.eql(u8, component, ".") or
+            std.mem.eql(u8, component, "..") or component_count == 32)
+        {
+            return true;
+        }
         component_count += 1;
     }
     return component_count == 0;

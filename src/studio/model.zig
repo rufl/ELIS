@@ -1046,30 +1046,35 @@ pub const History = struct {
     pub fn commit(self: *History, command_value: Command) !void {
         var command = command_value;
         errdefer command.deinit();
+        if (self.undo_stack.items.len < max_history) {
+            try self.undo_stack.ensureUnusedCapacity(self.allocator, 1);
+        }
         self.clearCommands(&self.redo_stack);
         while (self.undo_stack.items.len >= max_history) {
             var oldest = self.undo_stack.orderedRemove(0);
             oldest.deinit();
         }
-        try self.undo_stack.append(self.allocator, command);
+        self.undo_stack.appendAssumeCapacity(command);
     }
 
     pub fn undo(self: *History, project: *Project) !bool {
-        var command = self.undo_stack.pop() orelse return false;
-        errdefer command.deinit();
+        if (self.undo_stack.items.len == 0) return false;
         try self.redo_stack.ensureUnusedCapacity(self.allocator, 1);
-        try command.applyBefore(project);
-        project.revision +%= 1;
+        const revision = project.revision;
+        try self.undo_stack.items[self.undo_stack.items.len - 1].applyBefore(project);
+        project.revision = revision +% 1;
+        const command = self.undo_stack.pop().?;
         self.redo_stack.appendAssumeCapacity(command);
         return true;
     }
 
     pub fn redo(self: *History, project: *Project) !bool {
-        var command = self.redo_stack.pop() orelse return false;
-        errdefer command.deinit();
+        if (self.redo_stack.items.len == 0) return false;
         try self.undo_stack.ensureUnusedCapacity(self.allocator, 1);
-        try command.applyAfter(project);
-        project.revision +%= 1;
+        const revision = project.revision;
+        try self.redo_stack.items[self.redo_stack.items.len - 1].applyAfter(project);
+        project.revision = revision +% 1;
+        const command = self.redo_stack.pop().?;
         self.undo_stack.appendAssumeCapacity(command);
         return true;
     }
@@ -1843,16 +1848,11 @@ fn atomicWrite(path: []const u8, bytes: []const u8) !void {
     const io = threaded.io();
     const cwd = std.Io.Dir.cwd();
     try cwd.createDirPath(io, std.fs.path.dirname(path) orelse ".");
-    var temporary_buffer: [1024]u8 = undefined;
-    const temporary = try std.fmt.bufPrint(&temporary_buffer, "{s}.tmp", .{path});
-    {
-        const file = try cwd.createFile(io, temporary, .{ .truncate = true });
-        errdefer file.close(io);
-        try file.writeStreamingAll(io, bytes);
-        try file.sync(io);
-        file.close(io);
-    }
-    try cwd.rename(temporary, cwd, path, io);
+    var atomic_file = try cwd.createFileAtomic(io, path, .{ .replace = true });
+    defer atomic_file.deinit(io);
+    try atomic_file.file.writeStreamingAll(io, bytes);
+    try atomic_file.file.sync(io);
+    try atomic_file.replace(io);
 }
 
 fn validateDimensions(width: u16, height: u16, tile_size: u16) !void {
@@ -2339,9 +2339,12 @@ test "layer tileset assignments participate in unified history" {
     try std.testing.expect(try history.setLayerTilesetName(&project, 2, "props/castle"));
     try std.testing.expectEqual(revision_before +% 1, project.revision);
     try std.testing.expectEqualStrings("props/castle", project.layerTilesetName(2));
+    const saved_revision = project.revision;
     try std.testing.expect(try history.undo(&project));
+    try std.testing.expectEqual(saved_revision +% 1, project.revision);
     try std.testing.expectEqualStrings("tiles/world", project.layerTilesetName(2));
     try std.testing.expect(try history.redo(&project));
+    try std.testing.expectEqual(saved_revision +% 2, project.revision);
     try std.testing.expectEqualStrings("props/castle", project.layerTilesetName(2));
     try std.testing.expectError(
         error.InvalidTilesetName,

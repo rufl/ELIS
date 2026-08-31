@@ -115,6 +115,27 @@ set -e
 test "$traversal_rc" -ne 0
 grep -q 'InvalidLupiArchive' <<<"$traversal_output"
 test ! -e "/tmp/$escape_name"
+python3 - "$tmp/backslash.lupi" "$tmp/duplicate.lupi" <<'PY'
+import sys
+import warnings
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1], "w") as archive:
+    archive.writestr("nested\\payload", b"unsafe")
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", UserWarning)
+    with zipfile.ZipFile(sys.argv[2], "w") as archive:
+        archive.writestr("game.lua", b"function update() end\n")
+        archive.writestr("game.lua", b"function update() error('shadowed') end\n")
+PY
+for hostile_archive in "$tmp/backslash.lupi" "$tmp/duplicate.lupi"; do
+  set +e
+  hostile_output="$(./zig-out/bin/elis "$hostile_archive" 2>&1)"
+  hostile_rc=$?
+  set -e
+  test "$hostile_rc" -ne 0
+  grep -q 'InvalidLupiArchive' <<<"$hostile_output"
+done
 
 mkdir -p "$tmp/manifest-limit"
 printf 'function update() end\n' > "$tmp/manifest-limit/game.lua"
@@ -155,6 +176,41 @@ duplicate_rc=$?
 set -e
 test "$duplicate_rc" -ne 0
 grep -q 'GameExceedsLupiFlash' <<<"$duplicate_output"
+mkdir -p "$tmp/manifest-json"
+printf 'function update() end\n' > "$tmp/manifest-json/game.lua"
+game_size="$(stat -c %s "$tmp/manifest-json/game.lua")"
+printf '1 %s game.lua {not-json}\n' "$game_size" > "$tmp/manifest-json/lupi_manifest.txt"
+set +e
+json_output="$(./zig-out/bin/elis --screenshot "$tmp/manifest-json" 1 "$tmp/json.ppm" 2>&1)"
+json_rc=$?
+set -e
+test "$json_rc" -ne 0
+grep -q 'GameExceedsLupiFlash' <<<"$json_output"
+mkdir -p "$tmp/manifest-package"
+printf 'function update() end\n' > "$tmp/manifest-package/game.lua"
+game_size="$(stat -c %s "$tmp/manifest-package/game.lua")"
+padding_size=$((16 * 1024 * 1024 - game_size))
+truncate -s "$padding_size" "$tmp/manifest-package/padding.bin"
+printf '1 %s game.lua {"type":"lua_code"}\n2 %s padding.bin {"type":"data"}\n' \
+  "$game_size" "$padding_size" > "$tmp/manifest-package/lupi_manifest.txt"
+set +e
+package_output="$(./zig-out/bin/elis --screenshot "$tmp/manifest-package" 1 "$tmp/package.ppm" 2>&1)"
+package_rc=$?
+set -e
+test "$package_rc" -ne 0
+grep -q 'GameExceedsLupiFlash' <<<"$package_output"
+mkdir -p "$tmp/manifest-undeclared"
+printf 'function update() require("hidden") end\n' > "$tmp/manifest-undeclared/game.lua"
+printf 'return true\n' > "$tmp/manifest-undeclared/hidden.lua"
+game_size="$(stat -c %s "$tmp/manifest-undeclared/game.lua")"
+printf '1 %s game.lua {"type":"lua_code"}\n' "$game_size" \
+  > "$tmp/manifest-undeclared/lupi_manifest.txt"
+set +e
+undeclared_output="$(./zig-out/bin/elis --screenshot "$tmp/manifest-undeclared" 1 "$tmp/undeclared.ppm" 2>&1)"
+undeclared_rc=$?
+set -e
+test "$undeclared_rc" -ne 0
+grep -q 'GameExceedsLupiFlash' <<<"$undeclared_output"
 
 run_game "$root/mazestein3d"
 while IFS= read -r -d '' game_file; do

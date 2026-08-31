@@ -25,9 +25,10 @@ editor map preview, not a claim that game-specific mechanics are running.
 - Every layer owns an independent Lupi tileset name. A `--game-root` workspace
   reads compatible bitmap choices from `lupi_manifest.txt`; only assets matching
   the project's square tile size appear in the shelf. Tileset changes use the
-  shared undo/redo history and refresh their atlas after traversal. Session
-  controls can hide a visual layer or lock it against painting without changing
-  saved/exported data.
+  shared undo/redo history and refresh their atlas after traversal. Undo/redo
+  revisions stay monotonic, so a saved snapshot cannot be mistaken for a clean
+  project after traversal. Session controls can hide a visual layer or lock it
+  against painting without changing saved/exported data.
 - The source project retains tile IDs from 0 through 1023; `65535` represents
   an empty cell and exports as `-1`.
 - Line and rectangle gestures use bounded integer rasterization and commit as
@@ -123,6 +124,7 @@ proof.
 | `-` / `+`, with Shift or Alt | Edit schema default, minimum, or maximum |
 | Shift+`-` / Shift+`+` | Decrease / increase resize height |
 | Ctrl+S | Save `.elisworld` project |
+| Escape / window close | Close immediately when clean; otherwise choose Save and Exit or Discard Changes, with Escape returning to editing |
 | F5 | Export Lua map |
 | F6 / F7 | Enter preview / return to edit |
 | F8 | Open or close the project-template panel |

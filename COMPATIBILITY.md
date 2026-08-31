@@ -29,8 +29,13 @@ or implement upstream placeholders; they are not accidental renderer drift:
   by public demos and do not change reference calls.
 - `Palette.hex` is supplied after loading a generated palette module so source
   demos can resolve RGB colors against the encoded RGB555 palette.
-- Invalid dimensions, missing assets, truncated data, ambiguous assets, and
-  unsafe archives fail safely rather than reproducing C undefined behavior.
+- Invalid dimensions, missing assets, truncated data, ambiguous assets,
+  malformed manifest metadata, undeclared package code, duplicate archive
+  entries, and unsafe paths fail safely rather than reproducing C undefined
+  behavior.
+- Host music accepts libsndfile streams at the 44.1 kHz mixer rate with one to
+  eight channels; unsupported streams fail visibly instead of playing at the
+  wrong speed or reading beyond the bounded decode buffer.
 
 ## Workshop Lupi-safe export profile
 

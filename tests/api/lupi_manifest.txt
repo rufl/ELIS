@@ -1,1 +1,3 @@
 1 1 tile.bin {"type":"bitmap","width":1,"height":1,"tiles":1}
+2 1191 game.lua {"type":"lua_code"}
+3 25 helper.lua {"type":"lua_code"}

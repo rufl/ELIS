@@ -20,7 +20,12 @@ profile and must not use host capacity as evidence of console performance.
 4. [lupi-codec](https://github.com/lupi-org-br/lupi-codec) at
    `3e8c66299a4606b36b9f490212acc44e084a6aa2` defines accepted Tiled maps and
    the 49,152-pixel tileset ceiling.
-5. The ESP32-S3 N16R8 designation supplies 16 MiB flash and 8 MiB PSRAM. The
+5. [lupinho-sdk](https://github.com/lupi-org-br/lupinho-sdk) at
+   `ebf57b25b528d4a198ff3288c9b803f2b9a98c76` documents the authoring pipeline,
+   but pins older Lupinho 1.1.0 and lupi-codec 1.0.0 tags. Its broad 512×512
+   image statement does not override the codec's executable 49,152-pixel Tiled
+   tileset check or provide physical firmware semantics.
+6. The ESP32-S3 N16R8 designation supplies 16 MiB flash and 8 MiB PSRAM. The
    RP2350 register map in Raspberry Pi's public `pico-sdk` exposes main SRAM at
    `0x20000000..0x20082000`, or 520 KiB.
 
@@ -42,9 +47,12 @@ profile and must not use host capacity as evidence of console performance.
 The 4 MiB Lua ceiling is an ELIS safety reserve, not a claimed firmware
 partition: it leaves half of PSRAM for engine state, assets, archives, audio,
 and transient buffers. An allocation beyond that ceiling fails through Lua's
-normal out-of-memory path. Archive input bytes, extracted bytes, and manifest
-payload totals each remain within 16 MiB; archive metadata work is independently
-bounded to 4,096 entries. `ui.stat(0)` reports Lua memory, `ui.stat(1)` reports
+normal out-of-memory path. Archive input bytes, extracted bytes, and complete
+manifest-backed package bytes each remain within 16 MiB; archive metadata work
+is independently bounded to 4,096 entries. Normalized relative paths, unique
+archive and manifest names, exact extraction lengths, JSON metadata, and
+undeclared executable files fail closed. `ui.stat(0)` reports Lua memory,
+`ui.stat(1)` reports
 frame-budget CPU utilization, and `ui.stat(7)` reports FPS.
 
 The public Lupinho WebAssembly build allocates 64 MiB total memory and a 1 MiB

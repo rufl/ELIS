@@ -48,15 +48,12 @@ pub const Settings = struct {
         return result;
     }
 
-    /// Writes to a sibling temporary file, flushes it, then atomically renames
-    /// it over the old settings. A crash cannot leave a half-written profile.
+    /// Flushes through the standard atomic-file API before replacing the old
+    /// settings. A crash cannot leave a half-written profile or shared temp race.
     pub fn save(self: Settings) bool {
         if (!validBindings(self.bindings)) return saveFailure("invalid bindings");
         var path_buffer: [2048]u8 = undefined;
         const path = settingsPath(&path_buffer) orelse return saveFailure("preference path");
-        var temporary_buffer: [2060]u8 = undefined;
-        const temporary = std.fmt.bufPrintZ(&temporary_buffer, "{s}.tmp", .{path}) catch return saveFailure("temporary path");
-
         var contents: [maximum_file_size]u8 = undefined;
         var used: usize = 0;
         if (!append(&contents, &used, "version={d}\nlanguage={s}\nkeyboard=", .{ format_version, self.language.tag() })) return false;
@@ -71,22 +68,19 @@ pub const Settings = struct {
         }
         if (!append(&contents, &used, "\n", .{})) return false;
 
-        const file = c.fopen(temporary.ptr, "wb") orelse {
-            std.debug.print("Caminho de configuracoes indisponivel: {s}\n", .{temporary});
-            return saveFailure("open temporary file");
-        };
-        var success = c.fwrite(&contents, 1, used, file) == used;
-        if (success) success = c.fflush(file) == 0;
-        if (success) success = c.fsync(c.fileno(file)) == 0;
-        if (c.fclose(file) != 0) success = false;
-        if (!success) {
-            _ = c.unlink(temporary.ptr);
-            return saveFailure("flush temporary file");
-        }
-        if (c.rename(temporary.ptr, path.ptr) != 0) {
-            _ = c.unlink(temporary.ptr);
-            return saveFailure("replace settings file");
-        }
+        var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+        defer threaded.deinit();
+        const io = threaded.io();
+        var atomic_file = std.Io.Dir.cwd().createFileAtomic(
+            io,
+            path,
+            .{ .replace = true },
+        ) catch return saveFailure("open atomic file");
+        defer atomic_file.deinit(io);
+        atomic_file.file.writeStreamingAll(io, contents[0..used]) catch
+            return saveFailure("write settings");
+        atomic_file.file.sync(io) catch return saveFailure("flush settings");
+        atomic_file.replace(io) catch return saveFailure("replace settings file");
         return true;
     }
 };

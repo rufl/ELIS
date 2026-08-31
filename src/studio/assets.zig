@@ -77,7 +77,8 @@ pub fn parseManifest(source: []const u8) Catalog {
         const byte_text = tokens.next() orelse continue;
         const path = tokens.next() orelse continue;
         const json = tokens.rest();
-        if (path.len == 0 or path.len > max_asset_path or !jsonStringEquals(json, "type", "bitmap")) continue;
+        if (!safeAssetPath(path) or path.len > max_asset_path or
+            result.find(path) != null or !jsonStringEquals(json, "type", "bitmap")) continue;
         const width = jsonUnsigned(json, "width") orelse continue;
         const height = jsonUnsigned(json, "height") orelse continue;
         if (width == 0 or height == 0 or width > 64 or height > 64) continue;
@@ -144,6 +145,23 @@ fn expand5(value: u8) u8 {
     return (component << 3) | (component >> 2);
 }
 
+fn safeAssetPath(path: []const u8) bool {
+    if (path.len == 0 or path[0] == '/' or std.mem.indexOfScalar(u8, path, '\\') != null) {
+        return false;
+    }
+    var component_count: usize = 0;
+    var components = std.mem.splitScalar(u8, path, '/');
+    while (components.next()) |component| {
+        if (component.len == 0 or std.mem.eql(u8, component, ".") or
+            std.mem.eql(u8, component, "..") or component_count == 32)
+        {
+            return false;
+        }
+        component_count += 1;
+    }
+    return component_count > 0;
+}
+
 fn jsonUnsigned(json: []const u8, field: []const u8) ?u16 {
     const at = fieldValueStart(json, field) orelse return null;
     var end = at;
@@ -183,7 +201,11 @@ test "manifest parser keeps bounded bitmap assets and their geometry" {
     const source =
         "100 4096 maps/forest {\"height\":16, \"tiles\":16, \"width\":16, \"type\":\"bitmap\"}\n" ++
         "101 23 game.lua {\"type\":\"lua_code\"}\n" ++
-        "102 64 props/tree { \"type\" : \"bitmap\", \"width\" : 8, \"height\" : 8 }\n";
+        "102 64 props/tree { \"type\" : \"bitmap\", \"width\" : 8, \"height\" : 8 }\n" ++
+        "103 64 ../outside {\"type\":\"bitmap\",\"width\":8,\"height\":8}\n" ++
+        "104 64 props/tree {\"type\":\"bitmap\",\"width\":8,\"height\":8}\n" ++
+        "105 64 props\\tree {\"type\":\"bitmap\",\"width\":8,\"height\":8}\n" ++
+        "106 64 props//tree {\"type\":\"bitmap\",\"width\":8,\"height\":8}\n";
     const catalog = parseManifest(source);
     try std.testing.expectEqual(@as(u8, 2), catalog.count);
     try std.testing.expectEqualStrings("maps/forest", catalog.items[0].name());

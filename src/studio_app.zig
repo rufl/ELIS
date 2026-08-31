@@ -15,7 +15,29 @@ const tools = [_]Tool{ .brush, .smart, .erase, .fill, .pick, .collision, .spawn,
 const tool_labels = [_][]const u8{ "PENCIL", "SMART", "ERASER", "FILL", "PICK", "COLLISION", "START", "GOAL", "ENTITY", "SELECT", "STAMP", "LINE", "RECTANGLE", "RESIZE" };
 const tool_columns: usize = 2;
 const tool_rows: usize = (tools.len + tool_columns - 1) / tool_columns;
-const Notice = enum { none, saved, exported, asset_selected, asset_incompatible, save_failed, export_failed, lupi_export_blocked, invalid_preview, stamp_captured, stamp_missing, stamp_transformed, entity_changed, layer_locked, layer_lock_changed, layer_visibility, shape_applied, resize_applied, resize_clipped, template_applied };
+const Notice = enum {
+    none,
+    saved,
+    exported,
+    asset_selected,
+    asset_incompatible,
+    save_failed,
+    edit_failed,
+    export_failed,
+    lupi_export_blocked,
+    invalid_preview,
+    stamp_captured,
+    stamp_missing,
+    stamp_transformed,
+    entity_changed,
+    layer_locked,
+    layer_lock_changed,
+    layer_visibility,
+    shape_applied,
+    resize_applied,
+    resize_clipped,
+    template_applied,
+};
 
 const LupiExportStatus = enum {
     safe,
@@ -101,6 +123,8 @@ const Studio = struct {
     entity_text_length: u8 = 0,
     template_panel: bool = false,
     selected_template: model.ProjectTemplate = .platformer,
+    quit_dialog: bool = false,
+    quit_selection: u1 = 0,
     resize_width: u16,
     resize_height: u16,
     resize_anchor: model.ResizeAnchor = .center,
@@ -128,6 +152,33 @@ const Studio = struct {
 
     fn dirty(self: Studio) bool {
         return self.project.revision != self.last_saved_revision;
+    }
+
+    fn requestQuit(self: *Studio, running: *bool) void {
+        if (self.dragging) self.finishStroke() catch {
+            self.notice = .edit_failed;
+            return;
+        };
+        if (self.shaping) self.finishShape() catch {
+            self.notice = .edit_failed;
+            return;
+        };
+        self.selecting = false;
+        if (self.dirty() or self.entity_text_target != .none) {
+            self.quit_dialog = true;
+            self.quit_selection = 0;
+        } else running.* = false;
+    }
+
+    fn confirmQuit(self: *Studio, running: *bool) void {
+        if (self.quit_selection == 0) {
+            self.finishEntityText(true) catch {
+                self.notice = .edit_failed;
+                return;
+            };
+            self.save();
+            if (!self.dirty()) running.* = false;
+        } else running.* = false;
     }
 
     fn finishStroke(self: *Studio) !void {
@@ -762,16 +813,25 @@ pub fn main(init: std.process.Init) !void {
         const canvas = canvasLayout(studio.project, window_w, window_h, studio.mode, layout);
         while (c.SDL_PollEvent(&event) != 0) {
             switch (event.type) {
-                c.SDL_QUIT => running = false,
+                c.SDL_QUIT => studio.requestQuit(&running),
                 c.SDL_CONTROLLERDEVICEADDED => {
-                    if (gamepad == null) gamepad = openFirstController();
+                    if (gamepad == null) {
+                        gamepad = openFirstController();
+                        @memset(&previous_buttons, false);
+                    }
                 },
-                c.SDL_CONTROLLERDEVICEREMOVED => {
-                    if (gamepad) |controller| c.SDL_GameControllerClose(controller);
-                    gamepad = openFirstController();
+                c.SDL_CONTROLLERDEVICEREMOVED => if (gamepad) |controller| {
+                    const joystick = c.SDL_GameControllerGetJoystick(controller);
+                    if (c.SDL_JoystickInstanceID(joystick) == event.cdevice.which) {
+                        c.SDL_GameControllerClose(controller);
+                        gamepad = openFirstController();
+                        @memset(&previous_buttons, false);
+                    }
                 },
                 c.SDL_KEYDOWN => if (event.key.repeat == 0) {
-                    if (studio.entity_text_target != .none) {
+                    if (studio.quit_dialog) {
+                        handleQuitDialogKey(&studio, event.key.keysym.sym, &running);
+                    } else if (studio.entity_text_target != .none) {
                         switch (event.key.keysym.sym) {
                             c.SDLK_ESCAPE => try studio.finishEntityText(false),
                             c.SDLK_RETURN => try studio.finishEntityText(true),
@@ -792,10 +852,19 @@ pub fn main(init: std.process.Init) !void {
                         &running,
                     );
                 },
-                c.SDL_TEXTINPUT => if (studio.entity_text_target != .none) {
+                c.SDL_TEXTINPUT => if (!studio.quit_dialog and studio.entity_text_target != .none) {
                     studio.appendEntityText(std.mem.sliceTo(&event.text.text, 0));
                 },
-                c.SDL_MOUSEBUTTONDOWN => if (studio.mode == .edit and studio.entity_text_target == .none) {
+                c.SDL_MOUSEBUTTONDOWN => if (studio.quit_dialog) {
+                    handleQuitDialogClick(
+                        &studio,
+                        &running,
+                        event.button.x,
+                        event.button.y,
+                        window_w,
+                        window_h,
+                    );
+                } else if (studio.mode == .edit and studio.entity_text_target == .none) {
                     const point = canvasPoint(studio.project, canvas, event.button.x, event.button.y);
                     if (point) |value| {
                         if (studio.tool == .select) {
@@ -815,7 +884,7 @@ pub fn main(init: std.process.Init) !void {
                         }
                     } else try handleChromeClick(allocator, renderer, &studio, &atlases, game_root, &workspace_assets, event.button.x, event.button.y, window_w, window_h);
                 },
-                c.SDL_MOUSEMOTION => if (studio.mode == .edit) {
+                c.SDL_MOUSEMOTION => if (!studio.quit_dialog and studio.mode == .edit) {
                     if (studio.selecting) {
                         if (canvasPoint(studio.project, canvas, event.motion.x, event.motion.y)) |point| {
                             studio.cursor = point;
@@ -832,28 +901,35 @@ pub fn main(init: std.process.Init) !void {
                         }
                     }
                 },
-                c.SDL_MOUSEBUTTONUP => if (studio.selecting) {
-                    try studio.finishSelection();
-                } else if (studio.shaping) {
-                    try studio.finishShape();
-                } else if (studio.dragging) try studio.finishStroke(),
-                c.SDL_MOUSEWHEEL => if (studio.mode == .edit and studio.entity_text_target == .none) {
+                c.SDL_MOUSEBUTTONUP => if (!studio.quit_dialog) {
+                    if (studio.selecting) {
+                        try studio.finishSelection();
+                    } else if (studio.shaping) {
+                        try studio.finishShape();
+                    } else if (studio.dragging) try studio.finishStroke();
+                },
+                c.SDL_MOUSEWHEEL => if (!studio.quit_dialog and studio.mode == .edit and
+                    studio.entity_text_target == .none)
+                {
                     if (event.wheel.y > 0) previousTile(&studio) else if (event.wheel.y < 0) nextTile(&studio, atlases[studio.active_layer].tile_count);
                 },
                 else => {},
             }
         }
-        if (studio.entity_text_target == .none) if (gamepad) |controller| try handleController(
-            allocator,
-            renderer,
-            &studio,
-            &atlases,
-            game_root,
-            &workspace_assets,
-            controller,
-            &previous_buttons,
-            atlases[studio.active_layer].tile_count,
-        );
+        if (studio.quit_dialog or studio.entity_text_target == .none) {
+            if (gamepad) |controller| try handleController(
+                allocator,
+                renderer,
+                &studio,
+                &atlases,
+                game_root,
+                &workspace_assets,
+                controller,
+                &previous_buttons,
+                atlases[studio.active_layer].tile_count,
+                &running,
+            );
+        }
 
         try render(renderer, &studio, atlases, &workspace_assets, window_w, window_h);
         if (capture_pending) {
@@ -866,6 +942,41 @@ pub fn main(init: std.process.Init) !void {
         if (smoke_frames) |limit| {
             if (frame_count >= limit) running = false;
         }
+    }
+}
+
+fn handleQuitDialogKey(studio: *Studio, key: c.SDL_Keycode, running: *bool) void {
+    switch (key) {
+        c.SDLK_ESCAPE => studio.quit_dialog = false,
+        c.SDLK_UP, c.SDLK_DOWN => studio.quit_selection = 1 - studio.quit_selection,
+        c.SDLK_RETURN, c.SDLK_SPACE => studio.confirmQuit(running),
+        else => {},
+    }
+}
+
+fn quitDialogButtonRect(width: i32, height: i32, selection: u1) Rect {
+    return .{
+        .x = @divTrunc(width - 360, 2),
+        .y = @divTrunc(height - 230, 2) + 92 + @as(i32, selection) * 54,
+        .w = 360,
+        .h = 44,
+    };
+}
+
+fn handleQuitDialogClick(
+    studio: *Studio,
+    running: *bool,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) void {
+    for (0..2) |index| {
+        const selection: u1 = @intCast(index);
+        if (!contains(quitDialogButtonRect(width, height, selection), x, y)) continue;
+        studio.quit_selection = selection;
+        studio.confirmQuit(running);
+        return;
     }
 }
 
@@ -909,7 +1020,7 @@ fn handleKey(
                 studio.shaping = false;
                 studio.selecting = false;
                 studio.shape = null;
-            } else running.* = false;
+            } else studio.requestQuit(running);
         },
         c.SDLK_TAB => studio.togglePresentation(),
         c.SDLK_b => studio.chooseTool(.brush),
@@ -1079,6 +1190,7 @@ fn handleController(
     controller: *c.SDL_GameController,
     previous: *[c.SDL_CONTROLLER_BUTTON_MAX]bool,
     tile_count: u16,
+    running: *bool,
 ) !void {
     var current: [c.SDL_CONTROLLER_BUTTON_MAX]bool = .{false} ** c.SDL_CONTROLLER_BUTTON_MAX;
     for (0..c.SDL_CONTROLLER_BUTTON_MAX) |index| current[index] = c.SDL_GameControllerGetButton(controller, @intCast(index)) != 0;
@@ -1087,6 +1199,21 @@ fn handleController(
             return now[button_index] and !before[button_index];
         }
     }.value;
+    if (studio.quit_dialog) {
+        if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_DPAD_UP) or
+            pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_DPAD_DOWN))
+        {
+            studio.quit_selection = 1 - studio.quit_selection;
+        }
+        if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_B)) {
+            studio.quit_dialog = false;
+        }
+        if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_A)) {
+            studio.confirmQuit(running);
+        }
+        previous.* = current;
+        return;
+    }
     if (studio.mode == .preview) {
         if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_B) or pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_BACK)) studio.mode = .edit;
         previous.* = current;
@@ -1378,6 +1505,7 @@ fn render(
     _ = c.SDL_RenderClear(renderer);
     if (studio.mode == .preview) {
         drawPreview(renderer, studio, atlases, width, height);
+        if (studio.quit_dialog) drawQuitDialog(renderer, studio, width, height);
         return;
     }
     const layout = layoutFor(width, height, studio.presentation);
@@ -1711,6 +1839,56 @@ fn render(
         drawText(renderer, right_x + 18, validation_y + 71 + @as(i32, @intCast(index)) * 17, 1, issueLabel(issue.kind), if (issue.severity == .@"error") 246 else 236, if (issue.severity == .@"error") 112 else 199, 110);
     }
     drawNotice(renderer, studio.notice, width, height);
+    if (studio.quit_dialog) drawQuitDialog(renderer, studio, width, height);
+}
+
+fn drawQuitDialog(renderer: *c.SDL_Renderer, studio: *const Studio, width: i32, height: i32) void {
+    fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = height }, 5, 7, 12, 210);
+    const panel = Rect{
+        .x = @divTrunc(width - 420, 2),
+        .y = @divTrunc(height - 230, 2),
+        .w = 420,
+        .h = 230,
+    };
+    fill(renderer, panel, 29, 35, 48, 255);
+    outline(renderer, panel, 236, 199, 110, 255);
+    drawText(renderer, panel.x + 30, panel.y + 24, 2, "UNSAVED CHANGES", 246, 210, 126);
+    drawText(
+        renderer,
+        panel.x + 30,
+        panel.y + 54,
+        1,
+        "SAVE BEFORE CLOSING THE WORKSHOP?",
+        218,
+        225,
+        236,
+    );
+    for (0..2) |index| {
+        const selection: u1 = @intCast(index);
+        button(
+            renderer,
+            quitDialogButtonRect(width, height, selection),
+            if (selection == 0) "SAVE AND EXIT" else "DISCARD CHANGES",
+            studio.quit_selection == selection,
+        );
+    }
+    if (studio.notice == .save_failed or studio.notice == .edit_failed) {
+        drawText(
+            renderer,
+            panel.x + 30,
+            panel.y + 204,
+            1,
+            if (studio.notice == .save_failed)
+                "SAVE FAILED - CHECK THE PROJECT PATH"
+            else
+                "EDIT COULD NOT BE COMMITTED",
+            246,
+            112,
+            110,
+        );
+    } else {
+        drawText(renderer, panel.x + 30, panel.y + 204, 1, "ESC KEEPS EDITING", 154, 184, 222);
+    }
 }
 
 fn drawPreview(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer_count]Atlas, width: i32, height: i32) void {
@@ -1912,7 +2090,8 @@ fn loadCatalogAtlas(
     const root = game_root orelse return .{};
     const asset_index = workspace.catalog.find(name) orelse return .{};
     const asset = &workspace.catalog.items[asset_index];
-    if (asset.width != tile_size or asset.height != tile_size) return .{};
+    if (!workspace.asset_file_verified[asset_index] or
+        !asset.lupiCompatible(tile_size, 0)) return .{};
     var path_buffer: [2048]u8 = undefined;
     const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}", .{ root, asset.name() });
     var atlas = try loadAtlas(allocator, renderer, path, tile_size, workspace.palette);
@@ -2069,10 +2248,19 @@ fn loadAtlas(allocator: std.mem.Allocator, renderer: *c.SDL_Renderer, path: ?[]c
     const source_path = path orelse return .{};
     var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
     defer threaded.deinit();
-    const bytes = std.Io.Dir.cwd().readFileAlloc(threaded.io(), source_path, allocator, .limited(16 * 1024 * 1024)) catch return .{};
+    const bytes = std.Io.Dir.cwd().readFileAlloc(
+        threaded.io(),
+        source_path,
+        allocator,
+        .limited(assets.lupi_tileset_pixels_max + 1),
+    ) catch return .{};
     defer allocator.free(bytes);
     const pixels_per_tile = @as(usize, tile_size) * tile_size;
-    if (pixels_per_tile == 0 or bytes.len < pixels_per_tile) return .{};
+    if (pixels_per_tile == 0 or bytes.len > assets.lupi_tileset_pixels_max or
+        bytes.len < pixels_per_tile or bytes.len % pixels_per_tile != 0)
+    {
+        return .{};
+    }
     const count: u16 = @intCast(@min(bytes.len / pixels_per_tile, model.max_tile_id + 1));
     const columns: i32 = 16;
     const rows: i32 = @intCast((@as(usize, count) + 15) / 16);
@@ -2243,6 +2431,7 @@ fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32
         .asset_selected => "LAYER TILESET CHANGED",
         .asset_incompatible => "ASSET SIZE DOES NOT MATCH THIS MAP GRID",
         .save_failed => "SAVE FAILED - SOURCE RETAINED",
+        .edit_failed => "EDIT COMMIT FAILED - SOURCE RETAINED",
         .export_failed => "EXPORT FAILED - SOURCE RETAINED",
         .lupi_export_blocked => "EXPORT BLOCKED - FIX LUPI SAFETY CHECK",
         .invalid_preview => "FIX VALIDATION ERRORS BEFORE PREVIEW",
@@ -2258,7 +2447,11 @@ fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32
         .resize_clipped => "MAP RESIZED - REVIEW CLIPPING DIAGNOSTIC OR UNDO",
         .template_applied => "PROJECT TEMPLATE APPLIED - CTRL-Z RESTORES PRIOR WORK",
     };
-    const problem = notice == .save_failed or notice == .export_failed or notice == .lupi_export_blocked or notice == .invalid_preview or notice == .asset_incompatible or notice == .stamp_missing or notice == .layer_locked or notice == .resize_clipped;
+    const problem = notice == .save_failed or notice == .edit_failed or
+        notice == .export_failed or notice == .lupi_export_blocked or
+        notice == .invalid_preview or notice == .asset_incompatible or
+        notice == .stamp_missing or notice == .layer_locked or
+        notice == .resize_clipped;
     drawText(renderer, 18, height - 20, 1, label, if (problem) 246 else 154, if (problem) 112 else 184, 222);
     _ = width;
 }

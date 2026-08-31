@@ -10,9 +10,13 @@ command -v magick >/dev/null || command -v convert >/dev/null || { echo "ImageMa
 
 work_dir="$(mktemp -d -t elis-sync-XXXXXX)"
 trap 'rm -rf "$work_dir"' EXIT
+codec_revision="3e8c66299a4606b36b9f490212acc44e084a6aa2"
 codec_dir="${LUPI_CODEC_DIR:-$work_dir/lupi-codec}"
 if [[ -z "${LUPI_CODEC_DIR:-}" ]]; then
-  git clone --depth 1 https://github.com/lupi-org-br/lupi-codec.git "$codec_dir"
+  git init -q "$codec_dir"
+  git -C "$codec_dir" remote add origin https://github.com/lupi-org-br/lupi-codec.git
+  git -C "$codec_dir" fetch -q --depth 1 origin "$codec_revision"
+  git -C "$codec_dir" checkout -q --detach FETCH_HEAD
 fi
 [[ -f "$codec_dir/run.lua" ]] || { echo "Invalid LUPI_CODEC_DIR: $codec_dir" >&2; exit 1; }
 

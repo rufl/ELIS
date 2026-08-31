@@ -59,7 +59,14 @@ pub const Audio = struct {
         self.closeMusicUnlocked();
         self.music_info = std.mem.zeroes(c.SF_INFO);
         self.music = c.sf_open(path.ptr, c.SFM_READ, &self.music_info);
-        return self.music != null;
+        if (self.music == null) return false;
+        if (self.music_info.samplerate != sample_rate or self.music_info.channels < 1 or
+            self.music_info.channels > 8)
+        {
+            self.closeMusicUnlocked();
+            return false;
+        }
+        return true;
     }
 
     pub fn stopMusic(self: *Audio) void {

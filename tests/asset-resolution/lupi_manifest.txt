@@ -1,3 +1,4 @@
 1 1 a/shared {"type":"bitmap","width":1,"height":1,"tiles":1}
 2 1 b/shared {"type":"bitmap","width":1,"height":1,"tiles":1}
 3 1 unique {"type":"bitmap","width":1,"height":1,"tiles":1}
+4 757 game.lua {"type":"lua_code"}

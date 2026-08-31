@@ -132,6 +132,14 @@ test -s "$work/studio-compact.bmp"
 # Load the exported table through the real compatible ui.map path. This proves
 # that Studio metadata remains reserved and the strict layer array is accepted.
 cp "$work/reloaded.lua" "$work/game/map.lua"
+refresh_runtime_manifest() {
+  printf '%s\n' \
+    '1 4096 tiles/world {"type":"bitmap","width":16,"height":16,"tiles":16}' \
+    "2 $(stat -c %s "$work/game/palette.lua") palette.lua {\"type\":\"lua_code\"}" \
+    "3 $(stat -c %s "$work/game/map.lua") map.lua {\"type\":\"lua_code\"}" \
+    "4 $(stat -c %s "$work/game/game.lua") game.lua {\"type\":\"lua_code\"}" \
+    > "$work/game/lupi_manifest.txt"
+}
 printf '%s\n' \
   'local map = require("map")' \
   'assert(ui.stat(0) < 4 * 1024 * 1024)' \
@@ -139,6 +147,7 @@ printf '%s\n' \
   '  ui.cls(0)' \
   '  for _, layer in ipairs(map.layers) do ui.map(map[layer], 0, 0) end' \
   'end' > "$work/game/game.lua"
+refresh_runtime_manifest
 env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$work/game" 1 "$work/exported-map.ppm" >/dev/null
 test -s "$work/exported-map.ppm"
@@ -148,6 +157,7 @@ printf '%s\n' \
   '  ui.cls(0)' \
   '  ui.map(map.map, 0, 0)' \
   'end' > "$work/game/game.lua"
+refresh_runtime_manifest
 env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$work/game" 1 "$work/exported-combined.ppm" >/dev/null
 cmp "$work/exported-map.ppm" "$work/exported-combined.ppm"
