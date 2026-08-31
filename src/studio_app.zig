@@ -160,6 +160,7 @@ const Studio = struct {
     shape_filled: bool = false,
     erase_drag: bool = false,
     pointer_button: u8 = 0,
+    stroke_revision: u64 = 0,
     notice: Notice = .none,
     last_saved_revision: u64 = 0,
     presentation: Presentation = .playful,
@@ -207,7 +208,14 @@ const Studio = struct {
     }
 
     fn finishStroke(self: *Studio) !void {
-        if (try self.stroke.finish()) |command| try self.history.commit(command);
+        if (try self.stroke.finish()) |command| {
+            try self.history.commitApplied(
+                &self.project,
+                self.stroke_revision,
+                command,
+            );
+        }
+        self.stroke_revision = self.project.revision;
         self.dragging = false;
         self.erase_drag = false;
         self.pointer_button = 0;
@@ -215,6 +223,7 @@ const Studio = struct {
 
     fn applyAt(self: *Studio, point: model.Point, erase_override: bool, immediate: bool) !void {
         self.cursor = point;
+        if (self.stroke.empty()) self.stroke_revision = self.project.revision;
         if (toolWritesLayer(self.tool) and self.layer_locked[self.active_layer]) {
             self.notice = .layer_locked;
             return;
@@ -500,6 +509,7 @@ const Studio = struct {
         const shape = self.shape orelse return;
         if (!self.shaping) return;
         const tile = if (self.erase_drag) model.empty_tile else self.selected_tile;
+        if (self.stroke.empty()) self.stroke_revision = self.project.revision;
         switch (self.tool) {
             .line => try self.stroke.drawLine(
                 &self.project,
@@ -828,6 +838,7 @@ pub fn main(init: std.process.Init) !void {
         .resize_width = project.width,
         .resize_height = project.height,
         .last_saved_revision = project.revision,
+        .stroke_revision = project.revision,
         .presentation = presentation,
         .reduce_motion = reduce_motion,
     };

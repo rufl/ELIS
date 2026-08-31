@@ -94,5 +94,11 @@ rendering of the exported map. Version-one editor projects migrate in unit
 coverage; semantic terrain and per-layer asset references remain reserved
 editor metadata and do not change `ui.map` rendering rules.
 
+The host demo downloader accepts only HTTPS transfers and redirects. A bounded
+write callback and libcurl's advertised-size check both cap each source archive
+at 64 MiB; converted and directly loaded packages still face the stricter
+16 MiB complete-package limit. This host acquisition allowance is not console
+memory or flash evidence.
+
 Any new intentional difference must be added here together with an executable
 regression. Unlisted game-visible differences are bugs.

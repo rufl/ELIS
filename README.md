@@ -221,6 +221,8 @@ already-encoded repositories directly; source repositories such as
 `caio-pernocas` are prepared with pinned `lupi-codec` revision
 `3e8c66299a4606b36b9f490212acc44e084a6aa2` (Lua and ImageMagick are required).
 Set `LUPI_CODEC_DIR` to use an explicitly supplied local codec checkout instead.
+Built-in acquisition allows HTTPS transfers and redirects only and caps each
+source archive at 64 MiB before conversion and complete-package admission.
 
 With no command-line game argument, the simulator opens its demo browser. It discovers `example`, `mazestein3d`, `.lupi` files, and encoded releases under `demos/`, `games/`, and `examples/`. Use Up/Down or the controller d-pad, then Enter/controller A to launch. Press `U` to fetch the official catalog. The confirmation dialog is the only GUI path that permits replacement; cancelling leaves every installed version untouched. After confirmation, a localized status bar is presented before network work starts and remains visible throughout the blocking download. It changes to an explicit finished or failed result when discovery completes. The catalog currently includes Caio Pernocas, Balão Gatinho and Le Pendu, while Mazestein remains under Demos ELIS. Future entries can be added to `demos/catalog.txt`.
 

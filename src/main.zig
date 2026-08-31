@@ -25,6 +25,7 @@ const lupi_archive_entries_max = lupi_profile.archive_entries_max;
 const lupi_psram_bytes = lupi_profile.psram_bytes;
 const lupi_lua_heap_bytes_max = lupi_profile.lua_heap_bytes_max;
 const lupi_tileset_pixels_max = lupi_profile.tileset_pixels_max;
+const host_download_bytes_max = lupi_profile.host_demo_download_bytes_max;
 const raster_work_max: usize = lupi_profile.tile_sample_pixels_max * 4;
 const lupi_codec_revision = "3e8c66299a4606b36b9f490212acc44e084a6aa2";
 comptime {
@@ -125,30 +126,69 @@ var demo_count: usize = 0;
 // -----------------------------------------------------------------------------
 // Native demo acquisition and installation
 
-fn curlWrite(data: ?*anyopaque, size: usize, count: usize, user: ?*anyopaque) callconv(.c) usize {
-    const file: *c.FILE = @ptrCast(@alignCast(user orelse return 0));
-    return c.fwrite(data, size, count, file);
+const DownloadTarget = struct {
+    file: *c.FILE,
+    bytes_written: usize = 0,
+};
+
+fn downloadChunkSize(bytes_written: usize, size: usize, count: usize) ?usize {
+    if (bytes_written > host_download_bytes_max) return null;
+    const byte_count = std.math.mul(usize, size, count) catch return null;
+    if (byte_count > host_download_bytes_max - bytes_written) return null;
+    return byte_count;
 }
+
+fn curlWrite(data: ?*anyopaque, size: usize, count: usize, user: ?*anyopaque) callconv(.c) usize {
+    const target: *DownloadTarget = @ptrCast(@alignCast(user orelse return 0));
+    const byte_count = downloadChunkSize(target.bytes_written, size, count) orelse
+        return 0;
+    if (c.fwrite(data, 1, byte_count, target.file) != byte_count) return 0;
+    target.bytes_written += byte_count;
+    return byte_count;
+}
+
 fn downloadFile(url: []const u8, path: []const u8) bool {
     var url_z: [2048]u8 = undefined;
     var path_z: [2048]u8 = undefined;
     const uz = std.fmt.bufPrintZ(&url_z, "{s}", .{url}) catch return false;
     const pz = std.fmt.bufPrintZ(&path_z, "{s}", .{path}) catch return false;
     const file = c.fopen(pz.ptr, "wb") orelse return false;
-    defer _ = c.fclose(file);
+    var file_open = true;
+    defer {
+        if (file_open) _ = c.fclose(file);
+    }
     const easy = c.curl_easy_init() orelse return false;
     defer c.curl_easy_cleanup(easy);
-    _ = c.curl_easy_setopt(easy, c.CURLOPT_URL, uz.ptr);
-    _ = c.curl_easy_setopt(easy, c.CURLOPT_FOLLOWLOCATION, @as(c_long, 1));
-    _ = c.curl_easy_setopt(easy, c.CURLOPT_FAILONERROR, @as(c_long, 1));
-    _ = c.curl_easy_setopt(easy, c.CURLOPT_NOSIGNAL, @as(c_long, 1));
-    _ = c.curl_easy_setopt(easy, c.CURLOPT_CONNECTTIMEOUT, @as(c_long, 15));
-    _ = c.curl_easy_setopt(easy, c.CURLOPT_TIMEOUT, @as(c_long, 300));
-    _ = c.curl_easy_setopt(easy, c.CURLOPT_USERAGENT, "elis/1.0");
-    _ = c.curl_easy_setopt(easy, c.CURLOPT_WRITEFUNCTION, @as(c.curl_write_callback, @ptrCast(&curlWrite)));
-    _ = c.curl_easy_setopt(easy, c.CURLOPT_WRITEDATA, file);
-    if (c.curl_easy_perform(easy) != c.CURLE_OK) return false;
-    return c.fflush(file) == 0;
+    var target = DownloadTarget{ .file = file };
+    if (c.curl_easy_setopt(easy, c.CURLOPT_URL, uz.ptr) != c.CURLE_OK or
+        c.curl_easy_setopt(easy, c.CURLOPT_FOLLOWLOCATION, @as(c_long, 1)) != c.CURLE_OK or
+        c.curl_easy_setopt(easy, c.CURLOPT_FAILONERROR, @as(c_long, 1)) != c.CURLE_OK or
+        c.curl_easy_setopt(easy, c.CURLOPT_NOSIGNAL, @as(c_long, 1)) != c.CURLE_OK or
+        c.curl_easy_setopt(easy, c.CURLOPT_CONNECTTIMEOUT, @as(c_long, 15)) != c.CURLE_OK or
+        c.curl_easy_setopt(easy, c.CURLOPT_TIMEOUT, @as(c_long, 300)) != c.CURLE_OK or
+        c.curl_easy_setopt(easy, c.CURLOPT_PROTOCOLS_STR, "https") != c.CURLE_OK or
+        c.curl_easy_setopt(easy, c.CURLOPT_REDIR_PROTOCOLS_STR, "https") != c.CURLE_OK or
+        c.curl_easy_setopt(
+            easy,
+            c.CURLOPT_MAXFILESIZE_LARGE,
+            @as(c.curl_off_t, host_download_bytes_max),
+        ) != c.CURLE_OK or
+        c.curl_easy_setopt(easy, c.CURLOPT_USERAGENT, "elis/1.0") != c.CURLE_OK or
+        c.curl_easy_setopt(
+            easy,
+            c.CURLOPT_WRITEFUNCTION,
+            @as(c.curl_write_callback, @ptrCast(&curlWrite)),
+        ) != c.CURLE_OK or
+        c.curl_easy_setopt(easy, c.CURLOPT_WRITEDATA, &target) != c.CURLE_OK)
+    {
+        return false;
+    }
+    if (c.curl_easy_perform(easy) != c.CURLE_OK or c.fflush(file) != 0) {
+        return false;
+    }
+    const close_result = c.fclose(file);
+    file_open = false;
+    return close_result == 0;
 }
 fn copyFileRaw(source: []const u8, destination: []const u8) bool {
     var source_z: [2048]u8 = undefined;
@@ -385,7 +425,7 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
         browser_notice = .codec_download_failed;
         return false;
     }
-    const codec_archive = extractArchive(codec_zip) orelse {
+    const codec_archive = extractArchive(codec_zip, host_download_bytes_max) orelse {
         browser_notice = .codec_extract_failed;
         return false;
     };
@@ -427,7 +467,10 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
             if (!downloadFile(master_url, source_zip_path)) continue;
         }
         {
-            const source_archive = extractArchive(source_zip_path) orelse continue;
+            const source_archive = extractArchive(
+                source_zip_path,
+                host_download_bytes_max,
+            ) orelse continue;
             defer {
                 removeTree(source_archive);
                 A.free(source_archive);
@@ -1193,15 +1236,19 @@ fn asset(path: []const u8, off: usize, n: usize) ?[]u8 {
     return b;
 }
 
-fn fileSize(path: []const u8) ?usize {
+fn fileSizeLimited(path: []const u8, bytes_max: usize) ?usize {
     var path_z_buffer: [2048]u8 = undefined;
     const path_z = std.fmt.bufPrintZ(&path_z_buffer, "{s}", .{path}) catch return null;
     const file = c.fopen(path_z.ptr, "rb") orelse return null;
     defer _ = c.fclose(file);
     if (c.fseek(file, 0, c.SEEK_END) != 0) return null;
     const end = c.ftell(file);
-    if (end < 0 or @as(u64, @intCast(end)) > lupi_flash_bytes) return null;
+    if (end < 0 or @as(u64, @intCast(end)) > bytes_max) return null;
     return @intCast(end);
+}
+
+fn fileSize(path: []const u8) ?usize {
+    return fileSizeLimited(path, lupi_flash_bytes);
 }
 
 fn assetAll(path: []const u8) ?[]u8 {
@@ -1387,8 +1434,8 @@ fn removeTree(path: []const u8) void {
 }
 /// Extracts an archive into a unique temporary directory. The caller owns the
 /// returned path and must remove the directory and free the slice.
-fn extractArchive(path: []const u8) ?[]u8 {
-    if (fileSize(path) == null) return null;
+fn extractArchive(path: []const u8, bytes_max: usize) ?[]u8 {
+    if (fileSizeLimited(path, bytes_max) == null) return null;
     var template: [256]u8 = undefined;
     const t = std.fmt.bufPrintZ(&template, "/tmp/elis-archive-XXXXXX", .{}) catch return null;
     const root = c.mkdtemp(t.ptr) orelse return null;
@@ -1408,7 +1455,7 @@ fn extractArchive(path: []const u8) ?[]u8 {
     while (index < count) : (index += 1) {
         var entry: c.zip_stat_t = undefined;
         if (c.zip_stat_index(za, index, 0, &entry) != 0) return null;
-        if (entry.size > lupi_flash_bytes - extracted_bytes) return null;
+        if (entry.size > bytes_max - extracted_bytes) return null;
         extracted_bytes += entry.size;
         const name_ptr = c.zip_get_name(za, index, 0) orelse return null;
         const name = std.mem.span(name_ptr);
@@ -3023,6 +3070,12 @@ fn verifyParityCore() !void {
         if (!std.meta.eql(pal[255], expected_color)) return error.ExhaustivePaletteMismatch;
     }
     if (color(-1) != 255 or color(256) != 0) return error.ColorIndexWrapMismatch;
+    if (downloadChunkSize(0, 2, 3) != 6 or
+        downloadChunkSize(host_download_bytes_max - 1, 1, 2) != null or
+        downloadChunkSize(0, std.math.maxInt(usize), 2) != null)
+    {
+        return error.DownloadBoundMismatch;
+    }
 
     rect(10, 10, 20, 12, false, 1);
     circle(60, 30, 6, true, 1, true, 1);
@@ -3177,6 +3230,7 @@ fn printLupiConstraints() void {
         \\esp32_s3_clock_mhz=240
         \\esp32_flash_bytes={d}
         \\archive_entries_max={d}
+        \\host_demo_download_bytes_max={d}
         \\esp32_psram_bytes={d}
         \\rp2350_clock_mhz=345
         \\discrete_gpu=none
@@ -3195,6 +3249,7 @@ fn printLupiConstraints() void {
         @sizeOf(@TypeOf(fb)),
         lupi_flash_bytes,
         lupi_archive_entries_max,
+        host_download_bytes_max,
         lupi_psram_bytes,
         lupi_tileset_pixels_max,
         raster_work_max,
@@ -3256,7 +3311,7 @@ pub fn main(init: std.process.Init) !void {
         discoverDemos();
     } else {
         const is_archive = endsWith(requested, ".lupi");
-        if (is_archive) active_archive = extractArchive(requested) orelse
+        if (is_archive) active_archive = extractArchive(requested, lupi_flash_bytes) orelse
             return error.InvalidLupiArchive;
         const game = active_archive orelse requested;
         try load(game);
@@ -3421,7 +3476,10 @@ pub fn main(init: std.process.Init) !void {
                     const is_archive = endsWith(requested_demo, ".lupi");
                     unloadGame(&loaded, &active_archive);
                     if (is_archive) {
-                        active_archive = extractArchive(requested_demo);
+                        active_archive = extractArchive(
+                            requested_demo,
+                            lupi_flash_bytes,
+                        );
                         if (active_archive == null) {
                             browser_notice = .demo_prepare_failed;
                             continue;

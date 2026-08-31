@@ -27,7 +27,9 @@ editor map preview, not a claim that game-specific mechanics are running.
   the project's square tile size appear in the shelf. Tileset changes use the
   shared undo/redo history and refresh their atlas after traversal. Undo/redo
   revisions stay monotonic, so a saved snapshot cannot be mistaken for a clean
-  project after traversal. Session controls can hide a visual layer or lock it
+  project after traversal. A gesture that returns every target to its original
+  value emits no command and restores its pre-gesture dirty revision. Session
+  controls can hide a visual layer or lock it
   against painting without changing saved/exported data.
 - The source project retains tile IDs from 0 through 1023; `65535` represents
   an empty cell and exports as `-1`.

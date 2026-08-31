@@ -4,6 +4,8 @@ pub const frame_width: u32 = 480;
 pub const frame_height: u32 = 270;
 pub const frame_rate_target_hz: u32 = 60;
 pub const flash_bytes: usize = 16 * 1024 * 1024;
+/// Bounds host source acquisition before conversion and package admission.
+pub const host_demo_download_bytes_max: usize = flash_bytes * 4;
 /// Bounds hostile archive metadata work independently of extracted bytes.
 pub const archive_entries_max: usize = 4096;
 pub const psram_bytes: usize = 8 * 1024 * 1024;

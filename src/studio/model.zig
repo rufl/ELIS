@@ -749,6 +749,7 @@ pub const Command = union(enum) {
 pub const CommandBuilder = struct {
     allocator: std.mem.Allocator,
     changes: std.ArrayList(Change) = .empty,
+    revision_before: ?u64 = null,
 
     pub fn init(allocator: std.mem.Allocator) CommandBuilder {
         return .{ .allocator = allocator };
@@ -1040,24 +1041,38 @@ pub const CommandBuilder = struct {
     }
 
     pub fn finish(self: *CommandBuilder) !?Command {
-        if (self.empty()) return null;
+        if (self.empty()) {
+            std.debug.assert(self.revision_before == null);
+            return null;
+        }
         const owned = try self.changes.toOwnedSlice(self.allocator);
+        self.revision_before = null;
         return .{ .changes = .{ .allocator = self.allocator, .changes = owned } };
     }
 
     fn record(self: *CommandBuilder, project: *Project, change: Change) !void {
         if (change.before == change.after) return;
-        for (self.changes.items) |*existing| {
-            if (existing.sameTarget(change)) {
-                existing.after = change.after;
-                applyValue(project, change, change.after);
-                project.revision +%= 1;
-                return;
+        for (self.changes.items, 0..) |*existing, change_index| {
+            if (!existing.sameTarget(change)) continue;
+            existing.after = change.after;
+            applyValue(project, change, change.after);
+            if (existing.before == existing.after) {
+                _ = self.changes.orderedRemove(change_index);
+                if (self.changes.items.len == 0) {
+                    project.revision = self.revision_before.?;
+                    self.revision_before = null;
+                }
             }
+            return;
         }
+        const first_change = self.changes.items.len == 0;
         try self.changes.append(self.allocator, change);
+        if (first_change) {
+            std.debug.assert(self.revision_before == null);
+            self.revision_before = project.revision;
+            project.revision +%= 1;
+        }
         applyValue(project, change, change.after);
-        project.revision +%= 1;
     }
 };
 
@@ -1083,9 +1098,36 @@ pub const History = struct {
     pub fn commit(self: *History, command_value: Command) !void {
         var command = command_value;
         errdefer command.deinit();
+        try self.ensureCommitCapacity();
+        self.commitPrepared(command);
+    }
+
+    /// Commits a command whose changes are already visible in `project`.
+    /// Allocation failure restores both project data and its pre-gesture
+    /// revision, preventing an untracked edit from surviving a failed commit.
+    pub fn commitApplied(
+        self: *History,
+        project: *Project,
+        revision_before: u64,
+        command_value: Command,
+    ) !void {
+        var command = command_value;
+        errdefer command.deinit();
+        self.ensureCommitCapacity() catch |commit_error| {
+            try command.applyBefore(project);
+            project.revision = revision_before;
+            return commit_error;
+        };
+        self.commitPrepared(command);
+    }
+
+    fn ensureCommitCapacity(self: *History) !void {
         if (self.undo_stack.items.len < max_history) {
             try self.undo_stack.ensureUnusedCapacity(self.allocator, 1);
         }
+    }
+
+    fn commitPrepared(self: *History, command: Command) void {
         self.clearCommands(&self.redo_stack);
         while (self.undo_stack.items.len >= max_history) {
             var oldest = self.undo_stack.orderedRemove(0);
@@ -2135,6 +2177,63 @@ test "paint fill marker and history commands are reversible" {
     try std.testing.expectEqual(@as(u16, 1), project.spawn.?.x);
     try std.testing.expect((try history.redo(&project)));
     try std.testing.expectEqual(@as(u16, 2), project.spawn.?.x);
+}
+
+test "gesture returning to its source value leaves no command or dirty revision" {
+    var project = try Project.initStarter(
+        std.testing.allocator,
+        8,
+        6,
+        16,
+        "tiles/world",
+    );
+    defer project.deinit();
+    var builder = CommandBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    const target = project.cellIndex(2, 2);
+    const tile_before = project.layerCells(1)[target];
+    const revision_before = project.revision;
+    try builder.setTile(&project, 1, target, 7);
+    try builder.setTile(&project, 1, target, tile_before);
+    try std.testing.expect(builder.empty());
+    try std.testing.expectEqual(revision_before, project.revision);
+    try std.testing.expectEqual(tile_before, project.layerCells(1)[target]);
+    try std.testing.expectEqual(@as(?Command, null), try builder.finish());
+}
+
+test "failed applied-command commit restores project and revision" {
+    // Force the history-stack allocation to fail after a live paint mutation;
+    // commitApplied must roll back data and dirty-state identity without leaks.
+    var project = try Project.initStarter(
+        std.testing.allocator,
+        8,
+        6,
+        16,
+        "tiles/world",
+    );
+    defer project.deinit();
+    var failing_allocator = std.testing.FailingAllocator.init(
+        std.testing.allocator,
+        .{ .fail_index = 0 },
+    );
+    var history = History.init(failing_allocator.allocator());
+    defer history.deinit();
+    var builder = CommandBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    const target = project.cellIndex(2, 2);
+    const tile_before = project.layerCells(1)[target];
+    const revision_before = project.revision;
+    try builder.setTile(&project, 1, target, 7);
+    const command = (try builder.finish()).?;
+    try std.testing.expectError(
+        error.OutOfMemory,
+        history.commitApplied(&project, revision_before, command),
+    );
+    try std.testing.expectEqual(tile_before, project.layerCells(1)[target]);
+    try std.testing.expectEqual(revision_before, project.revision);
+    try std.testing.expect(failing_allocator.has_induced_failure);
 }
 
 test "project encoding round trips and rejects corruption" {

@@ -23,6 +23,7 @@
 - Fixed Workshop atlas identity across undo/redo when a layer previously had no loaded texture, suppressed controller edits while unfocused, and prevented held controls from becoming fresh commands after focus or hotplug.
 - Made the native linker workaround resolve the selected compiler's multiarch CRT instead of assuming Arch Linux paths, removed the hard-coded x86-64 dynamic linker, and made formatting and shell syntax part of the maintained gate.
 - Prepared public contribution and release infrastructure with architecture, contribution, accessibility, conduct, third-party notice, release, issue, pull-request, dependency-update, and REUSE-compliant machine-readable licensing documentation.
+- Rolled back live Workshop edits if history allocation fails, removed no-op history/dirty revisions when a gesture returns to its source value, bounded host demo downloads to 64 MiB with HTTPS-only redirects and correct libcurl write accounting, and added focused regressions.
 
 ## History
 

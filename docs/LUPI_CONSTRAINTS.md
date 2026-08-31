@@ -51,9 +51,12 @@ normal out-of-memory path. Archive input bytes, extracted bytes, and complete
 manifest-backed package bytes each remain within 16 MiB; archive metadata work
 is independently bounded to 4,096 entries. Normalized relative paths, unique
 archive and manifest names, exact extraction lengths, JSON metadata, and
-undeclared executable files fail closed. `ui.stat(0)` reports Lua memory,
-`ui.stat(1)` reports
-frame-budget CPU utilization, and `ui.stat(7)` reports FPS.
+undeclared executable files fail closed. Host-side source acquisition is a
+separate pre-conversion boundary: HTTPS transfers and redirects are capped at
+64 MiB by both advertised-size and bounded-write checks. That allowance is not
+console flash evidence; converted and directly loaded packages still face the
+16 MiB limit. `ui.stat(0)` reports Lua memory, `ui.stat(1)` reports frame-budget
+CPU utilization, and `ui.stat(7)` reports FPS.
 
 The public Lupinho WebAssembly build allocates 64 MiB total memory and a 1 MiB
 stack. Those are browser-simulator settings and are deliberately **not** the

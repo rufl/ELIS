@@ -69,7 +69,7 @@ Expected runtime failures reject input or show a user-facing notice. Assertions 
 
 `Project` is the only saved authoring truth. Its visual and smart-terrain arrays are layer-major; collision, entity kinds, and entity fields are cell-major. Visibility, painting locks, selection, notices, preview mode, and presentation are session-only.
 
-One gesture uses `CommandBuilder` to coalesce repeated writes to each target. Painting commits compact before/after changes. Structural operations—schema edits, templates, resize, and tileset identity—commit complete encoded snapshots. `History` bounds ownership to 128 commands and keeps project revisions monotonic through undo and redo so dirty-state checks cannot collide with an old saved revision.
+One gesture uses `CommandBuilder` to coalesce repeated writes to each target. Returning every target to its source value restores the pre-gesture revision and emits no command. Painting commits compact before/after changes through `History.commitApplied`; if history allocation fails, the command restores project data and the pre-gesture revision. Structural operations—schema edits, templates, resize, and tileset identity—commit complete encoded snapshots before replacing the authoritative project. `History` bounds ownership to 128 commands and keeps committed project revisions monotonic through undo and redo so dirty-state checks cannot collide with an old saved revision.
 
 `.elisworld` decoding is transactional. V1–V3 migration either returns a complete V4 `Project` or frees all partial allocations. Export first proves spatial validity and static Lupi ceilings, then writes sparse, deterministic Lua.
 
