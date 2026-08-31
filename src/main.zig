@@ -19,6 +19,7 @@ const lupi_archive_entries_max = lupi_profile.archive_entries_max;
 const lupi_psram_bytes = lupi_profile.psram_bytes;
 const lupi_lua_heap_bytes_max = lupi_profile.lua_heap_bytes_max;
 const lupi_tileset_pixels_max = lupi_profile.tileset_pixels_max;
+const raster_work_max: usize = lupi_profile.tile_sample_pixels_max * 4;
 const lupi_codec_revision = "3e8c66299a4606b36b9f490212acc44e084a6aa2";
 comptime {
     std.debug.assert(W == lupi_profile.frame_width);
@@ -37,6 +38,7 @@ var cam = Region{};
 var clip = Region{};
 var clipping = false;
 var pattern: [8]u8 = .{0} ** 8;
+var raster_work_remaining: usize = raster_work_max;
 var input_state: Input = .{};
 var audio_state: Audio = .{};
 var L: *c.lua_State = undefined;
@@ -638,21 +640,64 @@ fn color(v: i32) u8 {
     // Upstream stores the C `int` in uint8_t, so out-of-range indices wrap.
     return @truncate(@as(u32, @bitCast(v)));
 }
+fn resetRasterWork() void {
+    raster_work_remaining = raster_work_max;
+}
+
+fn takeRasterWork() bool {
+    if (raster_work_remaining == 0) return false;
+    raster_work_remaining -= 1;
+    return true;
+}
+
+fn saturatingI32(value: i64) i32 {
+    return @intCast(std.math.clamp(
+        value,
+        @as(i64, std.math.minInt(i32)),
+        @as(i64, std.math.maxInt(i32)),
+    ));
+}
+
 fn xy(x: i32, y: i32) [2]i32 {
     if (!debug_state.render.camera) return .{ x, y };
-    return .{ x - cam.x, y - cam.y };
+    return .{
+        saturatingI32(@as(i64, x) - cam.x),
+        saturatingI32(@as(i64, y) - cam.y),
+    };
 }
 fn solid() bool {
     for (pattern) |v| if (v != 0) return false;
     return true;
 }
-fn px(x: i32, y: i32, col: i32, pat: bool) void {
+fn writePixel(x: i32, y: i32, col: i32, pat: bool) void {
     if (x < 0 or y < 0 or x >= W or y >= H) return;
-    if (debug_state.render.clipping and clipping and
-        (x < clip.x or y < clip.y or x >= clip.x + clip.w or y >= clip.y + clip.h)) return;
+    if (debug_state.render.clipping and clipping) {
+        const x_wide: i64 = x;
+        const y_wide: i64 = y;
+        const clip_x_end = @as(i64, clip.x) + clip.w;
+        const clip_y_end = @as(i64, clip.y) + clip.h;
+        if (x_wide < clip.x or y_wide < clip.y or
+            x_wide >= clip_x_end or y_wide >= clip_y_end) return;
+    }
     if (debug_state.render.patterns and pat and !solid() and
         (pattern[@intCast(@mod(y, 8))] & (@as(u8, 1) << @intCast(7 - @mod(x, 8)))) == 0) return;
     fb[@intCast(y)][@intCast(x)] = color(col);
+}
+
+fn writePixelWide(x: i64, y: i64, col: i32, pat: bool) void {
+    if (x < std.math.minInt(i32) or x > std.math.maxInt(i32) or
+        y < std.math.minInt(i32) or y > std.math.maxInt(i32)) return;
+    writePixel(@intCast(x), @intCast(y), col, pat);
+}
+
+fn px(x: i32, y: i32, col: i32, pat: bool) void {
+    if (!takeRasterWork()) return;
+    writePixel(x, y, col, pat);
+}
+
+fn pxWide(x: i64, y: i64, col: i32, pat: bool) void {
+    if (!takeRasterWork()) return;
+    writePixelWide(x, y, col, pat);
 }
 fn line(x0: i32, y0: i32, x1: i32, y1: i32, col: i32) void {
     // Do not pre-clip: upstream runs Bresenham over the original endpoints and
@@ -666,7 +711,7 @@ fn line(x0: i32, y0: i32, x1: i32, y1: i32, col: i32) void {
     const sx: i32 = if (x < x1) 1 else -1;
     const sy: i32 = if (y < y1) 1 else -1;
     var e = dx - dy;
-    while (true) {
+    while (raster_work_remaining > 0) {
         px(x, y, col, true);
         if (x == x1 and y == y1) break;
         const q = 2 * e;
@@ -682,46 +727,58 @@ fn line(x0: i32, y0: i32, x1: i32, y1: i32, col: i32) void {
 }
 fn rect(x: i32, y: i32, w: i32, h: i32, fill: bool, col: i32) void {
     const p = xy(x, y);
+    const x_start: i64 = p[0];
+    const y_start: i64 = p[1];
+    const x_end = x_start + w;
+    const y_end = y_start + h;
     if (fill) {
-        var py = p[1];
-        while (py < p[1] + h) : (py += 1) {
-            var px_value = p[0];
-            while (px_value < p[0] + w) : (px_value += 1) px(px_value, py, col, true);
+        var py = y_start;
+        while (py < y_end and raster_work_remaining > 0) : (py += 1) {
+            var px_value = x_start;
+            while (px_value < x_end and raster_work_remaining > 0) : (px_value += 1) {
+                pxWide(px_value, py, col, true);
+            }
         }
     } else {
-        var px_value = p[0];
-        while (px_value < p[0] + w) : (px_value += 1) {
-            px(px_value, p[1], col, true);
-            px(px_value, p[1] + h - 1, col, true);
+        var px_value = x_start;
+        while (px_value < x_end and raster_work_remaining > 0) : (px_value += 1) {
+            pxWide(px_value, y_start, col, true);
+            pxWide(px_value, y_end - 1, col, true);
         }
-        var py = p[1];
-        while (py < p[1] + h) : (py += 1) {
-            px(p[0], py, col, true);
-            px(p[0] + w - 1, py, col, true);
+        var py = y_start;
+        while (py < y_end and raster_work_remaining > 0) : (py += 1) {
+            pxWide(x_start, py, col, true);
+            pxWide(x_end - 1, py, col, true);
         }
     }
 }
 fn circle(cx: i32, cy: i32, r: i32, fill: bool, col: i32, border: bool, bcol: i32) void {
     const p = xy(cx, cy);
+    const radius: i64 = r;
     if (fill) {
-        var y: i32 = -r;
-        while (y <= r) : (y += 1) {
-            var x: i32 = -r;
-            while (x <= r) : (x += 1) {
-                if (x * x + y * y <= r * r) px(p[0] + x, p[1] + y, col, true);
+        const radius_squared = radius * radius;
+        var y = -radius;
+        while (y <= radius and raster_work_remaining > 0) : (y += 1) {
+            var x = -radius;
+            while (x <= radius and raster_work_remaining > 0) : (x += 1) {
+                if (x * x + y * y <= radius_squared) {
+                    pxWide(@as(i64, p[0]) + x, @as(i64, p[1]) + y, col, true);
+                } else {
+                    _ = takeRasterWork();
+                }
             }
         }
     }
-    if (border) {
-        var x: i32 = 0;
-        var y = r;
-        var d: i32 = 1 - r;
+    if (border and raster_work_remaining > 0) {
+        var x: i64 = 0;
+        var y = radius;
+        var decision = 1 - radius;
         circlePixels(p[0], p[1], x, y, bcol);
-        while (x < y) {
-            if (d < 0) {
-                d += 2 * x + 3;
+        while (x < y and raster_work_remaining > 0) {
+            if (decision < 0) {
+                decision += 2 * x + 3;
             } else {
-                d += 2 * (x - y) + 5;
+                decision += 2 * (x - y) + 5;
                 y -= 1;
             }
             x += 1;
@@ -729,45 +786,49 @@ fn circle(cx: i32, cy: i32, r: i32, fill: bool, col: i32, border: bool, bcol: i3
         }
     }
 }
-fn circlePixels(cx: i32, cy: i32, x: i32, y: i32, col: i32) void {
-    px(cx + x, cy + y, col, true);
-    px(cx - x, cy + y, col, true);
-    px(cx + x, cy - y, col, true);
-    px(cx - x, cy - y, col, true);
-    px(cx + y, cy + x, col, true);
-    px(cx - y, cy + x, col, true);
-    px(cx + y, cy - x, col, true);
-    px(cx - y, cy - x, col, true);
+fn circlePixels(cx: i32, cy: i32, x: i64, y: i64, col: i32) void {
+    const center_x: i64 = cx;
+    const center_y: i64 = cy;
+    pxWide(center_x + x, center_y + y, col, true);
+    pxWide(center_x - x, center_y + y, col, true);
+    pxWide(center_x + x, center_y - y, col, true);
+    pxWide(center_x - x, center_y - y, col, true);
+    pxWide(center_x + y, center_y + x, col, true);
+    pxWide(center_x - y, center_y + x, col, true);
+    pxWide(center_x + y, center_y - x, col, true);
+    pxWide(center_x - y, center_y - x, col, true);
 }
-fn horizontalLine(x1_value: i32, x2_value: i32, y: i32, col: i32) void {
+fn horizontalLine(x1_value: i64, x2_value: i64, y: i64, col: i32) void {
     var x1 = x1_value;
     var x2 = x2_value;
-    if (x1 > x2) std.mem.swap(i32, &x1, &x2);
+    if (x1 > x2) std.mem.swap(i64, &x1, &x2);
     var x = x1;
-    while (x <= x2) : (x += 1) px(x, y, col, true);
+    while (x <= x2 and raster_work_remaining > 0) : (x += 1) {
+        pxWide(x, y, col, true);
+    }
 }
 fn tri(a: [2]i32, b: [2]i32, d: [2]i32, col: i32) void {
     const pa = xy(a[0], a[1]);
     const pb = xy(b[0], b[1]);
     const pd = xy(d[0], d[1]);
-    var x1 = pa[0];
-    var y1 = pa[1];
-    var x2 = pb[0];
-    var y2 = pb[1];
-    var x3 = pd[0];
-    var y3 = pd[1];
+    var x1: i64 = pa[0];
+    var y1: i64 = pa[1];
+    var x2: i64 = pb[0];
+    var y2: i64 = pb[1];
+    var x3: i64 = pd[0];
+    var y3: i64 = pd[1];
 
     if (y1 > y2) {
-        std.mem.swap(i32, &y1, &y2);
-        std.mem.swap(i32, &x1, &x2);
+        std.mem.swap(i64, &y1, &y2);
+        std.mem.swap(i64, &x1, &x2);
     }
     if (y2 > y3) {
-        std.mem.swap(i32, &y2, &y3);
-        std.mem.swap(i32, &x2, &x3);
+        std.mem.swap(i64, &y2, &y3);
+        std.mem.swap(i64, &x2, &x3);
     }
     if (y1 > y2) {
-        std.mem.swap(i32, &y1, &y2);
-        std.mem.swap(i32, &x1, &x2);
+        std.mem.swap(i64, &y1, &y2);
+        std.mem.swap(i64, &x1, &x2);
     }
     if (y1 == y3) {
         horizontalLine(@min(x1, @min(x2, x3)), @max(x1, @max(x2, x3)), y1, col);
@@ -775,33 +836,45 @@ fn tri(a: [2]i32, b: [2]i32, d: [2]i32, col: i32) void {
     }
 
     var y = y1;
-    while (y <= y3) : (y += 1) {
+    while (y <= y3 and raster_work_remaining > 0) : (y += 1) {
         const second_half = y > y2 or y2 == y1;
         const segment_height = if (second_half) y3 - y2 else y2 - y1;
         if (segment_height == 0) continue;
-        const alpha: f32 = @as(f32, @floatFromInt(y - y1)) / @as(f32, @floatFromInt(y3 - y1));
+        const alpha: f32 = @as(f32, @floatFromInt(y - y1)) /
+            @as(f32, @floatFromInt(y3 - y1));
         const beta: f32 = if (second_half)
             @as(f32, @floatFromInt(y - y2)) / @as(f32, @floatFromInt(y3 - y2))
         else
             @as(f32, @floatFromInt(y - y1)) / @as(f32, @floatFromInt(y2 - y1));
-        const xa = x1 + @as(i32, @intFromFloat(@as(f32, @floatFromInt(x3 - x1)) * alpha));
+        const xa = x1 + @as(i64, @intFromFloat(@as(f32, @floatFromInt(x3 - x1)) * alpha));
         const xb = if (second_half)
-            x2 + @as(i32, @intFromFloat(@as(f32, @floatFromInt(x3 - x2)) * beta))
+            x2 + @as(i64, @intFromFloat(@as(f32, @floatFromInt(x3 - x2)) * beta))
         else
-            x1 + @as(i32, @intFromFloat(@as(f32, @floatFromInt(x2 - x1)) * beta));
+            x1 + @as(i64, @intFromFloat(@as(f32, @floatFromInt(x2 - x1)) * beta));
         horizontalLine(xa, xb, y, col);
     }
 }
 fn drawAsciiText(s: []const u8, x0: i32, y: i32, col: i32) void {
-    var x = x0;
+    var x: i64 = x0;
     for (s) |ch| {
+        if (!takeRasterWork()) break;
         if (ch < 32 or ch > 126) continue;
         const glyph = font.data[ch - 32];
-        const p = xy(x, y);
+        const screen_x = if (debug_state.render.camera) x - cam.x else x;
+        const screen_y = if (debug_state.render.camera)
+            @as(i64, y) - cam.y
+        else
+            @as(i64, y);
         for (glyph, 0..) |column, column_index| {
             for (0..font.height) |row| {
-                if ((column & (@as(u8, 1) << @as(u3, @intCast(row)))) != 0)
-                    px(p[0] + @as(i32, @intCast(column_index)), p[1] + @as(i32, @intCast(row)), col, false);
+                if ((column & (@as(u8, 1) << @as(u3, @intCast(row)))) != 0) {
+                    pxWide(
+                        screen_x + @as(i64, @intCast(column_index)),
+                        screen_y + @as(i64, @intCast(row)),
+                        col,
+                        false,
+                    );
+                }
             }
         }
         x += font.advance;
@@ -925,6 +998,7 @@ fn drawMenuRow(label: []const u8, index: usize, selected: usize, y: i32, accent:
 }
 
 fn drawBrowser(selected: usize) void {
+    resetRasterWork();
     const strings = localization.get(settings_state.language);
     browserPalette();
     for (&fb) |*row| @memset(row, 0);
@@ -981,6 +1055,7 @@ fn drawQuitDialog(palette_offset: i32) void {
 }
 
 fn drawLanguageScreen() void {
+    resetRasterWork();
     const strings = localization.get(settings_state.language);
     browserPalette();
     for (&fb) |*row| @memset(row, 0);
@@ -1018,6 +1093,7 @@ fn bindingName(action: input_mod.Action, strings: localization.Text) []const u8 
 }
 
 fn drawControlsScreen() void {
+    resetRasterWork();
     const strings = localization.get(settings_state.language);
     browserPalette();
     for (&fb) |*row| @memset(row, 0);
@@ -1404,31 +1480,61 @@ fn archivePathUnsafe(path: []const u8) bool {
     }
     return component_count == 0;
 }
-fn bitmapData(b: []const u8, w: i32, h: i32, tile_id: i32, x: i32, y: i32, flip_x: bool, flip_y: bool) void {
-    if (w <= 0 or h <= 0 or tile_id < 0) return;
-    const tile_pixels: usize = @intCast(w * h);
-    const offset: usize = @intCast(tile_id * w * h);
-    if (offset > b.len or tile_pixels > b.len - offset) return;
-    const p = xy(x, y);
+const BitmapRange = struct {
+    offset: usize,
+    length: usize,
+};
+
+fn bitmapRange(w: i32, h: i32, tile_id: i32, bytes_max: usize) ?BitmapRange {
+    if (w <= 0 or h <= 0 or tile_id < 0) return null;
+    const tile_pixels = std.math.mul(u64, @intCast(w), @intCast(h)) catch return null;
+    const offset = std.math.mul(u64, tile_pixels, @intCast(tile_id)) catch return null;
+    if (tile_pixels > bytes_max or offset > bytes_max - @as(usize, @intCast(tile_pixels))) {
+        return null;
+    }
+    return .{ .offset = @intCast(offset), .length = @intCast(tile_pixels) };
+}
+
+fn bitmapData(
+    bytes: []const u8,
+    w: i32,
+    h: i32,
+    tile_id: i32,
+    x: i64,
+    y: i64,
+    flip_x: bool,
+    flip_y: bool,
+) void {
+    const range = bitmapRange(w, h, tile_id, bytes.len) orelse return;
+    const screen_x = if (debug_state.render.camera) x - cam.x else x;
+    const screen_y = if (debug_state.render.camera) y - cam.y else y;
     var yy: i32 = 0;
-    while (yy < h) : (yy += 1) {
+    while (yy < h and raster_work_remaining > 0) : (yy += 1) {
         var xx: i32 = 0;
-        while (xx < w) : (xx += 1) {
+        while (xx < w and raster_work_remaining > 0) : (xx += 1) {
+            if (!takeRasterWork()) return;
             const src_y = if (flip_y) h - 1 - yy else yy;
-            const v = b[offset + @as(usize, @intCast(src_y * w + xx))];
-            if (v != 0) {
-                px(p[0] + (if (flip_x) w - 1 - xx else xx), p[1] + yy, v, false);
+            const source_index = @as(i64, src_y) * w + xx;
+            const value = bytes[range.offset + @as(usize, @intCast(source_index))];
+            if (value != 0) {
+                const destination_x = if (flip_x) w - 1 - xx else xx;
+                writePixelWide(
+                    screen_x + destination_x,
+                    screen_y + yy,
+                    value,
+                    false,
+                );
             }
         }
     }
 }
 fn bitmap(path: []const u8, w: i32, h: i32, tile_id: i32, x: i32, y: i32, flip_x: bool, flip_y: bool) void {
-    if (w <= 0 or h <= 0 or tile_id < 0) return;
-    const b = asset(path, @intCast(tile_id * w * h), @intCast(w * h)) orelse return;
-    defer A.free(b);
+    const range = bitmapRange(w, h, tile_id, lupi_tileset_pixels_max) orelse return;
+    const bytes = asset(path, range.offset, range.length) orelse return;
+    defer A.free(bytes);
     // `asset` already returned exactly the requested tile. Applying tile_id
     // again here made every ui.tile call except tile 0 address past the slice.
-    bitmapData(b, w, h, 0, x, y, flip_x, flip_y);
+    bitmapData(bytes, w, h, 0, x, y, flip_x, flip_y);
 }
 fn ts(L_: *c.lua_State, idx: c_int, name: [:0]const u8) ?[]const u8 {
     _ = c.lua_getfield(L_, idx, name);
@@ -1478,13 +1584,14 @@ fn palset(L_: *c.lua_State) callconv(.c) c_int {
 }
 fn setPallet(L_: *c.lua_State) callconv(.c) c_int {
     const start = checkInt(L_, 1);
-    const count = @max(checkInt(L_, 2), 0);
+    const count = std.math.clamp(checkInt(L_, 2), 0, @as(i32, pal.len));
     c.luaL_checktype(L_, 3, c.LUA_TTABLE);
     for (0..@intCast(count)) |offset| {
         _ = c.lua_rawgeti(L_, 3, @intCast(offset + 1));
         const value = checkInt(L_, -1);
         _ = c.lua_pop(L_, 1);
-        setPaletteEntry(start + @as(i32, @intCast(offset)), value);
+        const index = @as(i64, start) + @as(i64, @intCast(offset));
+        if (index >= 0 and index < pal.len) setPaletteEntry(@intCast(index), value);
     }
     return 0;
 }
@@ -1565,7 +1672,16 @@ fn oldr(L_: *c.lua_State) callconv(.c) c_int {
     const x_end = checkInt(L_, 3);
     const y_end = checkInt(L_, 4);
     const rect_color = checkInt(L_, 5);
-    if (debug_state.render.primitives) rect(x, y, x_end - x, y_end - y, false, rect_color);
+    if (debug_state.render.primitives) {
+        rect(
+            x,
+            y,
+            saturatingI32(@as(i64, x_end) - x),
+            saturatingI32(@as(i64, y_end) - y),
+            false,
+            rect_color,
+        );
+    }
     return 0;
 }
 fn oldrf(L_: *c.lua_State) callconv(.c) c_int {
@@ -1575,7 +1691,16 @@ fn oldrf(L_: *c.lua_State) callconv(.c) c_int {
     const x_end = checkInt(L_, 3);
     const y_end = checkInt(L_, 4);
     const rect_color = checkInt(L_, 5);
-    if (debug_state.render.primitives) rect(x, y, x_end - x, y_end - y, true, rect_color);
+    if (debug_state.render.primitives) {
+        rect(
+            x,
+            y,
+            saturatingI32(@as(i64, x_end) - x),
+            saturatingI32(@as(i64, y_end) - y),
+            true,
+            rect_color,
+        );
+    }
     return 0;
 }
 fn ci(L_: *c.lua_State) callconv(.c) c_int {
@@ -1791,7 +1916,7 @@ fn nestedInt(L_: *c.lua_State, parent: c_int, name: [:0]const u8, d: i32) i32 {
 fn tableNumber(L_: *c.lua_State, table_index: c_int, name: [:0]const u8) i32 {
     _ = c.lua_getfield(L_, table_index, name);
     defer _ = c.lua_pop(L_, 1);
-    return @intFromFloat(c.lua_tonumberx(L_, -1, null));
+    return checkInt(L_, -1);
 }
 
 fn isReservedMapLayer(name: []const u8) bool {
@@ -1865,16 +1990,33 @@ fn drawMapLayer(L_: *c.lua_State, map_index: c_int, sprites: c_int, layer_key: [
     defer A.free(map_data);
     if (map_data.len > lupi_tileset_pixels_max) return;
 
+    const total_wide = @as(i64, map_w) * map_h;
+    if (total_wide <= 0 or total_wide > lupi_profile.tile_sample_pixels_max) return;
+    const total: i32 = @intCast(total_wide);
     var index: i32 = 1;
-    const total = map_w * map_h;
-    while (index <= total) : (index += 1) {
+    while (index <= total and raster_work_remaining > 0) : (index += 1) {
         _ = c.lua_rawgeti(L_, values, index);
-        const id = if (c.lua_isnil(L_, -1)) -1 else @as(i32, @intFromFloat(c.lua_tonumberx(L_, -1, null)));
+        const tile_number = c.lua_tonumberx(L_, -1, null);
+        const id = if (c.lua_isnil(L_, -1) or !std.math.isFinite(tile_number) or
+            tile_number < @as(f64, @floatFromInt(std.math.minInt(i32))) or
+            tile_number > @as(f64, @floatFromInt(std.math.maxInt(i32))))
+            -1
+        else
+            @as(i32, @intFromFloat(tile_number));
         _ = c.lua_pop(L_, 1);
         if (id < 0) continue;
         const col = @mod(index - 1, map_w);
         const row = @divTrunc(index - 1, map_w);
-        bitmapData(map_data, tile_w, tile_h, id & ~@as(i32, 3072), ox + col * tile_size, oy + row * tile_size, (id & 1024) != 0, (id & 2048) != 0);
+        bitmapData(
+            map_data,
+            tile_w,
+            tile_h,
+            id & ~@as(i32, 3072),
+            @as(i64, ox) + @as(i64, col) * tile_size,
+            @as(i64, oy) + @as(i64, row) * tile_size,
+            (id & 1024) != 0,
+            (id & 2048) != 0,
+        );
     }
 }
 
@@ -1909,7 +2051,12 @@ fn l_map(L_: *c.lua_State) callconv(.c) c_int {
         if (c.lua_type(L_, -2) == c.LUA_TSTRING and c.lua_istable(L_, -1)) {
             var key_len: usize = 0;
             const key = c.lua_tolstring(L_, -2, &key_len);
-            if (key != null and !isReservedMapLayer(key[0..key_len])) layer_count += 1;
+            if (key != null and !isReservedMapLayer(key[0..key_len])) {
+                if (layer_count == debug_mod.layer_count_max) {
+                    return c.luaL_error(L_, "ui.map: at most 256 drawable layers are supported");
+                }
+                layer_count += 1;
+            }
         }
         _ = c.lua_pop(L_, 1);
     }
@@ -1989,8 +2136,20 @@ fn l_map(L_: *c.lua_State) callconv(.c) c_int {
     defer _ = c.lua_pop(L_, 1);
     defer if (owns_layer_names) A.free(layer_names);
     for (layer_names) |layer_name| {
-        if (debug_state.shouldDrawMapLayer(layer_name))
-            drawMapLayer(L_, map_index, sprites, layer_name, map_w, map_h, tile_size, ox, oy);
+        if (raster_work_remaining == 0) break;
+        if (debug_state.shouldDrawMapLayer(layer_name)) {
+            drawMapLayer(
+                L_,
+                map_index,
+                sprites,
+                layer_name,
+                map_w,
+                map_h,
+                tile_size,
+                ox,
+                oy,
+            );
+        }
     }
     return 0;
 }
@@ -2087,11 +2246,19 @@ fn sfxMusic(L_: *c.lua_State) callconv(.c) c_int {
     return 0;
 }
 fn sfxVolume(L_: *c.lua_State) callconv(.c) c_int {
-    audio_state.setVolume(@floatCast(c.luaL_optnumber(L_, 1, 1)));
+    const requested = c.luaL_optnumber(L_, 1, 1);
+    if (std.math.isFinite(requested)) {
+        audio_state.setVolume(@floatCast(std.math.clamp(requested, 0, 1)));
+    }
     return 0;
 }
 fn sfxEffect(L_: *c.lua_State) callconv(.c) c_int {
-    audio_state.playEffect(i(L_, 1, 0), i(L_, 2, 60), @floatCast(c.luaL_optnumber(L_, 3, 0.5)));
+    const requested_pan = c.luaL_optnumber(L_, 3, 0.5);
+    const pan: f32 = if (std.math.isFinite(requested_pan))
+        @floatCast(std.math.clamp(requested_pan, 0, 1))
+    else
+        0.5;
+    audio_state.playEffect(i(L_, 1, 0), i(L_, 2, 60), pan);
     return 0;
 }
 fn mid(L_: *c.lua_State) callconv(.c) c_int {
@@ -2320,6 +2487,7 @@ fn resetGameState() void {
     cam = .{};
     clip = .{};
     clipping = false;
+    resetRasterWork();
     ticks = 0;
     last_frame_ms = 1000.0 / debug_mod.target_simulation_hz;
     last_work_ms = 0;
@@ -2494,6 +2662,7 @@ fn registerConstants() void {
     setLuaConstant("START", c.SDL_CONTROLLER_BUTTON_START);
 }
 fn update() void {
+    resetRasterWork();
     if (c.lua_getglobal(L, "update") != c.LUA_TFUNCTION) {
         _ = c.lua_pop(L, 1);
         return;
@@ -2530,6 +2699,7 @@ fn convertFrame(output: *[W * H]u32, simulator_chrome: bool) void {
 }
 
 fn renderQuitOverlay(output: *[W * H]u32) void {
+    resetRasterWork();
     const saved_palette = pal;
     const saved_camera = cam;
     const saved_clip = clip;
@@ -2651,6 +2821,7 @@ fn drawDebugCommands() void {
 }
 
 fn renderDebugOverlay(output: *[W * H]u32) void {
+    resetRasterWork();
     const saved_palette = pal;
     const saved_camera = cam;
     const saved_clip = clip;
@@ -2995,6 +3166,8 @@ fn printLupiConstraints() void {
         \\player_slots=3
         \\tile_id_max=1023
         \\tileset_pixels_max={d}
+        \\raster_work_items_max={d}
+        \\runtime_map_layers_max={d}
         \\map_layer_limit=not_published
         \\workshop_visual_layers={d}
         \\workshop_lua_data_entries_max={d}
@@ -3007,6 +3180,8 @@ fn printLupiConstraints() void {
         lupi_archive_entries_max,
         lupi_psram_bytes,
         lupi_tileset_pixels_max,
+        raster_work_max,
+        debug_mod.layer_count_max,
         lupi_profile.workshop_visual_layers,
         lupi_profile.lua_data_entries_max,
         lupi_profile.lua_source_bytes_max,

@@ -31,8 +31,11 @@ or implement upstream placeholders; they are not accidental renderer drift:
   demos can resolve RGB colors against the encoded RGB555 palette.
 - Invalid dimensions, missing assets, truncated data, ambiguous assets,
   malformed manifest metadata, undeclared package code, duplicate archive
-  entries, and unsafe paths fail safely rather than reproducing C undefined
-  behavior.
+  entries, unsafe paths, and extreme renderer coordinates fail safely rather
+  than reproducing C undefined behavior. Each game update is capped at
+  2,073,600 raster candidates and 256 drawable map layers; the raster budget
+  resets every update, while `ui.cls`, palette state, and independently
+  composited host controls remain available.
 - Host music accepts libsndfile streams at the 44.1 kHz mixer rate with one to
   eight channels; unsupported streams fail visibly instead of playing at the
   wrong speed or reading beyond the bounded decode buffer.

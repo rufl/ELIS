@@ -77,14 +77,14 @@ pub const Audio = struct {
     }
 
     pub fn setVolume(self: *Audio, value: f32) void {
-        if (self.device == 0) return;
+        if (self.device == 0 or !std.math.isFinite(value)) return;
         c.SDL_LockAudioDevice(self.device);
         self.volume = std.math.clamp(value, 0, 1);
         c.SDL_UnlockAudioDevice(self.device);
     }
 
     pub fn playEffect(self: *Audio, sample_id: i32, midi_note: i32, pan_value: f32) void {
-        if (self.device == 0) return;
+        if (self.device == 0 or !std.math.isFinite(pan_value)) return;
         c.SDL_LockAudioDevice(self.device);
         defer c.SDL_UnlockAudioDevice(self.device);
         var slot: *Voice = &self.voices[0];

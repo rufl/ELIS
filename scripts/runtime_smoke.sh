@@ -22,6 +22,8 @@ grep -q '^archive_entries_max=4096$' <<<"$constraints"
 grep -q '^discrete_gpu=none$' <<<"$constraints"
 grep -q '^player_slots=3$' <<<"$constraints"
 grep -q '^tileset_pixels_max=49152$' <<<"$constraints"
+grep -q '^raster_work_items_max=2073600$' <<<"$constraints"
+grep -q '^runtime_map_layers_max=256$' <<<"$constraints"
 grep -q '^map_layer_limit=not_published$' <<<"$constraints"
 grep -q '^workshop_lua_data_entries_max=4096$' <<<"$constraints"
 grep -q '^workshop_lua_source_bytes_max=131072$' <<<"$constraints"
@@ -211,6 +213,48 @@ undeclared_rc=$?
 set -e
 test "$undeclared_rc" -ne 0
 grep -q 'GameExceedsLupiFlash' <<<"$undeclared_output"
+
+# Renderer coordinates are signed 32-bit for upstream compatibility, but
+# hostile extremes must remain bounded and the per-frame budget must reset.
+mkdir -p "$tmp/raster-bounds"
+cat > "$tmp/raster-bounds/game.lua" <<'LUA'
+local minimum = -2147483648
+local maximum = 2147483647
+local frame = 0
+local palette = {}
+for index = 1, 256 do palette[index] = 0 end
+function update()
+  ui.palset(1, 0x7c00)
+  ui.cls(0)
+  if frame == 0 then
+    ui.line(minimum, minimum, maximum, maximum, 1)
+  elseif frame == 1 then
+    ui.circfill(0, 0, maximum, 1)
+  elseif frame == 2 then
+    ui.draw_rect(minimum, minimum, maximum, maximum, true, 1)
+  elseif frame == 3 then
+    ui.trisfill(minimum, 0, 0, 0, maximum, 0, 1)
+  elseif frame == 4 then
+    ui.set_pallet(maximum, maximum, palette)
+  elseif frame == 5 then
+    ui.spr({ path = "game.lua", width = maximum, height = maximum }, 0, 0)
+    ui.map({ metadata = { width = maximum, height = maximum, tile_size = maximum } })
+  else
+    ui.rectfill(10, 10, 11, 11, 1)
+  end
+  frame = frame + 1
+end
+LUA
+timeout 10s ./zig-out/bin/elis --screenshot \
+  "$tmp/raster-bounds" 7 "$tmp/raster-bounds.ppm" >/dev/null
+python3 - "$tmp/raster-bounds.ppm" <<'PY'
+from pathlib import Path
+import sys
+
+payload = Path(sys.argv[1]).read_bytes().split(b"\n", 3)[3]
+pixel = (10 * 480 + 10) * 3
+assert payload[pixel:pixel + 3] == bytes((255, 0, 0))
+PY
 
 run_game "$root/mazestein3d"
 while IFS= read -r -d '' game_file; do

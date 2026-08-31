@@ -65,7 +65,9 @@ RGB555; ELIS follows the explicit `0RRRRRGGGGGBBBBB` contract.
 
 - Drawing is software composition into the indexed 480×270 framebuffer. SDL or
   Raylib acceleration is host presentation only and cannot change game-visible
-  pixels or count as console GPU evidence.
+  pixels or count as console GPU evidence. ELIS evaluates at most 2,073,600
+  primitive or bitmap raster candidates per game update, resetting that budget
+  on every update so extreme signed coordinates cannot stall later frames.
 - Sprite and tile sources are square indexed bitmaps. Tile IDs are 0–1023.
   Current docs expose explicit horizontal and vertical flip arguments; ELIS also
   retains legacy bits 10 and 11 for encoded map compatibility.
@@ -79,7 +81,8 @@ RGB555; ELIS follows the explicit `0RRRRRGGGGGBBBBB` contract.
   authored Tiled layer its own table, and official games call `ui.map` in the
   desired bottom-to-top order. A map table may contain multiple string-keyed
   tileset tables. ELIS's explicit `layers` array is a deterministic compatible
-  extension; Workshop is conservatively fixed to four visual layers.
+  extension; the runtime admits at most 256 drawable keys per map call, and
+  Workshop is conservatively fixed to four visual layers.
 - Workshop export requires exact manifest-backed files, existing tile IDs, the
   official 49,152-pixel tileset ceiling, at most 518,400 sampled tile pixels per
   `ui.map` call, at most 4,096 weighted generated-data entries, and at most

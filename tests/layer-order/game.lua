@@ -78,6 +78,14 @@ function update()
         end
         local many_ok, many_error = pcall(ui.map, many_layers)
         assert(many_ok, many_error)
+
+        local too_many_layers = { metadata = metadata, layers = {} }
+        for index = 1, 257 do
+            local name = string.format("excess-%03d", index)
+            too_many_layers.layers[index] = name
+            too_many_layers[name] = {}
+        end
+        expect_map_error(too_many_layers, "at most 256 drawable layers")
         invalid_order_checked = true
     end
 
