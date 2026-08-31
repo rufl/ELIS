@@ -24,11 +24,17 @@ linker_cc="${ELIS_LINK_CC:-${ZILF_LINK_CC:-gcc-15}}"
 if ! command -v "$linker_cc" >/dev/null 2>&1; then
   linker_cc="gcc"
 fi
+crt1_path="$("$linker_cc" -print-file-name=crt1.o)"
+if [[ ! -f "$crt1_path" ]]; then
+  echo "could not locate crt1.o through $linker_cc" >&2
+  exit 1
+fi
 
 # GCC 16 emits .sframe relocations in crt1.o that Zig 0.16 cannot link yet.
-# Keep the workaround local and recoverable; never modify the system CRT.
+# Ask the selected compiler for its multiarch path, copy it, and keep the
+# workaround local and recoverable; never modify the system CRT.
 objcopy --remove-section=.sframe --remove-section=.rela.sframe \
-  /usr/lib/crt1.o "$work_dir/crt1.o"
+  "$crt1_path" "$work_dir/crt1.o"
 
 # Zig 0.16 can misclassify a failed lazy cache-directory creation as a
 # read-only standard-library error. Create both isolated caches explicitly so
@@ -71,15 +77,13 @@ build_object_with_retry() {
 build_object_with_retry src/main.zig "$work_dir/elis.o" elis
 build_object_with_retry src/studio_app.zig "$work_dir/elis-studio.o" studio
 
-"$linker_cc" -nostartfiles "$work_dir/crt1.o" "$work_dir/elis.o" \
+"$linker_cc" -nostartfiles -no-pie "$work_dir/crt1.o" "$work_dir/elis.o" \
   -o zig-out/bin/elis \
-  $(pkg-config --libs sdl2 "$lua_pkg" libzip libcurl sndfile) -lm -lpthread -ldl -lc \
-  -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
+  $(pkg-config --libs sdl2 "$lua_pkg" libzip libcurl sndfile) -lm -lpthread -ldl -lc
 
-"$linker_cc" -nostartfiles "$work_dir/crt1.o" "$work_dir/elis-studio.o" \
+"$linker_cc" -nostartfiles -no-pie "$work_dir/crt1.o" "$work_dir/elis-studio.o" \
   -o zig-out/bin/elis-studio \
-  $(pkg-config --libs sdl2 "$lua_pkg" libzip libcurl sndfile) -lm -lpthread -ldl -lc \
-  -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
+  $(pkg-config --libs sdl2 "$lua_pkg" libzip libcurl sndfile) -lm -lpthread -ldl -lc
 
 # Keep the former executable name as a compatibility entry point for scripts
 # and local shortcuts created before the ELIS rename.

@@ -1,3 +1,8 @@
+//! Bounded Workshop readers for Lupi manifests, palettes, and bitmap metadata.
+//!
+//! Parsing is intentionally tolerant for editor discovery; export performs the
+//! stricter identity, byte-length, geometry, and tile-bound checks.
+
 const std = @import("std");
 const lupi_profile = @import("lupi_profile.zig");
 

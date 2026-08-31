@@ -1,3 +1,8 @@
+//! Host audio implementation for the Lupi `sfx` API.
+//!
+//! SDL owns the callback thread. Public mutators lock the audio device before
+//! changing music or voice state; callback-only helpers assume that ownership.
+
 const std = @import("std");
 const c = @import("native.zig").c;
 

@@ -139,8 +139,12 @@ proof.
 Discrete controller operations fire on button edges. Holding A does not repaint
 or fill every frame. Pointer gestures finish before focus, tool, presentation,
 or structural changes can transfer ownership, and undocumented mouse buttons
-never modify project data. Physical-controller approval remains separate from
-the automated source and dummy-video proof.
+never modify project data. Workshop ignores controller commands while its
+window is unfocused and snapshots held buttons on focus return or hotplug, so a
+held control cannot become a new edit. Physical-controller approval remains
+separate from the automated source and dummy-video proof. Accessibility support
+and known SDL limitations are documented in
+[docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md).
 
 ## Commands
 

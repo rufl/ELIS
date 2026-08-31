@@ -1,3 +1,9 @@
+//! Authoritative Workshop project model.
+//!
+//! This module owns bounded world storage, schema migration, command history,
+//! validation, deterministic Lua export, and atomic persistence. SDL and other
+//! presentation concerns belong in `studio_app.zig`.
+
 const std = @import("std");
 const lupi_profile = @import("lupi_profile.zig");
 
@@ -29,6 +35,9 @@ const no_point: u32 = std.math.maxInt(u32);
 comptime {
     std.debug.assert(layer_count == lupi_profile.workshop_visual_layers);
 }
+
+// -----------------------------------------------------------------------------
+// Project schemas and bounded value types
 
 pub const layer_names = [_][]const u8{ "background", "terrain", "objects", "foreground" };
 
@@ -245,6 +254,13 @@ pub const Stamp = struct {
     }
 };
 
+// -----------------------------------------------------------------------------
+// Authoritative editable world
+
+/// Heap-owned project state shared by editing, validation, and export.
+///
+/// Visual and smart-terrain arrays are layer-major. Collision, entities, and
+/// entity fields are cell-major. Call `deinit` exactly once on every owner.
 pub const Project = struct {
     allocator: std.mem.Allocator,
     width: u16,
@@ -659,6 +675,9 @@ fn validateEntityFieldValue(project: Project, kind: EntityKind, field: usize, va
     }
 }
 
+// -----------------------------------------------------------------------------
+// Commands and unified history
+
 pub const ChangeKind = enum(u8) { tile, smart, solid, entity_kind, entity_field, spawn, goal };
 
 pub const Change = struct {
@@ -684,6 +703,10 @@ const ProjectSnapshotCommand = struct {
     after: []u8,
 };
 
+/// One reversible history entry.
+///
+/// Painting uses compact cell changes. Structural edits use encoded snapshots
+/// so all project-owned arrays and schemas move through history atomically.
 pub const Command = union(enum) {
     changes: ChangeCommand,
     snapshot: ProjectSnapshotCommand,
@@ -722,6 +745,7 @@ pub const Command = union(enum) {
     }
 };
 
+/// Coalesces one gesture into one command while updating the live project.
 pub const CommandBuilder = struct {
     allocator: std.mem.Allocator,
     changes: std.ArrayList(Change) = .empty,
@@ -1037,6 +1061,8 @@ pub const CommandBuilder = struct {
     }
 };
 
+/// Bounded undo/redo owner. Traversal revisions remain monotonic so dirty
+/// state cannot collide with a previously saved project revision.
 pub const History = struct {
     allocator: std.mem.Allocator,
     undo_stack: std.ArrayList(Command) = .empty,
@@ -1216,6 +1242,9 @@ pub const History = struct {
     }
 };
 
+// -----------------------------------------------------------------------------
+// Structural project transformations
+
 const ResizedProject = struct {
     project: Project,
     report: ResizeReport,
@@ -1380,6 +1409,9 @@ fn replaceProject(project: *Project, encoded: []const u8) !void {
     replaceProjectOwned(project, replacement);
 }
 
+// -----------------------------------------------------------------------------
+// Validation, migration, export, and persistence
+
 pub const Severity = enum { warning, @"error" };
 pub const IssueKind = enum {
     missing_spawn,
@@ -1476,6 +1508,7 @@ pub fn validate(project: Project) ValidationReport {
     return report;
 }
 
+/// Encodes the checksummed `.elisworld` v4 source representation.
 pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     const cell_count = project.cellCount();
     var tileset_bytes: usize = 0;
@@ -1509,6 +1542,7 @@ pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     return bytes;
 }
 
+/// Decodes v1-v4 projects transactionally; failures return no partial owner.
 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Project {
     if (bytes.len < magic.len + 29 or bytes.len > max_file_bytes) return error.InvalidWorldProject;
     if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.InvalidWorldProject;
@@ -1712,6 +1746,7 @@ pub fn lupiStaticSafe(project: Project) bool {
     return lupiLuaDataEntries(project) <= lupi_lua_data_entries_max;
 }
 
+/// Emits deterministic sparse Lua only after spatial and static Lupi checks.
 pub fn exportLua(allocator: std.mem.Allocator, project: Project) ![]u8 {
     if (!validate(project).valid()) return error.InvalidProjectForExport;
     if (lupiTileSamplePixels(project) > lupi_tile_sample_pixels_max) {

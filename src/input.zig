@@ -1,3 +1,8 @@
+//! Physical-to-virtual Lupi input mapping.
+//!
+//! SDL events update bounded per-player state; Lua reads stable virtual
+//! actions. Settings serialize only validated `Bindings` values.
+
 const std = @import("std");
 const c = @import("native.zig").c;
 

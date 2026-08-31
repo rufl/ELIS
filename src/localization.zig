@@ -1,3 +1,8 @@
+//! Compile-time simulator chrome translations.
+//!
+//! Stable language tags are persisted in settings; game-authored text remains
+//! entirely outside this host localization layer.
+
 const input = @import("input.zig");
 
 /// Languages shipped in the binary.  Stable tags are also used by the

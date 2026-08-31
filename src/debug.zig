@@ -1,3 +1,8 @@
+//! Allocation-free runtime instrumentation and render-category state.
+//!
+//! Debug data is host-only: it never changes the Lua-visible framebuffer or
+//! the result returned by a game API call.
+
 const std = @import("std");
 
 pub const target_simulation_hz: f64 = 60.0;

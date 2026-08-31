@@ -10,6 +10,7 @@ mkdir -p "$work/build-cache" "$work/build-global"
 ZIG_LOCAL_CACHE_DIR="$work/build-cache" \
 ZIG_GLOBAL_CACHE_DIR="$work/build-global" \
 zig build native -Doptimize=ReleaseSafe >/dev/null
+./zig-out/bin/elis-studio --self-test-atlas-identity
 
 mkdir -p "$work/game/tiles"
 head -c 4096 /dev/zero > "$work/game/tiles/world"

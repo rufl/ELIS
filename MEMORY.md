@@ -9,7 +9,8 @@ ELIS is a Zig 0.16 native Lupi-compatible simulator with a 480×270 indexed fram
 - `src/main.zig` owns the simulator, Lua API, indexed renderer, and command-line/runtime host.
 - `src/studio_app.zig` owns the SDL Workshop application; `src/studio/model.zig` owns editable world state, commands, schema migration, Lua export, bounded semantic tile stamps, and the typed entity grid.
 - `src/debug.zig` provides the runtime statistics and rendering-debugger state.
-- `scripts/verify.sh` composes focused unit, parity, runtime, and Workshop smoke checks.
+- `scripts/verify.sh` checks formatting and shell syntax, then composes focused unit, parity, runtime, and Workshop smoke checks.
+- `ARCHITECTURE.md` is the contributor ownership map; `CONTRIBUTING.md` defines PR and proof expectations; `THIRD_PARTY_NOTICES.md` records the non-MIT boundaries shipped beside ELIS.
 
 ## Maintained Local Gate
 
@@ -17,7 +18,7 @@ Run `bash scripts/verify.sh`. It builds in `ReleaseSafe`, uses dummy SDL drivers
 
 ## Gotchas
 
-- `scripts/build_native.sh` uses a temporary CRT copy to remove GCC 16 `.sframe` sections; never modify the system CRT.
+- `scripts/build_native.sh` asks the selected compiler for its multiarch `crt1.o`, uses a temporary copy to remove GCC 16 `.sframe` sections, and relies on the compiler's host dynamic-linker selection; never modify the system CRT or silently expose unsupported cross-compilation.
 - Keep Zig caches and build output untracked (`.zig-cache/`, `.zig-global-cache/`, and `zig-out/`).
 - `ui.map` layer declarations are strict and ordered; preserve the reserved `lupi_metadata` structure emitted by Workshop.
 - Stamps are active-layer patterns only. They retain raw tile and smart-terrain values, but do not include collision, entities, spawn, goal, or tileset assignment. Flip/rotate transforms rearrange cells; they do not mirror individual tile artwork.

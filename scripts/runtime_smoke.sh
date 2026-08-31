@@ -10,7 +10,8 @@ ZIG_GLOBAL_CACHE_DIR="$tmp/global-cache" \
 zig build native -Doptimize=ReleaseSafe >/dev/null
 
 help_out="$(./zig-out/bin/elis --help 2>&1)"
-grep -q 'Uso: elis' <<<"$help_out"
+grep -q '^Usage:$' <<<"$help_out"
+grep -q 'elis --benchmark GAME_DIRECTORY FRAMES' <<<"$help_out"
 test -L ./zig-out/bin/lupinho-zig
 ldd ./zig-out/bin/elis | grep -q 'liblua5.4'
 constraints="$(./zig-out/bin/elis --lupi-constraints 2>&1)"

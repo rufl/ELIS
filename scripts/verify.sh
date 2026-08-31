@@ -4,6 +4,11 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
+zig fmt --check build.zig src/*.zig src/studio/*.zig
+for script in scripts/*.sh; do
+  bash -n "$script"
+done
+
 ./scripts/test_studio.sh
 ./scripts/parity_smoke.sh
 ./scripts/runtime_smoke.sh

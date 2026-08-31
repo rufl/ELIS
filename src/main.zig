@@ -1,3 +1,9 @@
+//! ELIS simulator process.
+//!
+//! The runtime owns package admission, the bounded Lua VM, the indexed Lupi
+//! renderer, host menus/debugging, and final SDL composition. Compatibility
+//! changes require matching fixtures and documentation in `COMPATIBILITY.md`.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const c = @import("native.zig").c;
@@ -3149,6 +3155,17 @@ fn verifySdlCompositor() !void {
     std.debug.print("SDL compositor parity: pass\n", .{});
 }
 
+fn printUsage() void {
+    std.debug.print(
+        \\Usage:
+        \\  elis [GAME_DIRECTORY|GAME.lupi]
+        \\  elis --fetch-demos|--update-demos|--lupi-constraints
+        \\  elis --benchmark GAME_DIRECTORY FRAMES
+        \\  elis --screenshot GAME_DIRECTORY FRAMES OUTPUT.ppm
+        \\
+    , .{});
+}
+
 fn printLupiConstraints() void {
     std.debug.print(
         \\LUPI_CONSTRAINTS_V1
@@ -3216,13 +3233,13 @@ pub fn main(init: std.process.Init) !void {
         return runBenchmark(std.mem.span(args[2]), frame_count);
     }
     if (args.len > 2) {
-        std.debug.print("Uso: elis [diretorio-do-jogo|jogo.lupi]\n", .{});
+        printUsage();
         return;
     }
     const browser_mode_at_start = args.len == 1;
     const requested: []const u8 = if (args.len > 1) std.mem.span(args[1]) else "example";
     if (std.mem.eql(u8, requested, "--help") or std.mem.eql(u8, requested, "-h")) {
-        std.debug.print("Uso: elis [diretorio-do-jogo|jogo.lupi|--fetch-demos|--update-demos|--lupi-constraints]\n", .{});
+        printUsage();
         return;
     }
     if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_AUDIO | c.SDL_INIT_GAMECONTROLLER | c.SDL_INIT_JOYSTICK) != 0) return error.SdlInit;

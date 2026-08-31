@@ -1,0 +1,73 @@
+version = 1
+
+[[annotations]]
+path = ["**"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Rafael Dina"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["src/main.zig", "src/font.zig"]
+precedence = "closest"
+SPDX-FileCopyrightText = [
+  "2026 Rafael Dina",
+  "2026 Marcelo Marcinio Pereira Junior",
+]
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = "CODE_OF_CONDUCT.md"
+precedence = "closest"
+SPDX-FileCopyrightText = "Contributor Covenant contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = [
+  "demos/mr-rescue/current/assets/**",
+  "demos/mr-rescue/current/music/**",
+  "demos/mr-rescue/current/boss_map.lua",
+  "demos/mr-rescue/current/map_data.lua",
+  "demos/mr-rescue/current/map_templates.lua",
+  "demos/mr-rescue/current/palette.lua",
+  "demos/mr-rescue/current/lupi_manifest.txt",
+  "demos/mr-rescue/CC-BY-SA-3.0.txt",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = [
+  "2013 Tangram Games",
+  "2026 Rafael Dina",
+]
+SPDX-License-Identifier = "CC-BY-SA-3.0"
+
+[[annotations]]
+path = [
+  "demos/mr-rescue/current/audio.lua",
+  "demos/mr-rescue/current/boss.lua",
+  "demos/mr-rescue/current/campaign.lua",
+  "demos/mr-rescue/current/game.lua",
+  "demos/mr-rescue/current/input.lua",
+  "demos/mr-rescue/current/player.lua",
+  "demos/mr-rescue/current/port_mode.lua",
+  "demos/mr-rescue/current/profile.lua",
+  "demos/mr-rescue/current/progression.lua",
+  "demos/mr-rescue/current/world.lua",
+  "demos/mr-rescue/LICENSE.upstream",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = [
+  "2013 Tangram Games",
+  "2026 Rafael Dina",
+]
+SPDX-License-Identifier = "Zlib"
+
+[[annotations]]
+path = [
+  "demos/mr-rescue/current/game.lua",
+  "demos/mr-rescue/LICENSE.upstream",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = [
+  "2013 Tangram Games",
+  "2026 Rafael Dina",
+]
+SPDX-License-Identifier = "Zlib AND CC-BY-SA-3.0"

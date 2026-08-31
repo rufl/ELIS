@@ -20,7 +20,9 @@
 - Rechecked Lupi upstreams: Lupinho remains `379a599d5e93db8228e2b0d4348ea65fcafa2ac5`, lupi-codec remains `3e8c66299a4606b36b9f490212acc44e084a6aa2`, and the SDK authoring guidance is recorded at `ebf57b25b528d4a198ff3288c9b803f2b9a98c76`; no newer core or codec revision required integration.
 - Bounded every primitive and bitmap raster path per update, widened coordinate arithmetic, capped drawable map keys, rejected overflowing bitmap/map dimensions, and added extreme-coordinate regression coverage without changing valid upstream pixels.
 - Hardened Workshop gesture ownership across focus loss and tool/presentation changes, ignored undocumented mouse buttons, added controller-safe template-panel navigation, kept entity names within the rendered ASCII contract, and promoted waiting controllers when a player slot becomes free.
-- Added project control documentation, a recorded local proof boundary, MIT licensing, and a GitHub Actions verification workflow.
+- Fixed Workshop atlas identity across undo/redo when a layer previously had no loaded texture, suppressed controller edits while unfocused, and prevented held controls from becoming fresh commands after focus or hotplug.
+- Made the native linker workaround resolve the selected compiler's multiarch CRT instead of assuming Arch Linux paths, removed the hard-coded x86-64 dynamic linker, and made formatting and shell syntax part of the maintained gate.
+- Prepared public contribution and release infrastructure with architecture, contribution, accessibility, conduct, third-party notice, release, issue, pull-request, dependency-update, and REUSE-compliant machine-readable licensing documentation.
 
 ## History
 

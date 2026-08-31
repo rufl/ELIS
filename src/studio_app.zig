@@ -1,3 +1,9 @@
+//! Native SDL Workshop application.
+//!
+//! `Studio` owns transient interaction state and delegates authoritative map,
+//! persistence, validation, and undo behavior to `studio/model.zig`. Rendering
+//! reads that state but never mutates exported project data.
+
 const std = @import("std");
 const c = @import("native.zig").c;
 const font = @import("font.zig");
@@ -9,6 +15,9 @@ const default_height: u16 = 16;
 const default_tile_size: u16 = 16;
 const bar_top: i32 = 58;
 const bar_bottom: i32 = 32;
+
+// -----------------------------------------------------------------------------
+// Interaction and layout types
 
 const Tool = enum(u8) { brush, smart, erase, fill, pick, collision, spawn, goal, entity, select, stamp, line, rectangle, resize };
 const tools = [_]Tool{ .brush, .smart, .erase, .fill, .pick, .collision, .spawn, .goal, .entity, .select, .stamp, .line, .rectangle, .resize };
@@ -90,6 +99,13 @@ const Atlas = struct {
         if (self.texture) |texture| c.SDL_DestroyTexture(texture);
         self.* = .{};
     }
+
+    fn setAssetName(self: *Atlas, name: []const u8) void {
+        std.debug.assert(name.len < self.asset_name.len);
+        @memset(&self.asset_name, 0);
+        @memcpy(self.asset_name[0..name.len], name);
+        self.asset_name_length = @intCast(name.len);
+    }
 };
 
 const WorkspaceAssets = struct {
@@ -98,6 +114,13 @@ const WorkspaceAssets = struct {
     palette: assets.Palette = assets.Palette.diagnostic(),
 };
 
+// -----------------------------------------------------------------------------
+// Authoring session state
+
+/// Session controller for one Workshop window.
+///
+/// The project and history are authoritative. Selection, visibility, locks,
+/// notices, previews, and presentation choices are deliberately session-only.
 const Studio = struct {
     allocator: std.mem.Allocator,
     project: model.Project,
@@ -683,6 +706,25 @@ const Studio = struct {
     }
 };
 
+// -----------------------------------------------------------------------------
+// SDL application lifecycle
+
+fn verifyAtlasIdentity(allocator: std.mem.Allocator) !void {
+    var project = try model.Project.init(allocator, 4, 4, 8, "tiles/first");
+    defer project.deinit();
+    var atlases: [model.layer_count]Atlas = .{Atlas{}} ** model.layer_count;
+    for (&atlases, 0..) |*atlas, layer| {
+        atlas.setAssetName(project.layerTilesetName(layer));
+    }
+    if (atlasesNeedReload(project, atlases)) return error.AtlasIdentityMismatch;
+
+    project.setLayerTilesetName(1, "tiles/second");
+    if (!atlasesNeedReload(project, atlases)) return error.AtlasIdentityMismatch;
+    atlases[1].setAssetName(project.layerTilesetName(1));
+    if (atlasesNeedReload(project, atlases)) return error.AtlasIdentityMismatch;
+    std.debug.print("Workshop atlas identity: pass\n", .{});
+}
+
 pub fn main(init: std.process.Init) !void {
     var project_path: []const u8 = "save/world.elisworld";
     var export_path: []const u8 = "save/world.lua";
@@ -699,6 +741,7 @@ pub fn main(init: std.process.Init) !void {
     var presentation: Presentation = .playful;
     var project_template: ?model.ProjectTemplate = null;
     var reduce_motion = false;
+    var self_test_atlas_identity = false;
     var window_width: i32 = 1280;
     var window_height: i32 = 760;
     var args = std.process.Args.Iterator.init(init.minimal.args);
@@ -734,6 +777,8 @@ pub fn main(init: std.process.Init) !void {
             presentation = .playful;
         } else if (std.mem.eql(u8, argument, "--reduce-motion")) {
             reduce_motion = true;
+        } else if (std.mem.eql(u8, argument, "--self-test-atlas-identity")) {
+            self_test_atlas_identity = true;
         } else if (std.mem.startsWith(u8, argument, "--template=")) {
             project_template = try model.projectTemplateFromName(argument["--template=".len..]);
         } else if (std.mem.startsWith(u8, argument, "--window-width=")) {
@@ -753,9 +798,10 @@ pub fn main(init: std.process.Init) !void {
         } else return error.UnknownStudioArgument;
     }
 
+    const allocator = init.gpa;
+    if (self_test_atlas_identity) return verifyAtlasIdentity(allocator);
     if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_GAMECONTROLLER | c.SDL_INIT_JOYSTICK) != 0) return error.SdlInit;
     defer c.SDL_Quit();
-    const allocator = init.gpa;
     const workspace_assets = loadWorkspaceAssets(allocator, game_root);
     if (smoke_frames != null and game_root != null) {
         if (workspace_assets.catalog.count == 0) return error.StudioManifestMissingBitmaps;
@@ -817,7 +863,11 @@ pub fn main(init: std.process.Init) !void {
     defer for (&atlases) |*atlas| atlas.deinit();
     var gamepad = openFirstController();
     defer if (gamepad) |controller| c.SDL_GameControllerClose(controller);
-    var previous_buttons: [c.SDL_CONTROLLER_BUTTON_MAX]bool = .{false} ** c.SDL_CONTROLLER_BUTTON_MAX;
+    var previous_buttons = if (gamepad) |controller|
+        controllerButtons(controller)
+    else
+        [_]bool{false} ** c.SDL_CONTROLLER_BUTTON_MAX;
+    var window_focused = true;
     var running = true;
     var frame_count: u32 = 0;
     var capture_pending = capture_path != null;
@@ -835,7 +885,10 @@ pub fn main(init: std.process.Init) !void {
                 c.SDL_CONTROLLERDEVICEADDED => {
                     if (gamepad == null) {
                         gamepad = openFirstController();
-                        @memset(&previous_buttons, false);
+                        previous_buttons = if (gamepad) |controller|
+                            controllerButtons(controller)
+                        else
+                            [_]bool{false} ** c.SDL_CONTROLLER_BUTTON_MAX;
                     }
                 },
                 c.SDL_CONTROLLERDEVICEREMOVED => if (gamepad) |controller| {
@@ -843,7 +896,10 @@ pub fn main(init: std.process.Init) !void {
                     if (c.SDL_JoystickInstanceID(joystick) == event.cdevice.which) {
                         c.SDL_GameControllerClose(controller);
                         gamepad = openFirstController();
-                        @memset(&previous_buttons, false);
+                        previous_buttons = if (gamepad) |replacement|
+                            controllerButtons(replacement)
+                        else
+                            [_]bool{false} ** c.SDL_CONTROLLER_BUTTON_MAX;
                     }
                 },
                 c.SDL_KEYDOWN => if (event.key.repeat == 0) {
@@ -952,13 +1008,25 @@ pub fn main(init: std.process.Init) !void {
                 {
                     if (event.wheel.y > 0) previousTile(&studio) else if (event.wheel.y < 0) nextTile(&studio, atlases[studio.active_layer].tile_count);
                 },
-                c.SDL_WINDOWEVENT => if (event.window.event == c.SDL_WINDOWEVENT_FOCUS_LOST) {
-                    try studio.finishPointerGesture();
+                c.SDL_WINDOWEVENT => switch (event.window.event) {
+                    c.SDL_WINDOWEVENT_FOCUS_LOST => {
+                        try studio.finishPointerGesture();
+                        window_focused = false;
+                    },
+                    c.SDL_WINDOWEVENT_FOCUS_GAINED => {
+                        window_focused = true;
+                        if (gamepad) |controller| {
+                            // A button held while another application had
+                            // focus must not become a fresh editor command.
+                            previous_buttons = controllerButtons(controller);
+                        }
+                    },
+                    else => {},
                 },
                 else => {},
             }
         }
-        if (studio.quit_dialog or studio.entity_text_target == .none) {
+        if (window_focused and (studio.quit_dialog or studio.entity_text_target == .none)) {
             if (gamepad) |controller| try handleController(
                 allocator,
                 renderer,
@@ -986,6 +1054,9 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 }
+
+// -----------------------------------------------------------------------------
+// Keyboard, pointer, and controller dispatch
 
 fn handleQuitDialogKey(studio: *Studio, key: c.SDL_Keycode, running: *bool) void {
     switch (key) {
@@ -1224,6 +1295,17 @@ fn handleKey(
     }
 }
 
+fn controllerButtons(
+    controller: *c.SDL_GameController,
+) [c.SDL_CONTROLLER_BUTTON_MAX]bool {
+    var current: [c.SDL_CONTROLLER_BUTTON_MAX]bool =
+        .{false} ** c.SDL_CONTROLLER_BUTTON_MAX;
+    for (0..c.SDL_CONTROLLER_BUTTON_MAX) |index| {
+        current[index] = c.SDL_GameControllerGetButton(controller, @intCast(index)) != 0;
+    }
+    return current;
+}
+
 fn handleController(
     allocator: std.mem.Allocator,
     renderer: *c.SDL_Renderer,
@@ -1236,8 +1318,7 @@ fn handleController(
     tile_count: u16,
     running: *bool,
 ) !void {
-    var current: [c.SDL_CONTROLLER_BUTTON_MAX]bool = .{false} ** c.SDL_CONTROLLER_BUTTON_MAX;
-    for (0..c.SDL_CONTROLLER_BUTTON_MAX) |index| current[index] = c.SDL_GameControllerGetButton(controller, @intCast(index)) != 0;
+    const current = controllerButtons(controller);
     const pressed = struct {
         fn value(now: []const bool, before: []const bool, button_index: usize) bool {
             return now[button_index] and !before[button_index];
@@ -1556,6 +1637,9 @@ fn nextTile(studio: *Studio, available: u16) void {
     studio.selected_tile = @min(studio.selected_tile + 1, maximum);
     studio.palette_page = studio.selected_tile / 64;
 }
+
+// -----------------------------------------------------------------------------
+// Workshop rendering
 
 fn render(
     renderer: *c.SDL_Renderer,
@@ -2092,6 +2176,9 @@ fn drawTile(renderer: *c.SDL_Renderer, atlas: Atlas, tile: u16, destination: Rec
     }
 }
 
+// -----------------------------------------------------------------------------
+// Manifest, palette, and atlas ownership
+
 fn loadWorkspaceAssets(allocator: std.mem.Allocator, game_root: ?[]const u8) WorkspaceAssets {
     const root = game_root orelse return .{};
     var result = WorkspaceAssets{};
@@ -2135,10 +2222,24 @@ fn loadProjectAtlases(
     var result: [model.layer_count]Atlas = .{Atlas{}} ** model.layer_count;
     errdefer for (&result) |*atlas| atlas.deinit();
     for (&result, 0..) |*atlas, layer| {
-        atlas.* = if (legacy_path) |path|
-            try loadAtlas(allocator, renderer, path, project.tile_size, workspace.palette)
-        else
-            try loadCatalogAtlas(allocator, renderer, game_root, workspace, project.layerTilesetName(layer), project.tile_size);
+        atlas.* = if (legacy_path) |path| legacy: {
+            var loaded = try loadAtlas(
+                allocator,
+                renderer,
+                path,
+                project.tile_size,
+                workspace.palette,
+            );
+            loaded.setAssetName(project.layerTilesetName(layer));
+            break :legacy loaded;
+        } else try loadCatalogAtlas(
+            allocator,
+            renderer,
+            game_root,
+            workspace,
+            project.layerTilesetName(layer),
+            project.tile_size,
+        );
     }
     return result;
 }
@@ -2151,24 +2252,22 @@ fn loadCatalogAtlas(
     name: []const u8,
     tile_size: u16,
 ) !Atlas {
-    const root = game_root orelse return .{};
-    const asset_index = workspace.catalog.find(name) orelse return .{};
+    var atlas = Atlas{};
+    atlas.setAssetName(name);
+    const root = game_root orelse return atlas;
+    const asset_index = workspace.catalog.find(name) orelse return atlas;
     const asset = &workspace.catalog.items[asset_index];
     if (!workspace.asset_file_verified[asset_index] or
-        !asset.lupiCompatible(tile_size, 0)) return .{};
+        !asset.lupiCompatible(tile_size, 0)) return atlas;
     var path_buffer: [2048]u8 = undefined;
     const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}", .{ root, asset.name() });
-    var atlas = try loadAtlas(allocator, renderer, path, tile_size, workspace.palette);
-    const asset_name = asset.name();
-    std.debug.assert(asset_name.len < atlas.asset_name.len);
-    @memcpy(atlas.asset_name[0..asset_name.len], asset_name);
-    atlas.asset_name_length = @intCast(asset_name.len);
-    return atlas;
+    var loaded = try loadAtlas(allocator, renderer, path, tile_size, workspace.palette);
+    loaded.setAssetName(name);
+    return loaded;
 }
 
 fn atlasesNeedReload(project: model.Project, atlases: [model.layer_count]Atlas) bool {
     for (atlases, 0..) |atlas, layer| {
-        if (atlas.asset_name_length == 0) continue;
         const asset_name = atlas.asset_name[0..atlas.asset_name_length];
         if (!std.mem.eql(u8, project.layerTilesetName(layer), asset_name)) return true;
     }
@@ -2357,6 +2456,9 @@ fn loadAtlas(allocator: std.mem.Allocator, renderer: *c.SDL_Renderer, path: ?[]c
         .tile_count = count,
     };
 }
+
+// -----------------------------------------------------------------------------
+// Responsive geometry and drawing primitives
 
 fn layoutFor(width: i32, height: i32, presentation: Presentation) Layout {
     const roomy = width >= 1180 and height >= 700;

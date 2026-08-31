@@ -1,0 +1,47 @@
+name: Feature proposal
+description: Propose a bounded ELIS or Workshop improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Which concrete cartridge, authoring task, or contributor workflow needs this?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe user-visible behavior and what remains unchanged.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Lupi compatibility and resource bounds
+      description: Cite executable firmware/Lupinho behavior where applicable and identify memory, raster, package, or persistence impact.
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: Smallest proof path
+      description: What focused fixture or smoke test would establish correctness?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain why existing APIs or workflows are insufficient.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues, ROADMAP.md, and BACKLOG.md.
+          required: true
+        - label: I am not inferring provisional console semantics without executable evidence.
+          required: true

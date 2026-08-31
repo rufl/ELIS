@@ -1,3 +1,8 @@
+//! Versioned simulator preferences.
+//!
+//! Parsing is transactional and persistence is atomic. Invalid or incomplete
+//! profiles fall back to defaults rather than partially applying bindings.
+
 const std = @import("std");
 const c = @import("native.zig").c;
 const input = @import("input.zig");

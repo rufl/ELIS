@@ -22,17 +22,18 @@ zig test src/debug.zig
 
 # Native imports need the same disposable CRT workaround as build_native.sh.
 # Keep the UTF-8 input test in the normal gate rather than relying on compile-only coverage.
+linker_cc="${ELIS_LINK_CC:-${ZILF_LINK_CC:-gcc-15}}"
+command -v "$linker_cc" >/dev/null 2>&1 || linker_cc=gcc
+crt1_path="$("$linker_cc" -print-file-name=crt1.o)"
+[[ -f "$crt1_path" ]] || { echo "could not locate crt1.o through $linker_cc" >&2; exit 1; }
 objcopy --remove-section=.sframe --remove-section=.rela.sframe \
-  /usr/lib/crt1.o "$work/crt1.o"
+  "$crt1_path" "$work/crt1.o"
 ZIG_LOCAL_CACHE_DIR="$work/input-cache" \
 ZIG_GLOBAL_CACHE_DIR="$work/input-global" \
 zig test-obj --test-no-exec -fPIC -fno-stack-check -lc \
   $(pkg-config --cflags sdl2) src/input.zig -femit-bin="$work/input.o"
-linker_cc="${ELIS_LINK_CC:-${ZILF_LINK_CC:-gcc-15}}"
-command -v "$linker_cc" >/dev/null 2>&1 || linker_cc=gcc
-"$linker_cc" -nostartfiles "$work/crt1.o" "$work/input.o" \
-  -o "$work/input-test" $(pkg-config --libs sdl2) -lm -lpthread -ldl -lc \
-  -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
+"$linker_cc" -nostartfiles -no-pie "$work/crt1.o" "$work/input.o" \
+  -o "$work/input-test" $(pkg-config --libs sdl2) -lm -lpthread -ldl -lc
 "$work/input-test"
 
 echo "ELIS Workshop, input, and instrumentation tests: pass"

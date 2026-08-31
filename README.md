@@ -11,7 +11,36 @@ Run `zig build run -- --lupi-constraints` for the enforced profile and see
 The audited compatibility baseline and every deliberate extension are listed
 in [COMPATIBILITY.md](COMPATIBILITY.md).
 
+> **Project status:** ELIS is ready for public source collaboration but has no
+> stable binary release yet. The maintained host is Linux; CI runs Ubuntu 24.04
+> on x86_64. Mr. Rescue is a software-parity physical-validation candidate, not
+> a hardware-approved release. See [ROADMAP.md](ROADMAP.md) and
+> [BACKLOG.md](BACKLOG.md) for the remaining proof boundaries.
+
+Contributor entry points:
+
+- [Architecture and ownership](ARCHITECTURE.md)
+- [Contributing and focused tests](CONTRIBUTING.md)
+- [Compatibility contract](COMPATIBILITY.md)
+- [Workshop authoring guide](STUDIO.md)
+- [Security policy](SECURITY.md)
+- [Accessibility support and limitations](docs/ACCESSIBILITY.md)
+- [Third-party licenses and attribution](THIRD_PARTY_NOTICES.md)
+
 ## Build and run
+
+ELIS requires Zig 0.16.0, a C compiler, `pkg-config`, `objcopy`, and development
+packages for SDL2, Lua 5.4, libzip, libcurl, and libsndfile. On Ubuntu 24.04:
+
+```sh
+sudo apt-get update
+sudo apt-get install --yes --no-install-recommends \
+  binutils gcc pkg-config python3 zip \
+  libsdl2-dev liblua5.4-dev libzip-dev \
+  libcurl4-openssl-dev libsndfile1-dev
+```
+
+Build and run from the repository root:
 
 ```sh
 zig build native
@@ -203,8 +232,29 @@ HiDPI output uses the renderer's physical dimensions. Transparent palette-zero
 pixels reveal black inside the game viewport, while simulator dialogs are
 composited separately without changing the demo palette or its paused frame.
 
-The build honors Zig's standard `-Doptimize=Debug|ReleaseSafe|ReleaseFast|ReleaseSmall` option. It uses GCC 15 when available, avoiding GCC 16 `.sframe` CRT relocations that Zig 0.16 cannot link directly. If GCC 15 is unavailable, the script falls back to the system compiler and removes only the unsupported `.sframe` sections from a temporary copy of `crt1.o`; it never modifies the system CRT. Set `ELIS_LINK_CC` to select another compatible linker compiler (`ZILF_LINK_CC` remains a legacy alias).
+The build honors Zig's standard
+`-Doptimize=Debug|ReleaseSafe|ReleaseFast|ReleaseSmall` option. It prefers GCC
+15 and otherwise uses the system compiler. The selected compiler supplies its
+multiarch `crt1.o` path; the script removes only Zig-incompatible `.sframe`
+sections from a temporary copy and never modifies the system CRT. Set
+`ELIS_LINK_CC` to select another compatible linker compiler (`ZILF_LINK_CC`
+remains a legacy alias). Cross-compilation is not currently exposed because the
+native C libraries and CRT workaround are host-specific.
+
+## Contributing
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) and
+[ARCHITECTURE.md](ARCHITECTURE.md). Pull requests should include the smallest
+relevant proof, preserve the documented Lupi compatibility boundary, and keep
+third-party cartridge licenses isolated. Use [SECURITY.md](SECURITY.md) for
+private vulnerability reports and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for
+community expectations.
 
 ## License
 
-ELIS is available under the [MIT License](LICENSE).
+ELIS-owned source and tools are available under the [MIT License](LICENSE).
+Machine-readable file coverage is recorded in `REUSE.toml` and `LICENSES/`.
+The compatible Lupinho basis, dynamically linked libraries, downloaded demos,
+and bundled Mr. Rescue candidate retain their own notices and licenses; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). In particular, material under
+`demos/mr-rescue/` is not relicensed as MIT.

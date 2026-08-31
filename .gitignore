@@ -9,6 +9,16 @@ demos/*/
 !demos/mr-rescue/
 !demos/mr-rescue/**
 
+# Local projects, captures, logs, and credentials.
+save/
+*.elisworld
+*.bmp
+*.ppm
+*.log
+.env
+.env.*
+!.env.example
+
 # Local editor and operating-system files.
 *.swp
 *~

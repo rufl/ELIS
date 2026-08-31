@@ -1,8 +1,17 @@
 # Security Policy
 
+## Supported versions
+
+ELIS has no stable release series yet. Security fixes target the current `main`
+branch. Historical commits and locally modified cartridges are unsupported.
+
 ## Reporting a Vulnerability
 
-Do not file public issues for suspected vulnerabilities. Report them privately to Rafael Dina at `rafael.dina@gmail.com` with the affected revision, platform, reproduction steps, and expected versus observed behavior.
+Do not file public issues for suspected vulnerabilities. Report them privately
+to Rafael Dina at `rafael.dina@gmail.com` with the affected revision, platform,
+reproduction steps, and expected versus observed behavior. Do not include live
+credentials or sensitive third-party data. You should receive an acknowledgement
+within seven days; coordinated disclosure timing will be agreed after triage.
 
 ## Security Boundaries
 

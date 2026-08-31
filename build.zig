@@ -1,7 +1,8 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    _ = b.standardTargetOptions(.{});
+    // Native dependencies and the CRT workaround are host-specific. Omitting
+    // standardTargetOptions prevents a misleading, silently ignored -Dtarget.
     const optimize = b.standardOptimizeOption(.{});
     const native_cmd = b.addSystemCommand(&.{ "bash", "scripts/build_native.sh" });
     native_cmd.addArg(@tagName(optimize));
