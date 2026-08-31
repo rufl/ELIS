@@ -94,9 +94,7 @@ pub const Input = struct {
     cancel_pressed: bool = false,
 
     pub fn init(self: *Input) void {
-        const count = c.SDL_NumJoysticks();
-        if (count <= 0) return;
-        for (0..@intCast(count)) |index| self.openDevice(@intCast(index));
+        self.openAvailableDevices();
     }
 
     pub fn deinit(self: *Input) void {
@@ -300,7 +298,15 @@ pub const Input = struct {
         self.text_len = 0;
     }
 
+    fn openAvailableDevices(self: *Input) void {
+        const count = c.SDL_NumJoysticks();
+        if (count <= 0) return;
+        for (0..@intCast(count)) |index| self.openDevice(@intCast(index));
+    }
+
     fn openDevice(self: *Input, device_index: c_int) void {
+        const instance = c.SDL_JoystickGetDeviceInstanceID(device_index);
+        if (instance < 0 or self.slotForInstance(instance) != null) return;
         const slot = self.emptySlot() orelse return;
         if (c.SDL_IsGameController(device_index) != 0) {
             if (c.SDL_GameControllerOpen(device_index)) |controller| {
@@ -323,6 +329,9 @@ pub const Input = struct {
         @memset(&self.button_pressed[slot], false);
         @memset(&self.axes[slot], false);
         @memset(&self.previous_axes[slot], false);
+        // A fourth connected device may have been ignored while all three
+        // player slots were occupied. Promote it without requiring reconnect.
+        self.openAvailableDevices();
     }
 
     fn setControllerButton(self: *Input, instance: c.SDL_JoystickID, button: u8, down: bool) void {

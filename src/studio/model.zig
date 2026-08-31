@@ -417,7 +417,8 @@ pub const Project = struct {
     }
 
     pub fn setEntitySchemaName(self: *Project, kind: EntityKind, name: []const u8) !void {
-        if (kind == .none or name.len == 0 or name.len > max_entity_name_length) return error.InvalidEntitySchema;
+        if (kind == .none or name.len == 0 or name.len > max_entity_name_length or
+            !editorNameValid(name)) return error.InvalidEntitySchema;
         const schema_index = entitySchemaIndex(kind);
         @memset(&self.entity_schema_names[schema_index], 0);
         @memcpy(self.entity_schema_names[schema_index][0..name.len], name);
@@ -435,7 +436,10 @@ pub const Project = struct {
         minimum: u16,
         maximum: u16,
     ) !void {
-        if (kind == .none or field >= max_entity_fields or name.len > max_entity_field_name_length or minimum > maximum) {
+        if (kind == .none or field >= max_entity_fields or
+            name.len > max_entity_field_name_length or !editorNameValid(name) or
+            minimum > maximum)
+        {
             return error.InvalidEntitySchema;
         }
         const schema_index = entitySchemaIndex(kind);
@@ -500,6 +504,13 @@ pub const Project = struct {
         self.tileset_lens[layer] = @intCast(name.len);
     }
 };
+
+fn editorNameValid(name: []const u8) bool {
+    for (name) |byte| {
+        if (byte < 32 or byte > 126) return false;
+    }
+    return true;
+}
 
 pub fn initProjectTemplate(
     allocator: std.mem.Allocator,
@@ -2409,6 +2420,21 @@ test "entity schema definitions participate in unified history" {
     try std.testing.expectEqualStrings("Enemy", project.entitySchemaName(.enemy));
     try std.testing.expect(try history.redo(&project));
     try std.testing.expectEqualStrings("Sentinel", project.entitySchemaName(.enemy));
+}
+
+test "entity schema names remain representable in Workshop" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "tiles/world");
+    defer project.deinit();
+    try std.testing.expectError(
+        error.InvalidEntitySchema,
+        project.setEntitySchemaName(.enemy, "line\nbreak"),
+    );
+    try std.testing.expectError(
+        error.InvalidEntitySchema,
+        project.setEntityFieldSchema(.enemy, 0, "caf\xc3\xa9", .unsigned, 0, 0, 1),
+    );
+    try std.testing.expectEqualStrings("Enemy", project.entitySchemaName(.enemy));
+    try std.testing.expectEqualStrings("speed", project.entityFieldName(.enemy, 0));
 }
 
 test "project entity schemas persist typed fields and export metadata" {

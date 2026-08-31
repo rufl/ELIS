@@ -136,6 +136,7 @@ const Studio = struct {
     shaping: bool = false,
     shape_filled: bool = false,
     erase_drag: bool = false,
+    pointer_button: u8 = 0,
     notice: Notice = .none,
     last_saved_revision: u64 = 0,
     presentation: Presentation = .playful,
@@ -164,6 +165,7 @@ const Studio = struct {
             return;
         };
         self.selecting = false;
+        self.pointer_button = 0;
         if (self.dirty() or self.entity_text_target != .none) {
             self.quit_dialog = true;
             self.quit_selection = 0;
@@ -185,6 +187,7 @@ const Studio = struct {
         if (try self.stroke.finish()) |command| try self.history.commit(command);
         self.dragging = false;
         self.erase_drag = false;
+        self.pointer_button = 0;
     }
 
     fn applyAt(self: *Studio, point: model.Point, erase_override: bool, immediate: bool) !void {
@@ -494,6 +497,7 @@ const Studio = struct {
         }
         try self.finishStroke();
         self.shaping = false;
+        self.pointer_button = 0;
         self.notice = .shape_applied;
     }
 
@@ -510,10 +514,19 @@ const Studio = struct {
         self.cursor = selection.last;
         self.tool = .stamp;
         self.selecting = false;
+        self.pointer_button = 0;
         self.notice = .stamp_captured;
     }
 
-    fn chooseTool(self: *Studio, tool: Tool) void {
+    fn finishPointerGesture(self: *Studio) !void {
+        if (self.dragging) try self.finishStroke();
+        if (self.shaping) try self.finishShape();
+        if (self.selecting) try self.finishSelection();
+        self.pointer_button = 0;
+    }
+
+    fn chooseTool(self: *Studio, tool: Tool) !void {
+        try self.finishPointerGesture();
         self.tool = tool;
         if (tool != .entity) self.entity_schema_editing = false;
         self.template_panel = false;
@@ -521,6 +534,7 @@ const Studio = struct {
         self.selecting = false;
         self.shaping = false;
         self.shape = null;
+        self.pointer_button = 0;
     }
 
     fn transformStamp(self: *Studio, transform: enum { horizontal, vertical, clockwise }) void {
@@ -558,6 +572,7 @@ const Studio = struct {
     }
 
     fn applyProjectTemplate(self: *Studio) !void {
+        try self.finishPointerGesture();
         try self.history.applyProjectTemplate(&self.project, self.selected_template);
         self.syncGeometry();
         self.stamp = .{};
@@ -601,6 +616,7 @@ const Studio = struct {
     }
 
     fn applyResize(self: *Studio) !void {
+        try self.finishPointerGesture();
         const report = try self.history.resize(
             &self.project,
             self.resize_width,
@@ -625,7 +641,8 @@ const Studio = struct {
         self.notice = .entity_changed;
     }
 
-    fn togglePresentation(self: *Studio) void {
+    fn togglePresentation(self: *Studio) !void {
+        try self.finishPointerGesture();
         self.presentation = if (self.presentation == .playful) .studio else .playful;
         self.notice = .none;
     }
@@ -651,7 +668,8 @@ const Studio = struct {
         self.notice = .exported;
     }
 
-    fn togglePreview(self: *Studio) void {
+    fn togglePreview(self: *Studio) !void {
+        try self.finishPointerGesture();
         if (self.mode == .preview) {
             self.mode = .edit;
             return;
@@ -856,33 +874,56 @@ pub fn main(init: std.process.Init) !void {
                     studio.appendEntityText(std.mem.sliceTo(&event.text.text, 0));
                 },
                 c.SDL_MOUSEBUTTONDOWN => if (studio.quit_dialog) {
-                    handleQuitDialogClick(
-                        &studio,
-                        &running,
-                        event.button.x,
-                        event.button.y,
-                        window_w,
-                        window_h,
-                    );
-                } else if (studio.mode == .edit and studio.entity_text_target == .none) {
+                    if (event.button.button == c.SDL_BUTTON_LEFT) {
+                        handleQuitDialogClick(
+                            &studio,
+                            &running,
+                            event.button.x,
+                            event.button.y,
+                            window_w,
+                            window_h,
+                        );
+                    }
+                } else if (studio.mode == .edit and studio.entity_text_target == .none and
+                    (event.button.button == c.SDL_BUTTON_LEFT or
+                        event.button.button == c.SDL_BUTTON_RIGHT))
+                {
                     const point = canvasPoint(studio.project, canvas, event.button.x, event.button.y);
                     if (point) |value| {
                         if (studio.tool == .select) {
-                            studio.cursor = value;
-                            studio.selection = .{ .first = value, .last = value };
-                            studio.selecting = true;
+                            if (event.button.button == c.SDL_BUTTON_LEFT) {
+                                studio.pointer_button = event.button.button;
+                                studio.cursor = value;
+                                studio.selection = .{ .first = value, .last = value };
+                                studio.selecting = true;
+                            }
                         } else if (studio.tool == .line or studio.tool == .rectangle) {
+                            studio.pointer_button = event.button.button;
                             studio.beginShape(
                                 value,
                                 event.button.button == c.SDL_BUTTON_RIGHT,
                                 (c.SDL_GetModState() & c.KMOD_SHIFT) != 0,
                             );
                         } else {
+                            studio.pointer_button = event.button.button;
                             studio.dragging = true;
                             studio.erase_drag = event.button.button == c.SDL_BUTTON_RIGHT;
                             try studio.applyAt(value, studio.erase_drag, false);
                         }
-                    } else try handleChromeClick(allocator, renderer, &studio, &atlases, game_root, &workspace_assets, event.button.x, event.button.y, window_w, window_h);
+                    } else if (event.button.button == c.SDL_BUTTON_LEFT) {
+                        try handleChromeClick(
+                            allocator,
+                            renderer,
+                            &studio,
+                            &atlases,
+                            game_root,
+                            &workspace_assets,
+                            event.button.x,
+                            event.button.y,
+                            window_w,
+                            window_h,
+                        );
+                    }
                 },
                 c.SDL_MOUSEMOTION => if (!studio.quit_dialog and studio.mode == .edit) {
                     if (studio.selecting) {
@@ -901,17 +942,18 @@ pub fn main(init: std.process.Init) !void {
                         }
                     }
                 },
-                c.SDL_MOUSEBUTTONUP => if (!studio.quit_dialog) {
-                    if (studio.selecting) {
-                        try studio.finishSelection();
-                    } else if (studio.shaping) {
-                        try studio.finishShape();
-                    } else if (studio.dragging) try studio.finishStroke();
+                c.SDL_MOUSEBUTTONUP => if (!studio.quit_dialog and
+                    event.button.button == studio.pointer_button)
+                {
+                    try studio.finishPointerGesture();
                 },
                 c.SDL_MOUSEWHEEL => if (!studio.quit_dialog and studio.mode == .edit and
                     studio.entity_text_target == .none)
                 {
                     if (event.wheel.y > 0) previousTile(&studio) else if (event.wheel.y < 0) nextTile(&studio, atlases[studio.active_layer].tile_count);
+                },
+                c.SDL_WINDOWEVENT => if (event.window.event == c.SDL_WINDOWEVENT_FOCUS_LOST) {
+                    try studio.finishPointerGesture();
                 },
                 else => {},
             }
@@ -1022,21 +1064,21 @@ fn handleKey(
                 studio.shape = null;
             } else studio.requestQuit(running);
         },
-        c.SDLK_TAB => studio.togglePresentation(),
-        c.SDLK_b => studio.chooseTool(.brush),
-        c.SDLK_t => studio.chooseTool(.smart),
-        c.SDLK_e => studio.chooseTool(.erase),
-        c.SDLK_f => studio.chooseTool(.fill),
-        c.SDLK_p => studio.chooseTool(.pick),
+        c.SDLK_TAB => try studio.togglePresentation(),
+        c.SDLK_b => try studio.chooseTool(.brush),
+        c.SDLK_t => try studio.chooseTool(.smart),
+        c.SDLK_e => try studio.chooseTool(.erase),
+        c.SDLK_f => try studio.chooseTool(.fill),
+        c.SDLK_p => try studio.chooseTool(.pick),
         c.SDLK_i => {
-            studio.chooseTool(.entity);
+            try studio.chooseTool(.entity);
             if (shift) studio.entity_schema_editing = true;
         },
-        c.SDLK_r => studio.chooseTool(.select),
-        c.SDLK_m => studio.chooseTool(.stamp),
-        c.SDLK_l => studio.chooseTool(.line),
-        c.SDLK_d => studio.chooseTool(.rectangle),
-        c.SDLK_n => studio.chooseTool(.resize),
+        c.SDLK_r => try studio.chooseTool(.select),
+        c.SDLK_m => try studio.chooseTool(.stamp),
+        c.SDLK_l => try studio.chooseTool(.line),
+        c.SDLK_d => try studio.chooseTool(.rectangle),
+        c.SDLK_n => try studio.chooseTool(.resize),
         c.SDLK_q => {
             if (studio.tool == .resize) {
                 studio.cycleResizeAnchor(1);
@@ -1079,12 +1121,12 @@ fn handleKey(
         c.SDLK_c => {
             if (ctrl) {
                 try studio.finishSelection();
-            } else studio.chooseTool(.collision);
+            } else try studio.chooseTool(.collision);
         },
         c.SDLK_s => {
-            if (ctrl) studio.save() else studio.chooseTool(.spawn);
+            if (ctrl) studio.save() else try studio.chooseTool(.spawn);
         },
-        c.SDLK_g => studio.chooseTool(.goal),
+        c.SDLK_g => try studio.chooseTool(.goal),
         c.SDLK_1, c.SDLK_2, c.SDLK_3, c.SDLK_4 => {
             const layer: usize = @intCast(key - c.SDLK_1);
             if (shift) {
@@ -1141,11 +1183,13 @@ fn handleKey(
         },
         c.SDLK_v => {
             if (ctrl) {
-                if (studio.stamp.valid()) studio.chooseTool(.stamp) else studio.notice = .stamp_missing;
+                if (studio.stamp.valid()) {
+                    try studio.chooseTool(.stamp);
+                } else studio.notice = .stamp_missing;
             } else studio.transformStamp(.vertical);
         },
         c.SDLK_F5 => studio.exportMap(workspace),
-        c.SDLK_F6 => studio.togglePreview(),
+        c.SDLK_F6 => try studio.togglePreview(),
         c.SDLK_F7 => studio.mode = .edit,
         c.SDLK_F8 => studio.template_panel = !studio.template_panel,
         c.SDLK_LEFT => studio.moveCursor(-1, 0),
@@ -1219,6 +1263,24 @@ fn handleController(
         previous.* = current;
         return;
     }
+    if (studio.template_panel) {
+        if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_DPAD_UP)) {
+            studio.cycleProjectTemplate(-1);
+        }
+        if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_DPAD_DOWN)) {
+            studio.cycleProjectTemplate(1);
+        }
+        if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_B) or
+            pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_BACK))
+        {
+            studio.template_panel = false;
+        } else if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_A)) {
+            try studio.finishPointerGesture();
+            try studio.applyProjectTemplate();
+        }
+        previous.* = current;
+        return;
+    }
     if (studio.tool == .resize) {
         if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_DPAD_LEFT)) studio.adjustResize(-1, 0);
         if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) studio.adjustResize(1, 0);
@@ -1262,7 +1324,7 @@ fn handleController(
         }
     }
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_Y)) {
-        studio.chooseTool(@enumFromInt((@intFromEnum(studio.tool) + 1) % tools.len));
+        try studio.chooseTool(@enumFromInt((@intFromEnum(studio.tool) + 1) % tools.len));
     }
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_LEFTSHOULDER)) {
         if (studio.tool == .stamp) {
@@ -1278,13 +1340,15 @@ fn handleController(
             studio.cycleEntityKind(1);
         } else nextTile(studio, tile_count);
     }
-    if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_LEFTSTICK)) studio.togglePresentation();
+    if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_LEFTSTICK)) {
+        try studio.togglePresentation();
+    }
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_RIGHTSTICK)) {
         if (studio.tool == .stamp) {
             studio.transformStamp(.clockwise);
         } else try cycleLayerAsset(allocator, renderer, studio, atlases, game_root, workspace, 1);
     }
-    if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_BACK)) studio.togglePreview();
+    if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_BACK)) try studio.togglePreview();
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_START)) studio.save();
     previous.* = current;
 }
@@ -1305,15 +1369,15 @@ fn handleChromeClick(
     if (y < bar_top) {
         if (x >= 270 and x < 370) studio.save();
         if (x >= 380 and x < 490) studio.exportMap(workspace);
-        if (x >= 500 and x < 620) studio.togglePreview();
-        if (x >= 630 and x < 770) studio.togglePresentation();
+        if (x >= 500 and x < 620) try studio.togglePreview();
+        if (x >= 630 and x < 770) try studio.togglePresentation();
         if (x >= 780 and x < 920) studio.template_panel = !studio.template_panel;
         return;
     }
     if (x < layout.left) {
         for (tools, 0..) |tool, index| {
             if (contains(toolRect(layout, index), x, y)) {
-                studio.chooseTool(tool);
+                try studio.chooseTool(tool);
                 return;
             }
         }

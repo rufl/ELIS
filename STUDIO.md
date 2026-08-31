@@ -57,10 +57,11 @@ editor map preview, not a claim that game-specific mechanics are running.
 - Player spawn and goal are typed markers, not magic tile IDs.
 - A dedicated LDtk-style entity grid stores at most one typed instance per cell:
   enemy, pickup, trigger, or decoration. Each project-defined slot has a bounded
-  name and up to four named `unsigned`, `toggle`, or `tile` fields with defaults
-  and bounds. The schema editor renames types and fields, adds or removes trailing
-  fields, cycles field kinds, and edits defaults/ranges through the shared
-  undo/redo history. Non-decoration entities on collision produce a warning.
+  printable ASCII name and up to four named `unsigned`, `toggle`, or `tile`
+  fields with defaults and bounds. The schema editor renames types and fields,
+  adds or removes trailing fields, cycles field kinds, and edits defaults/ranges
+  through the shared undo/redo history. Non-decoration entities on collision
+  produce a warning.
 - `.elisworld` v4 is a versioned checksummed binary source artifact containing
   per-layer assets, semantic terrain, and typed entities. Saves write a sibling
   temporary file, sync it, and atomically rename it into place. Version-one
@@ -129,15 +130,17 @@ proof.
 | F6 / F7 | Enter preview / return to edit |
 | F8 | Open or close the project-template panel |
 | Up/Down, Enter in template panel | Select and apply a template |
-| Gamepad D-pad | Move cursor; in Resize, adjust width and height |
-| Gamepad A / B / X / Y | Apply or begin/finish a selection/shape, erase/cancel, pick or cycle resize anchor, next tool |
+| Gamepad D-pad | Move cursor; adjust Resize dimensions; choose a Template |
+| Gamepad A / B / X / Y | Apply/shape, erase/cancel, pick/anchor, next tool; A applies and B closes Templates |
 | Gamepad shoulders | Previous/next tile; flip stamp; or cycle entity type, depending on tool |
 | Gamepad left/right stick click | Switch presentation / next layer tileset; right stick rotates a stamp |
 | Gamepad Back / Start | Preview / save |
 
 Discrete controller operations fire on button edges. Holding A does not repaint
-or fill every frame. Physical-controller approval remains separate from the
-automated source and dummy-video proof.
+or fill every frame. Pointer gestures finish before focus, tool, presentation,
+or structural changes can transfer ownership, and undocumented mouse buttons
+never modify project data. Physical-controller approval remains separate from
+the automated source and dummy-video proof.
 
 ## Commands
 
