@@ -224,7 +224,10 @@ Set `LUPI_CODEC_DIR` to use an explicitly supplied local codec checkout instead.
 Built-in acquisition allows HTTPS transfers and redirects only and caps each
 source archive at 64 MiB before conversion and complete-package admission.
 
-With no command-line game argument, the simulator opens its demo browser. It discovers `example`, `mazestein3d`, `.lupi` files, and encoded releases under `demos/`, `games/`, and `examples/`. Use Up/Down or the controller d-pad, then Enter/controller A to launch. Press `U` to fetch the official catalog. The confirmation dialog is the only GUI path that permits replacement; cancelling leaves every installed version untouched. After confirmation, a localized status bar is presented before network work starts and remains visible throughout the blocking download. It changes to an explicit finished or failed result when discovery completes. The catalog currently includes Caio Pernocas, Balão Gatinho and Le Pendu, while Mazestein remains under Demos ELIS. Future entries can be added to `demos/catalog.txt`.
+With no command-line game argument, the simulator opens its demo browser. It discovers `example`, `mazestein3d`, `.lupi` files, and encoded releases under `demos/`, `games/`, and `examples/`. Use Up/Down or the controller d-pad, then Enter/controller A to launch. Press `U` to fetch the official catalog. The confirmation dialog is the only GUI path that permits replacement; cancelling leaves every installed version untouched. After confirmation, a localized status bar is presented before network work starts and remains visible throughout the blocking download. It changes to an explicit finished or failed result when discovery completes. The catalog includes Caio Pernocas, Balão Gatinho, and Le Pendu plus the
+bundled Mazestein 3D demo. It also exposes Mr. Rescue: Lupi Edition with an
+explicit physical-validation label; that cartridge remains unapproved until
+named-board proof exists. Future entries can be added to `demos/catalog.txt`.
 
 This port keeps the console framebuffer indexed and scales it with nearest-neighbor pixels, so game logic remains resolution-independent. Keyboard, SDL game controllers, generic joysticks, hot-plug, and the left analog stick are supported.
 
