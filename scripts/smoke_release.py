@@ -67,7 +67,7 @@ def main():
         for key in ("DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "LD_LIBRARY_PATH"):
             env.pop(key, None)
         if os.name == "nt":
-            env["PATH"] = str(package) + os.pathsep + str(Path(env["SystemRoot"]) / "System32")
+            env["PATH"] = str(package) + os.pathsep + str(Path(os.environ["SystemRoot"]) / "System32")
             windows_https(package)
         env["XDG_DATA_HOME"] = str(root / "profile")
         assert "Usage:" in run([str(runtime), "--help"], package, env)

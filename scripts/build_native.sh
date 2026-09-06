@@ -46,7 +46,7 @@ build_zig_object() {
   local output="$2"
   ZIG_LOCAL_CACHE_DIR="$work_dir/local-cache" \
   ZIG_GLOBAL_CACHE_DIR="$work_dir/global-cache" \
-  zig build-obj -fPIC "${stack_check_flags[@]}" -lc \
+  zig build-obj -mcpu=baseline -fPIC "${stack_check_flags[@]}" -lc \
     "-O$optimize_mode" \
     $(pkg-config --cflags sdl2 "$lua_pkg" libzip libcurl sndfile) \
     "$source" -femit-bin="$output"

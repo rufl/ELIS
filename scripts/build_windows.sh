@@ -48,7 +48,7 @@ for program in elis elis-studio; do
   MSYS2_ARG_CONV_EXCL='*' \
   ZIG_LOCAL_CACHE_DIR="$(cygpath -m "$work_dir/local-cache")" \
   ZIG_GLOBAL_CACHE_DIR="$(cygpath -m "$work_dir/global-cache")" \
-  zig build-obj "$source" -target x86_64-windows-gnu -lc -D_UCRT \
+  zig build-obj "$source" -target x86_64-windows-gnu -mcpu=baseline -lc -D_UCRT \
     -fno-stack-check "-O$optimize_mode" "${include_flags[@]}" "${define_flags[@]}" \
     "-femit-bin=$(cygpath -m "$work_dir/$program.o")"
   # Keep the actual MinGW UCRT startup and import libraries; Zig emits only the
