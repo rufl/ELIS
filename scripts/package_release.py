@@ -117,9 +117,15 @@ def msys_path(path):
     return Path(path)
 
 
-def compatible_library_license(expression, owner):
+def compatible_library_license(expression, owner, version):
     # Evaluate SPDX alternatives rather than rejecting a usable LGPL branch.
     # Unknown/custom licenses require an explicit review, never a guess.
+    # MSYS2 labels this reviewed permissive bzip2 release merely "custom".
+    # Its exact upstream license is retained with the binary and source package:
+    # https://sourceware.org/git/?p=bzip2.git;a=blob_plain;f=LICENSE;hb=bzip2-1.0.8
+    if (owner == "mingw-w64-ucrt-x86_64-bzip2" and version == "1.0.8-4"
+            and expression == "custom"):
+        return
     allowed = {
         "MIT", "BSD-2-Clause", "BSD-3-Clause", "BSD-4-Clause", "0BSD", "ISC",
         "Zlib", "curl", "Apache-2.0", "BSL-1.0", "Unlicense", "CC0-1.0",
@@ -236,7 +242,7 @@ def source_license_texts(archive, prefix=""):
 
 def corresponding_source(package):
     owner = package["name"]
-    compatible_library_license(package["licenses"], owner)
+    compatible_library_license(package["licenses"], owner, package["version"])
     page_url = package["package_information"]
     page = fetch_source_bytes(page_url, 4 * 1024 * 1024).decode("utf-8")
     match = re.search(r'Source-Only Tarball:</dt>\s*<dd[^>]*>\s*<a href="([^"]+)"', page)
