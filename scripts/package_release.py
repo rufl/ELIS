@@ -250,6 +250,47 @@ def source_license_texts(archive, prefix=""):
     return texts
 
 
+def git_source_snapshot(archive, members, source_path, source, temporary):
+    """Reproduce makepkg's pinned Git archive checksum without trusting repo config."""
+    url = source.split("::", 1)[-1]
+    commit = urllib.parse.urlsplit(url).fragment
+    if not url.startswith("git+https://") or not re.fullmatch(r"commit=[0-9a-f]{40}", commit):
+        raise RuntimeError(f"VCS corresponding source must pin a full Git commit: {source}")
+    commit = commit.removeprefix("commit=")
+    repository = Path(tempfile.mkdtemp(prefix="git-source-", dir=temporary))
+    (repository / "objects").mkdir()
+    (repository / "refs").mkdir()
+    (repository / "info").mkdir()
+    (repository / "HEAD").write_text(commit + "\n")
+    (repository / "config").write_text("[core]\nrepositoryformatversion = 0\nbare = true\n")
+    # makepkg disables repository export attributes before hashing Git sources.
+    (repository / "info" / "attributes").write_text("* -export-subst -export-ignore\n")
+    prefix = source_path + "/objects/"
+    for name, member in members.items():
+        if not name.startswith(prefix) or not member.isfile():
+            continue
+        relative = name[len(prefix):]
+        if not re.fullmatch(r"[0-9a-f]{2}/[0-9a-f]{38}|pack/pack-[0-9a-f]{40}\.(?:pack|idx)", relative):
+            continue
+        target = repository / "objects" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.extractfile(member) as stream, target.open("wb") as output:
+            shutil.copyfileobj(stream, output)
+    environment = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
+    environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+                       GIT_ATTR_NOSYSTEM="1", GIT_NO_REPLACE_OBJECTS="1",
+                       GIT_TERMINAL_PROMPT="0")
+    snapshot = repository / "snapshot.tar"
+    with snapshot.open("wb") as output:
+        result = subprocess.run(
+            ["git", "-c", "core.abbrev=no", "-c", "protocol.allow=never",
+             "--git-dir", str(repository), "archive", "--format=tar", commit],
+            env=environment, stdout=output, stderr=subprocess.PIPE, timeout=120)
+    if result.returncode:
+        raise RuntimeError(f"Cannot verify pinned VCS source {source}: {result.stderr.decode(errors='replace')}")
+    return snapshot
+
+
 def corresponding_source(package):
     owner = package["name"]
     compatible_library_license(package["licenses"], owner, package["version"])
@@ -332,6 +373,8 @@ def corresponding_source(package):
                             name.startswith(source_path + "/") and item.isfile()
                             for name, item in members.items()):
                         raise RuntimeError(f"Empty VCS corresponding source for {owner}: {source_name}")
+                    snapshot = (git_source_snapshot(archive, members, source_path, source, temporary)
+                                if member.isdir() else None)
                     checksums = {}
                     for checksum_key, algorithm in checksum_algorithms.items():
                         values_key = checksum_key + key[len("source"):]
@@ -342,10 +385,8 @@ def corresponding_source(package):
                             raise RuntimeError(f"Source checksum count mismatch in {filename}: {values_key}")
                         if expected[index] == "SKIP":
                             continue
-                        if not member.isfile():
-                            raise RuntimeError(f"Source checksum refers to non-file: {source_path}")
                         digest = hashlib.new(algorithm)
-                        with archive.extractfile(member) as stream:
+                        with snapshot.open("rb") if snapshot else archive.extractfile(member) as stream:
                             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                                 digest.update(chunk)
                         if digest.hexdigest() != expected[index].lower():

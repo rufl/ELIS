@@ -6,6 +6,9 @@
   directory, archive extraction, and codec-host handling.
 - Added Ubuntu 24.04 and Windows binary packaging, dependency/source provenance,
   checksums, extracted-package smoke gates, and protected-main prerelease publication.
+- Scoped Windows dependency licenses to the bundled library components and verified
+  pinned Git source archives using makepkg-compatible checksums without trusting
+  downloaded repository configuration.
 - Protected manifest-driven sprite initialization against Lua heap exhaustion,
   preserving host allocation cleanup and returning a controlled cartridge-load error.
 - Fixed clean Ubuntu CI dependency discovery and Lua interpreter installation,
