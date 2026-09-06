@@ -16,7 +16,7 @@ The maintained environment is Linux with Zig 0.16.0. On Ubuntu 24.04:
 ```sh
 sudo apt-get update
 sudo apt-get install --yes --no-install-recommends \
-  binutils gcc pkg-config python3 zip \
+  binutils gcc pkg-config python3 zip lua5.4 \
   libsdl2-dev liblua5.4-dev libzip-dev \
   libcurl4-openssl-dev libsndfile1-dev
 ```

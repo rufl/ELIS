@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Protected manifest-driven sprite initialization against Lua heap exhaustion,
+  preserving host allocation cleanup and returning a controlled cartridge-load error.
+- Fixed clean Ubuntu CI dependency discovery and Lua interpreter installation,
+  disabled persisted checkout credentials, and made every runtime smoke invocation headless.
 - Added Mario Paint-style line and outline/filled rectangle tools with live drag previews, erase-shapes, controller/keyboard parity, and single-command undo.
 - Added LDtk-style per-layer session visibility and painting locks with compact controls and keyboard shortcuts.
 - Added bounded map resize/rebase with nine content anchors, preflight clipping counts, spawn/goal warnings, semantic smart-terrain refresh, and unified undo/redo.
@@ -26,6 +30,17 @@
 - Rolled back live Workshop edits if history allocation fails, removed no-op history/dirty revisions when a gesture returns to its source value, bounded host demo downloads to 64 MiB with HTTPS-only redirects and correct libcurl write accounting, and added focused regressions.
 - Suspended queued keyboard, pointer, text, button, and analog-stick input while runtime or Workshop focus belongs to another window; text admission now preserves complete valid UTF-8 at queue capacity.
 - Hardened demo-tree installation against failed destination creation and delayed output-close errors, rejected preference reads reporting I/O failure, and reset closed audio mixer state.
+- Fixed Workshop schema round-trips for trailing field removal, preserved entity
+  values during property edits, refreshed smart-terrain neighbors without
+  deleting ordinary tiles, finalized gestures before save/undo, and removed
+  duplicate project ownership on error paths.
+- Registered console button constants before game initialization, propagated
+  Lua frame failures from benchmark and screenshot modes, made manifest bitmap
+  parsing whitespace-tolerant, bounded degenerate filled rectangles, and
+  removed map-ordering allocation leaks during Lua errors.
+- Reset mixer state between cartridges, surfaced partial demo-update failures,
+  cleaned the GitHub launcher checkout on exit, revalidated Workshop assets at
+  export time, and corrected palette/controller documentation.
 
 ## History
 

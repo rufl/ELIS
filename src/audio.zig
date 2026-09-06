@@ -77,10 +77,26 @@ pub const Audio = struct {
     }
 
     pub fn stopMusic(self: *Audio) void {
-        if (self.device == 0) return;
+        if (self.device == 0) {
+            self.closeMusicUnlocked();
+            return;
+        }
         c.SDL_LockAudioDevice(self.device);
-        defer c.SDL_UnlockAudioDevice(self.device);
         self.closeMusicUnlocked();
+        c.SDL_UnlockAudioDevice(self.device);
+    }
+
+    pub fn resetForGame(self: *Audio) void {
+        if (self.device == 0) {
+            self.volume = 1;
+            self.voices = [_]Voice{.{}} ** voice_count;
+            return;
+        }
+        c.SDL_LockAudioDevice(self.device);
+        self.closeMusicUnlocked();
+        self.volume = 1;
+        self.voices = [_]Voice{.{}} ** voice_count;
+        c.SDL_UnlockAudioDevice(self.device);
     }
 
     pub fn setVolume(self: *Audio, value: f32) void {

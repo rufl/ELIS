@@ -112,6 +112,9 @@ const WorkspaceAssets = struct {
     catalog: assets.Catalog = .{},
     asset_file_verified: [assets.max_assets]bool = .{false} ** assets.max_assets,
     palette: assets.Palette = assets.Palette.diagnostic(),
+    manifest_loaded: bool = false,
+    manifest_byte_len: usize = 0,
+    manifest_hash: u64 = 0,
 };
 
 // -----------------------------------------------------------------------------
@@ -128,6 +131,7 @@ const Studio = struct {
     stroke: model.CommandBuilder,
     project_path: []const u8,
     export_path: []const u8,
+    game_root: ?[]const u8,
     mode: Mode = .edit,
     tool: Tool = .brush,
     active_layer: u8 = 1,
@@ -265,19 +269,20 @@ const Studio = struct {
             try self.stroke.setEntity(&self.project, index, .none, 0);
             return;
         }
-        const first_value = if (self.selected_entity_field == 0)
-            self.selected_entity_value
-        else
-            self.project.entityFieldDefault(self.selected_entity_kind, 0);
-        try self.stroke.setEntity(&self.project, index, self.selected_entity_kind, first_value);
-        if (self.selected_entity_field != 0) {
-            try self.stroke.setEntityField(
-                &self.project,
-                index,
-                self.selected_entity_field,
-                self.selected_entity_value,
-            );
+        const current_kind = self.project.entityKindAt(index);
+        if (current_kind != self.selected_entity_kind) {
+            const first_value = if (self.selected_entity_field == 0)
+                self.selected_entity_value
+            else
+                self.project.entityFieldDefault(self.selected_entity_kind, 0);
+            try self.stroke.setEntity(&self.project, index, self.selected_entity_kind, first_value);
         }
+        try self.stroke.setEntityField(
+            &self.project,
+            index,
+            self.selected_entity_field,
+            self.selected_entity_value,
+        );
     }
 
     fn syncSelectedEntityValue(self: *Studio) void {
@@ -679,8 +684,11 @@ const Studio = struct {
         self.presentation = if (self.presentation == .playful) .studio else .playful;
         self.notice = .none;
     }
-
     fn save(self: *Studio) void {
+        self.finishPointerGesture() catch {
+            self.notice = .edit_failed;
+            return;
+        };
         model.save(self.project_path, self.project) catch {
             self.notice = .save_failed;
             return;
@@ -689,8 +697,48 @@ const Studio = struct {
         self.notice = .saved;
     }
 
+    fn workspaceAssetsStillValid(self: *const Studio, workspace: *const WorkspaceAssets) bool {
+        const root = self.game_root orelse return false;
+        var threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+        defer threaded.deinit();
+        const io = threaded.io();
+        var path_buffer: [2048]u8 = undefined;
+        const manifest_path = std.fmt.bufPrint(&path_buffer, "{s}/lupi_manifest.txt", .{root}) catch return false;
+        const manifest = std.Io.Dir.cwd().readFileAlloc(
+            io,
+            manifest_path,
+            self.allocator,
+            .limited(4 * 1024 * 1024),
+        ) catch return false;
+        defer self.allocator.free(manifest);
+        if (!workspace.manifest_loaded or
+            manifest.len != workspace.manifest_byte_len or
+            std.hash.Wyhash.hash(0, manifest) != workspace.manifest_hash)
+        {
+            return false;
+        }
+        for (0..model.layer_count) |layer| {
+            const index = workspace.catalog.find(self.project.layerTilesetName(layer)) orelse return false;
+            const path = std.fmt.bufPrint(&path_buffer, "{s}/{s}", .{
+                root,
+                workspace.catalog.items[index].name(),
+            }) catch return false;
+            const bytes = std.Io.Dir.cwd().readFileAlloc(
+                io,
+                path,
+                self.allocator,
+                .limited(assets.lupi_tileset_pixels_max + 1),
+            ) catch return false;
+            defer self.allocator.free(bytes);
+            if (bytes.len != workspace.catalog.items[index].byte_len) return false;
+        }
+        return true;
+    }
+
     fn exportMap(self: *Studio, workspace: *const WorkspaceAssets) void {
-        if (lupiExportStatus(self.project, workspace) != .safe) {
+        if (lupiExportStatus(self.project, workspace) != .safe or
+            !self.workspaceAssetsStillValid(workspace))
+        {
             self.notice = .lupi_export_blocked;
             return;
         }
@@ -830,13 +878,12 @@ pub fn main(init: std.process.Init) !void {
     if (!tileset_explicit) if (workspace_assets.catalog.firstTileSize(tile_size)) |first| {
         tileset_name = workspace_assets.catalog.items[first].name();
     };
-    var project = if (fileExists(project_path))
+    const project = if (fileExists(project_path))
         try model.load(allocator, project_path)
     else if (project_template) |template|
         try model.initProjectTemplate(allocator, width, height, tile_size, tileset_name, template)
     else
         try model.Project.initStarter(allocator, width, height, tile_size, tileset_name);
-    errdefer project.deinit();
     var studio = Studio{
         .allocator = allocator,
         .project = project,
@@ -844,6 +891,7 @@ pub fn main(init: std.process.Init) !void {
         .stroke = model.CommandBuilder.init(allocator),
         .project_path = project_path,
         .export_path = export_path,
+        .game_root = game_root,
         .resize_width = project.width,
         .resize_height = project.height,
         .last_saved_revision = project.revision,
@@ -852,13 +900,13 @@ pub fn main(init: std.process.Init) !void {
         .reduce_motion = reduce_motion,
     };
     defer studio.deinit();
-    studio.syncSelectedEntityValue();
     if (save_export_on_start) {
         studio.save();
+        if (studio.notice == .save_failed or studio.notice == .edit_failed) {
+            return error.StudioWriteFailed;
+        }
         studio.exportMap(&workspace_assets);
-        if (studio.notice == .save_failed or studio.notice == .export_failed or
-            studio.notice == .lupi_export_blocked)
-        {
+        if (studio.notice == .export_failed or studio.notice == .lupi_export_blocked) {
             return error.StudioWriteFailed;
         }
     }
@@ -1241,37 +1289,39 @@ fn handleKey(
                 studio.selectEntityField(@as(usize, studio.selected_entity_field) + 1);
             } else nextTile(studio, 0);
         },
-        c.SDLK_PAGEUP => {
-            if (studio.palette_page > 0) studio.palette_page -= 1;
-        },
-        c.SDLK_PAGEDOWN => studio.palette_page = @min(studio.palette_page + 1, 15),
         c.SDLK_z => {
-            if (ctrl and try studio.history.undo(&studio.project)) {
-                studio.syncGeometry();
-                if (atlasesNeedReload(studio.project, atlases.*)) {
-                    try reloadProjectAtlases(
-                        allocator,
-                        renderer,
-                        studio,
-                        atlases,
-                        game_root,
-                        workspace,
-                    );
+            if (ctrl) {
+                try studio.finishPointerGesture();
+                if (try studio.history.undo(&studio.project)) {
+                    studio.syncGeometry();
+                    if (atlasesNeedReload(studio.project, atlases.*)) {
+                        try reloadProjectAtlases(
+                            allocator,
+                            renderer,
+                            studio,
+                            atlases,
+                            game_root,
+                            workspace,
+                        );
+                    }
                 }
             }
         },
         c.SDLK_y => {
-            if (ctrl and try studio.history.redo(&studio.project)) {
-                studio.syncGeometry();
-                if (atlasesNeedReload(studio.project, atlases.*)) {
-                    try reloadProjectAtlases(
-                        allocator,
-                        renderer,
-                        studio,
-                        atlases,
-                        game_root,
-                        workspace,
-                    );
+            if (ctrl) {
+                try studio.finishPointerGesture();
+                if (try studio.history.redo(&studio.project)) {
+                    studio.syncGeometry();
+                    if (atlasesNeedReload(studio.project, atlases.*)) {
+                        try reloadProjectAtlases(
+                            allocator,
+                            renderer,
+                            studio,
+                            atlases,
+                            game_root,
+                            workspace,
+                        );
+                    }
                 }
             }
         },
@@ -1967,7 +2017,7 @@ fn render(
         }
         const asset_header_y = layout.palette_y + layout.palette_cell * 8 + 18;
         const palette_label = if (workspace.palette.exact())
-            std.fmt.bufPrint(&buffer, "ASSETS  EXACT PALETTE {d}", .{workspace.palette.defined_count}) catch "ASSETS"
+            std.fmt.bufPrint(&buffer, "ASSETS  PALETTE SOURCE {d}", .{workspace.palette.defined_count}) catch "ASSETS"
         else
             "ASSETS  DIAGNOSTIC PALETTE";
         drawText(renderer, right_x + 18, asset_header_y, 1, palette_label, 154, 184, 222);
@@ -2212,6 +2262,9 @@ fn loadWorkspaceAssets(allocator: std.mem.Allocator, game_root: ?[]const u8) Wor
     const manifest_path = std.fmt.bufPrint(&path_buffer, "{s}/lupi_manifest.txt", .{root}) catch return result;
     if (std.Io.Dir.cwd().readFileAlloc(io, manifest_path, allocator, .limited(4 * 1024 * 1024))) |bytes| {
         defer allocator.free(bytes);
+        result.manifest_loaded = true;
+        result.manifest_byte_len = bytes.len;
+        result.manifest_hash = std.hash.Wyhash.hash(0, bytes);
         result.catalog = assets.parseManifest(bytes);
     } else |_| {}
     for (result.catalog.slice(), 0..) |asset, index| {

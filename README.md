@@ -35,7 +35,7 @@ packages for SDL2, Lua 5.4, libzip, libcurl, and libsndfile. On Ubuntu 24.04:
 ```sh
 sudo apt-get update
 sudo apt-get install --yes --no-install-recommends \
-  binutils gcc pkg-config python3 zip \
+  binutils gcc pkg-config python3 zip lua5.4 \
   libsdl2-dev liblua5.4-dev libzip-dev \
   libcurl4-openssl-dev libsndfile1-dev
 ```
@@ -92,7 +92,8 @@ over the same authoritative project and command history:
   entities with an undoable project-schema editor, rectangle selection, and
   reusable transformable stamp tools;
 - independent manifest-backed tileset selection plus session visibility and
-  painting locks for every visual layer, and exact `palette.lua` RGB555 preview;
+  painting locks for every visual layer, and source-defined `palette.lua` RGB555
+  preview with diagnostic fallback colors;
 - mouse, keyboard, and controller editing with a visible grid cursor;
 - drag/fill/stamp command coalescing, nine-anchor map resize/rebase, four
   deterministic project templates, and bounded unified undo/redo history;
@@ -108,7 +109,7 @@ over the same authoritative project and command history:
   Save/Discard guard for mouse, keyboard, and controller users;
 - a chrome-free validated map preview plus native save/export/reload smoke.
 
-Open a project using the game manifest and exact palette as its asset workspace:
+Open a project using the game manifest and palette source as its asset workspace:
 
 ```sh
 zig build studio -- \

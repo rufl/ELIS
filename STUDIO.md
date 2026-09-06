@@ -32,7 +32,7 @@ editor map preview, not a claim that game-specific mechanics are running.
   controls can hide a visual layer or lock it
   against painting without changing saved/exported data.
 - The source project retains tile IDs from 0 through 1023; `65535` represents
-  an empty cell and exports as `-1`.
+  an empty cell and sparse Lua export omits empty entries.
 - Line and rectangle gestures use bounded integer rasterization and commit as
   one undoable command on release. Rectangles are outlines by default; Shift
   fills them. Right-button gestures erase with the same preview and history path.
@@ -164,10 +164,11 @@ a bounded native session, then exits. `--capture=path.bmp` retains the rendered
 editor frame.
 
 `--game-root` loads `lupi_manifest.txt`, `palette.lua`, and the selected raw
-bitmap assets. Palette values use Lupi's `0RRRRRGGGGGBBBBB` RGB555 contract. Missing or unparsable palettes visibly fall back to an editor-only
-diagnostic palette. `--tileset-file` remains as a shared-atlas compatibility
-path. `--presentation=studio`, `--reduce-motion`, and bounded window-size flags
-support deterministic UI proof.
+bitmap assets. Palette values use Lupi's `0RRRRRGGGGGBBBBB` RGB555 contract.
+Defined entries are shown from the source palette; missing or unparsable entries
+remain visibly diagnostic. `--tileset-file` remains as a shared-atlas
+compatibility path. `--presentation=studio`, `--reduce-motion`, and bounded
+window-size flags support deterministic UI proof.
 
 ## Responsive and playful behavior
 
@@ -176,9 +177,11 @@ support deterministic UI proof.
 - Playful view adds tool explanations and the optional animated Pip guide.
   Studio view replaces that space with dense shortcut help. `--reduce-motion`
   stops the guide movement without removing information.
-- Mouse, keyboard, and controller can all paint, erase, draw shapes, choose
-  tiles, switch presentations, and change compatible layer assets. Discrete
-  gamepad commands are edge-triggered.
+- Keyboard and mouse can paint, erase, draw shapes, choose tiles, select layers,
+  switch presentations, change compatible layer assets, and open templates.
+  Controllers can perform edits on the currently selected layer, switch
+  presentations, preview, save, and edit templates after the template panel is
+  opened by another input method. Discrete gamepad commands are edge-triggered.
 - Feedback is presentation-only. It never changes project data, derived terrain,
   exported Lua, simulator timing, or the indexed framebuffer.
 

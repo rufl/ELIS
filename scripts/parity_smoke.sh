@@ -17,6 +17,16 @@ zig test src/debug.zig >/dev/null
 env SDL_VIDEODRIVER=dummy ./zig-out/bin/elis --self-test-compositor
 ./zig-out/bin/elis --screenshot tests/parity 1 "$tmp/parity.ppm" >/dev/null
 
+cp -R tests/asset-resolution "$tmp/asset-whitespace"
+python3 - "$tmp/asset-whitespace/lupi_manifest.txt" <<'PY'
+import pathlib
+import sys
+
+manifest = pathlib.Path(sys.argv[1])
+manifest.write_text(manifest.read_text().replace('"type":"bitmap"', '"type": "bitmap"'))
+PY
+./zig-out/bin/elis --screenshot "$tmp/asset-whitespace" 1 "$tmp/asset-whitespace.ppm" >/dev/null
+
 # Golden output from upstream commit 379a599. The image contains the exact
 # rectangle, circle, degenerate triangle, uppercase/lowercase font, palette,
 # and transparent palette-zero behavior used by the differential harness.

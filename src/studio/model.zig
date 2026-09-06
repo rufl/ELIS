@@ -480,6 +480,13 @@ pub const Project = struct {
         self.revision +%= 1;
     }
 
+    fn clearEntitySchemas(self: *Project) void {
+        self.entity_schema_names = .{.{0} ** (max_entity_name_length + 1)} ** entity_kinds.len;
+        self.entity_schema_name_lens = .{0} ** entity_kinds.len;
+        self.entity_field_names = .{.{.{0} ** (max_entity_field_name_length + 1)} ** max_entity_fields} ** entity_kinds.len;
+        self.entity_field_name_lens = .{.{0} ** max_entity_fields} ** entity_kinds.len;
+    }
+
     fn initEntitySchemas(self: *Project) void {
         for (entity_kinds, 0..) |kind, schema_index| {
             self.setEntitySchemaName(kind, default_entity_names[schema_index]) catch unreachable;
@@ -781,6 +788,7 @@ pub const CommandBuilder = struct {
     pub fn setRawTile(self: *CommandBuilder, project: *Project, layer: u8, index: usize, tile: u16) !void {
         try self.setSmart(project, layer, index, empty_tile);
         try self.setTile(project, layer, index, tile);
+        try self.refreshSmartNeighbors(project, layer, index);
     }
 
     /// Applies a bounded stamp to the selected layer, preserving semantic smart terrain.
@@ -879,6 +887,7 @@ pub const CommandBuilder = struct {
         if (material_base) |base| if (base > max_tile_id - 15) return error.InvalidSmartTerrainBase;
         try self.setSmart(project, layer, index, material_base orelse empty_tile);
         var affected: [5]usize = undefined;
+        if (material_base == null) try self.setTile(project, layer, index, empty_tile);
         var count: usize = 1;
         affected[0] = index;
         const x = index % project.width;
@@ -919,10 +928,7 @@ pub const CommandBuilder = struct {
     fn refreshSmartCell(self: *CommandBuilder, project: *Project, layer: u8, index: usize) !void {
         const smart = project.smartCells(layer);
         const base = smart[index];
-        if (base == empty_tile) {
-            try self.setTile(project, layer, index, empty_tile);
-            return;
-        }
+        if (base == empty_tile) return;
         const x = index % project.width;
         const y = index / project.width;
         var mask: u16 = 0;
@@ -931,6 +937,15 @@ pub const CommandBuilder = struct {
         if (y + 1 < project.height and smart[index + project.width] == base) mask |= 4;
         if (x > 0 and smart[index - 1] == base) mask |= 8;
         try self.setTile(project, layer, index, base + mask);
+    }
+
+    fn refreshSmartNeighbors(self: *CommandBuilder, project: *Project, layer: u8, index: usize) !void {
+        const x = index % project.width;
+        const y = index / project.width;
+        if (x > 0) try self.refreshSmartCell(project, layer, index - 1);
+        if (x + 1 < project.width) try self.refreshSmartCell(project, layer, index + 1);
+        if (y > 0) try self.refreshSmartCell(project, layer, index - project.width);
+        if (y + 1 < project.height) try self.refreshSmartCell(project, layer, index + project.width);
     }
 
     pub fn setSolid(self: *CommandBuilder, project: *Project, index: usize, solid: bool) !void {
@@ -1633,7 +1648,10 @@ fn decodeLayered(
     var project = try Project.init(allocator, width, height, tile_size, tileset_names[0]);
     errdefer project.deinit();
     for (tileset_names, 0..) |name, layer| project.setLayerTilesetName(layer, name);
-    if (has_entity_schema) try decodeEntitySchemas(bytes, cursor, &project);
+    if (has_entity_schema) {
+        project.clearEntitySchemas();
+        try decodeEntitySchemas(bytes, cursor, &project);
+    }
     const expected = cursor.* + cell_count * layer_count * 4 + cell_count + entity_bytes + checksum_len;
     if (expected != bytes.len) return error.InvalidWorldProject;
     for (project.tiles) |*tile| {
@@ -2687,4 +2705,42 @@ test "Lua export preserves strict layer order and editor metadata" {
         "_project.background = { metadata = _project.metadata, lupi_metadata = _project.lupi_metadata",
     ) != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "tiles/castle") != null);
+}
+
+test "single-field entity schemas persist and reload" {
+    var project = try Project.init(std.testing.allocator, 6, 4, 8, "tiles/world");
+    defer project.deinit();
+    try project.setEntityFieldSchema(.enemy, 2, "", .unsigned, 0, 0, std.math.maxInt(u16));
+    try project.setEntityFieldSchema(.enemy, 1, "", .unsigned, 0, 0, std.math.maxInt(u16));
+    const bytes = try encode(std.testing.allocator, project);
+    defer std.testing.allocator.free(bytes);
+    var decoded = try decode(std.testing.allocator, bytes);
+    defer decoded.deinit();
+    try std.testing.expectEqual(@as(u8, 1), decoded.entityFieldCount(.enemy));
+    try std.testing.expectEqualStrings("speed", decoded.entityFieldName(.enemy, 0));
+}
+
+test "smart terrain preserves ordinary neighbors and refreshes erasures" {
+    var project = try Project.init(std.testing.allocator, 8, 6, 16, "tiles/world");
+    defer project.deinit();
+    var builder = CommandBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+    const ordinary = project.cellIndex(2, 2);
+    const smart = project.cellIndex(3, 2);
+    try builder.setRawTile(&project, 1, ordinary, 7);
+    try builder.paintSmartTerrain(&project, 1, smart, 32);
+    try std.testing.expectEqual(@as(u16, 7), project.layerCells(1)[ordinary]);
+    try builder.paintSmartTerrain(&project, 1, smart, null);
+    try std.testing.expectEqual(@as(u16, 7), project.layerCells(1)[ordinary]);
+}
+
+test "entity field edits retain independent values" {
+    var project = try Project.init(std.testing.allocator, 8, 6, 16, "tiles/world");
+    defer project.deinit();
+    var builder = CommandBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+    try builder.setEntity(&project, 0, .enemy, 5);
+    try builder.setEntityField(&project, 0, 1, 1);
+    try std.testing.expectEqual(@as(u16, 5), project.entityFieldAt(0, 0));
+    try std.testing.expectEqual(@as(u16, 1), project.entityFieldAt(0, 1));
 }

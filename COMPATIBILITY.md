@@ -83,16 +83,17 @@ and the controls do not alter Lua-visible state or API results.
 `./scripts/parity_smoke.sh` verifies the upstream golden, every RGB555 value,
 all ASCII glyphs, primitive edge cases, camera/clip/pattern interactions, SDL
 alpha composition, deterministic asset resolution, and deterministic map
-layering across independent Lua processes. `./scripts/runtime_smoke.sh` proves the Lua 5.4 link, machine-readable hardware
-profile, 4 MiB Lua heap ceiling, 16 MiB directory/archive release ceilings,
-4,096-entry archive metadata bound, exact fail-closed manifests, and runs
-directories, `.lupi` archives, Mazestein, and every installed demo.
-`./scripts/studio_smoke.sh` separately proves native editor startup, manifest
-and exact-palette intake, roomy and minimum-size presentations, atomic project
-save, deterministic Lua export, exact saved-project reload, and simulator
-rendering of the exported map. Version-one editor projects migrate in unit
-coverage; semantic terrain and per-layer asset references remain reserved
-editor metadata and do not change `ui.map` rendering rules.
+layering across independent Lua processes. `./scripts/runtime_smoke.sh` proves
+the Lua 5.4 link, machine-readable hardware profile, 4 MiB Lua heap ceiling,
+16 MiB directory/archive release ceilings, 4,096-entry archive metadata bound,
+exact fail-closed manifests, and runs directories, `.lupi` archives, Mazestein,
+and every installed demo. `./scripts/studio_smoke.sh` separately proves native
+editor startup, manifest and palette-source intake, roomy and minimum-size
+presentations, atomic project save, deterministic Lua export, exact
+saved-project reload, and simulator rendering of the exported map. Version-one
+editor projects migrate in unit coverage; semantic terrain and per-layer asset
+references remain reserved editor metadata and do not change `ui.map` rendering
+rules.
 
 The host demo downloader accepts only HTTPS transfers and redirects. A bounded
 write callback and libcurl's advertised-size check both cap each source archive

@@ -37,4 +37,4 @@ if [[ ! -f "$game_dir/lupi_manifest.txt" ]]; then
   game_dir="$release_dir/current"
 fi
 
-exec "$root_dir/zig-out/bin/elis" "$game_dir"
+"$root_dir/zig-out/bin/elis" "$game_dir"

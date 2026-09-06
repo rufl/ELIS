@@ -453,6 +453,7 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
         return false;
     }
     var updated = false;
+    var failed = false;
     var cursor: usize = 0;
     while (cursor < catalog.len) {
         const end = std.mem.indexOfScalarPos(u8, catalog, cursor, '\n') orelse catalog.len;
@@ -466,32 +467,59 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
         const slug = githubRepositorySlug(url) orelse continue;
         if (slug.len > 80) continue;
         var target: [2048]u8 = undefined;
-        const target_path = std.fmt.bufPrint(&target, "demos/{s}", .{slug}) catch continue;
+        const target_path = std.fmt.bufPrint(&target, "demos/{s}", .{slug}) catch {
+            failed = true;
+            continue;
+        };
         const target_exists = fileExists(target_path);
         var source_zip: [2048]u8 = undefined;
-        const source_zip_path = std.fmt.bufPrint(&source_zip, "{s}/{s}.zip", .{ work, slug }) catch continue;
+        const source_zip_path = std.fmt.bufPrint(&source_zip, "{s}/{s}.zip", .{ work, slug }) catch {
+            failed = true;
+            continue;
+        };
         var source_url: [2048]u8 = undefined;
-        const main_url = std.fmt.bufPrint(&source_url, "{s}/archive/refs/heads/main.zip", .{url}) catch continue;
+        const main_url = std.fmt.bufPrint(&source_url, "{s}/archive/refs/heads/main.zip", .{url}) catch {
+            failed = true;
+            continue;
+        };
         if (!downloadFile(main_url, source_zip_path)) {
-            const master_url = std.fmt.bufPrint(&source_url, "{s}/archive/refs/heads/master.zip", .{url}) catch continue;
-            if (!downloadFile(master_url, source_zip_path)) continue;
+            const master_url = std.fmt.bufPrint(&source_url, "{s}/archive/refs/heads/master.zip", .{url}) catch {
+                failed = true;
+                continue;
+            };
+            if (!downloadFile(master_url, source_zip_path)) {
+                browser_notice = .network_failed;
+                failed = true;
+                continue;
+            }
         }
         {
             const source_archive = extractArchive(
                 source_zip_path,
                 host_download_bytes_max,
-            ) orelse continue;
+            ) orelse {
+                browser_notice = .codec_extract_failed;
+                failed = true;
+                continue;
+            };
             defer {
                 removeTree(source_archive);
                 A.free(source_archive);
             }
-            const source_root = findGameRoot(source_archive, 2) orelse continue;
+            const source_root = findGameRoot(source_archive, 2) orelse {
+                browser_notice = .demo_prepare_failed;
+                failed = true;
+                continue;
+            };
             defer A.free(source_root);
             // Safe fetches never replace encoded game data, but may add runtime
             // media omitted by older codec runs.
             if (target_exists and !replace_existing) {
                 const media = copyRuntimeMedia(source_root, target_path, false);
-                if (media.success and media.changed) updated = true;
+                if (!media.success) {
+                    browser_notice = .audio_copy_failed;
+                    failed = true;
+                } else if (media.changed) updated = true;
                 continue;
             }
             var output: [2048]u8 = undefined;
@@ -499,9 +527,13 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
                 &output,
                 "{s}/{s}-release",
                 .{ work, slug },
-            ) catch continue;
+            ) catch {
+                failed = true;
+                continue;
+            };
             if (!runCodec(codec_root, source_root, output_path)) {
                 browser_notice = .demo_prepare_failed;
+                failed = true;
                 continue;
             }
             var current: [2048]u8 = undefined;
@@ -509,16 +541,31 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
                 &current,
                 "{s}/current",
                 .{output_path},
-            ) catch continue;
-            if (!fileExists(current_path)) continue;
+            ) catch {
+                failed = true;
+                continue;
+            };
+            if (!fileExists(current_path)) {
+                browser_notice = .demo_prepare_failed;
+                failed = true;
+                continue;
+            }
             if (!copyRuntimeMedia(source_root, current_path, true).success) {
                 browser_notice = .audio_copy_failed;
+                failed = true;
                 continue;
             }
             _ = c.mkdir("demos", 0o755);
-            if (installTreeAtomically(current_path, target_path)) updated = true;
+            if (installTreeAtomically(current_path, target_path)) updated = true else {
+                browser_notice = .demo_prepare_failed;
+                failed = true;
+            }
         }
         _ = name;
+    }
+    if (failed) {
+        if (browser_notice == .searching) browser_notice = .update_failed;
+        return false;
     }
     browser_notice = if (updated) .demos_updated else .no_updates;
     return true;
@@ -600,7 +647,7 @@ fn closeGameLua() void {
 
 fn unloadGame(loaded: *bool, active_archive: *?[]u8) void {
     if (loaded.*) {
-        audio_state.stopMusic();
+        audio_state.resetForGame();
         closeGameLua();
         loaded.* = false;
     }
@@ -791,6 +838,7 @@ fn rect(x: i32, y: i32, w: i32, h: i32, fill: bool, col: i32) void {
     const x_end = x_start + w;
     const y_end = y_start + h;
     if (fill) {
+        if (w <= 0 or h <= 0) return;
         var py = y_start;
         while (py < y_end and raster_work_remaining > 0) : (py += 1) {
             var px_value = x_start;
@@ -1867,21 +1915,58 @@ fn tile(L_: *c.lua_State) callconv(.c) c_int {
     }
     return 0;
 }
+fn manifestStringEquals(json: []const u8, field: []const u8, expected: []const u8) bool {
+    var needle: [64]u8 = undefined;
+    const key = std.fmt.bufPrint(&needle, "\"{s}\"", .{field}) catch return false;
+    var at: usize = 0;
+    while (std.mem.indexOfPos(u8, json, at, key)) |found| {
+        var cursor = found + key.len;
+        while (cursor < json.len and std.ascii.isWhitespace(json[cursor])) : (cursor += 1) {}
+        if (cursor >= json.len or json[cursor] != ':') {
+            at = found + key.len;
+            continue;
+        }
+        cursor += 1;
+        while (cursor < json.len and std.ascii.isWhitespace(json[cursor])) : (cursor += 1) {}
+        if (cursor >= json.len or json[cursor] != '"') return false;
+        cursor += 1;
+        if (cursor + expected.len >= json.len or
+            !std.mem.eql(u8, json[cursor .. cursor + expected.len], expected) or
+            json[cursor + expected.len] != '"')
+        {
+            return false;
+        }
+        return true;
+    }
+    return false;
+}
 fn manifestNumber(json: []const u8, field: []const u8, d: i32) i32 {
-    const needle = std.fmt.allocPrint(A, "\"{s}\":", .{field}) catch return d;
-    defer A.free(needle);
-    const at = std.mem.indexOf(u8, json, needle) orelse return d;
-    var end = at + needle.len;
-    while (end < json.len and (json[end] == ' ' or json[end] == '\t')) : (end += 1) {}
+    var needle: [64]u8 = undefined;
+    const key = std.fmt.bufPrint(&needle, "\"{s}\"", .{field}) catch return d;
+    const at = std.mem.indexOf(u8, json, key) orelse return d;
+    var end = at + key.len;
+    while (end < json.len and std.ascii.isWhitespace(json[end])) : (end += 1) {}
+    if (end >= json.len or json[end] != ':') return d;
+    end += 1;
+    while (end < json.len and std.ascii.isWhitespace(json[end])) : (end += 1) {}
     var stop = end;
     while (stop < json.len and json[stop] >= '0' and json[stop] <= '9') : (stop += 1) {}
     return std.fmt.parseInt(i32, json[end..stop], 10) catch d;
 }
-fn injectSprites() void {
+fn injectSprites() !void {
     var root_file: [1024]u8 = undefined;
     const path = std.fmt.bufPrint(&root_file, "{s}/lupi_manifest.txt", .{game_root}) catch return;
     const manifest = assetAll(path) orelse return;
     defer A.free(manifest);
+    c.lua_pushcclosure(L, @as(c.lua_CFunction, @ptrCast(&injectSpritesProtected)), 0);
+    c.lua_pushlightuserdata(L, @ptrCast(@constCast(&manifest)));
+    if (c.lua_pcallk(L, 1, 0, 0, 0, null) != c.LUA_OK) return luaLoadError("sprite initialization");
+}
+
+// Keep host allocations outside the Lua longjmp boundary.
+fn injectSpritesProtected(state: *c.lua_State) callconv(.c) c_int {
+    const manifest_ptr: *const []const u8 = @ptrCast(@alignCast(c.lua_touserdata(state, 1)));
+    const manifest = manifest_ptr.*;
     c.lua_newtable(L);
     var lines = std.mem.splitScalar(u8, manifest, '\n');
     while (lines.next()) |manifest_line| {
@@ -1891,7 +1976,7 @@ fn injectSprites() void {
         const encoded_bytes = std.fmt.parseUnsigned(usize, encoded_bytes_text, 10) catch continue;
         const rel = tok.next() orelse continue;
         const json = tok.rest();
-        if (std.mem.indexOf(u8, json, "\"type\":\"bitmap\"") == null) continue;
+        if (!manifestStringEquals(json, "type", "bitmap")) continue;
         const w = manifestNumber(json, "width", 0);
         const h = manifestNumber(json, "height", 0);
         if (w <= 0 or h <= 0) continue;
@@ -1949,6 +2034,7 @@ fn injectSprites() void {
     c.lua_pushcclosure(L, @as(c.lua_CFunction, @ptrCast(&spritesFind)), 0);
     c.lua_setfield(L, -2, "find");
     _ = c.lua_pop(L, 1);
+    return 0;
 }
 fn spritesFind(L_: *c.lua_State) callconv(.c) c_int {
     if (c.lua_getglobal(L_, "__lupi_find") != c.LUA_TFUNCTION) {
@@ -1966,7 +2052,7 @@ fn spritesFind(L_: *c.lua_State) callconv(.c) c_int {
     return 1;
 }
 fn spritesLoader(_: *c.lua_State) callconv(.c) c_int {
-    injectSprites();
+    injectSprites() catch return c.lua_error(L);
     _ = c.lua_getglobal(L, "Sprites");
     return 1;
 }
@@ -2003,8 +2089,8 @@ fn sortMapLayerNames(names: [][]const u8) void {
     }
 }
 
-fn mapOrderError(L_: *c.lua_State, names: [][]const u8, owns_names: bool, message: [*:0]const u8) c_int {
-    if (owns_names) A.free(names);
+fn mapOrderError(L_: *c.lua_State, names: [][]const u8, message: [*:0]const u8) c_int {
+    _ = names;
     return c.luaL_error(L_, message);
 }
 
@@ -2123,14 +2209,10 @@ fn l_map(L_: *c.lua_State) callconv(.c) c_int {
         }
         _ = c.lua_pop(L_, 1);
     }
-    // Real maps have only a handful of layers. Keep that hot path off the heap,
-    // while retaining an unbounded fallback for generated or future content.
-    var inline_layer_names: [64][]const u8 = undefined;
-    const owns_layer_names = layer_count > inline_layer_names.len;
-    const layer_names = if (owns_layer_names)
-        A.alloc([]const u8, layer_count) catch return c.luaL_error(L_, "ui.map: out of memory while ordering layers")
-    else
-        inline_layer_names[0..layer_count];
+    // The layer count is bounded, so keep all ordering storage on the stack.
+    // This also survives Lua's longjmp-based error unwinding without leaking.
+    var layer_names_storage: [debug_mod.layer_count_max][]const u8 = undefined;
+    const layer_names = layer_names_storage[0..layer_count];
     var collected: usize = 0;
     c.lua_pushnil(L_);
     while (c.lua_next(L_, map_index) != 0) {
@@ -2152,18 +2234,18 @@ fn l_map(L_: *c.lua_State) callconv(.c) c_int {
     if (!c.lua_isnil(L_, -1)) {
         if (!c.lua_istable(L_, -1)) {
             _ = c.lua_pop(L_, 1);
-            return mapOrderError(L_, layer_names, owns_layer_names, "ui.map: 'layers' must be an array of layer names");
+            return mapOrderError(L_, layer_names, "ui.map: 'layers' must be an array of layer names");
         }
         if (c.lua_rawlen(L_, -1) != layer_count) {
             _ = c.lua_pop(L_, 1);
-            return mapOrderError(L_, layer_names, owns_layer_names, "ui.map: 'layers' must list every map layer exactly once");
+            return mapOrderError(L_, layer_names, "ui.map: 'layers' must list every map layer exactly once");
         }
         var target: usize = 0;
         while (target < layer_count) : (target += 1) {
             _ = c.lua_rawgeti(L_, -1, @intCast(target + 1));
             if (c.lua_type(L_, -1) != c.LUA_TSTRING) {
                 _ = c.lua_pop(L_, 2);
-                return mapOrderError(L_, layer_names, owns_layer_names, "ui.map: every 'layers' entry must be a string");
+                return mapOrderError(L_, layer_names, "ui.map: every 'layers' entry must be a string");
             }
             var wanted_len: usize = 0;
             const wanted_ptr = c.lua_tolstring(L_, -1, &wanted_len).?;
@@ -2181,7 +2263,7 @@ fn l_map(L_: *c.lua_State) callconv(.c) c_int {
                 std.mem.swap([]const u8, &layer_names[target], &layer_names[source]);
             } else {
                 _ = c.lua_pop(L_, 1);
-                return mapOrderError(L_, layer_names, owns_layer_names, "ui.map: 'layers' contains an unknown or duplicate layer");
+                return mapOrderError(L_, layer_names, "ui.map: 'layers' contains an unknown or duplicate layer");
             }
         }
     } else {
@@ -2192,12 +2274,10 @@ fn l_map(L_: *c.lua_State) callconv(.c) c_int {
     _ = c.lua_getglobal(L_, "Sprites");
     if (!c.lua_istable(L_, -1)) {
         _ = c.lua_pop(L_, 1);
-        if (owns_layer_names) A.free(layer_names);
         return 0;
     }
     const sprites = c.lua_absindex(L_, -1);
     defer _ = c.lua_pop(L_, 1);
-    defer if (owns_layer_names) A.free(layer_names);
     for (layer_names) |layer_name| {
         if (raster_work_remaining == 0) break;
         if (debug_state.shouldDrawMapLayer(layer_name)) {
@@ -2544,6 +2624,7 @@ fn bind() void {
     c.lua_setglobal(L, "sfx");
 }
 fn resetGameState() void {
+    audio_state.resetForGame();
     for (&fb) |*row| @memset(row, 0);
     @memset(&pal, Color{ .r = 0, .g = 0, .b = 0, .a = 0 });
     @memset(&pattern, 0);
@@ -2567,6 +2648,7 @@ fn load(path: []const u8) !void {
     errdefer closeGameLua();
     c.luaL_openlibs(L);
     bind();
+    registerConstants();
     c.lua_pushcclosure(L, @as(c.lua_CFunction, @ptrCast(&luaCompileFile)), 0);
     c.lua_setglobal(L, "__lupi_compile_file");
     const helper =
@@ -2649,7 +2731,7 @@ fn load(path: []const u8) !void {
     ;
     if (c.luaL_loadstring(L, helper) != c.LUA_OK) return luaLoadError("helper compile");
     if (c.lua_pcallk(L, 0, 0, 0, 0, null) != c.LUA_OK) return luaLoadError("helper run");
-    injectSprites();
+    try injectSprites();
     _ = c.lua_getglobal(L, "package");
     _ = c.lua_getfield(L, -1, "path");
     var current_len: usize = 0;
@@ -2724,11 +2806,11 @@ fn registerConstants() void {
     setLuaConstant("SELECT", c.SDL_CONTROLLER_BUTTON_BACK);
     setLuaConstant("START", c.SDL_CONTROLLER_BUTTON_START);
 }
-fn update() void {
+fn update() bool {
     resetRasterWork();
     if (c.lua_getglobal(L, "update") != c.LUA_TFUNCTION) {
         _ = c.lua_pop(L, 1);
-        return;
+        return true;
     }
     c.lua_pushnumber(L, ticks);
     ticks += 1;
@@ -2737,7 +2819,9 @@ fn update() void {
         const msg = c.lua_tolstring(L, -1, &len);
         if (msg != null) std.debug.print("Erro de atualizacao Lua: {s}\n", .{msg[0..len]}) else std.debug.print("Erro de atualizacao Lua\n", .{});
         _ = c.lua_pop(L, 1);
+        return false;
     }
+    return true;
 }
 
 fn packColor(value: Color) u32 {
@@ -2972,11 +3056,10 @@ fn runBenchmark(path: []const u8, frame_count: usize) !void {
 
     try load(path);
     defer closeGameLua();
-    registerConstants();
 
     // Warm Lua and asset caches before the measured interval.
     for (0..120) |_| {
-        update();
+        if (!update()) return error.LuaUpdate;
         @memset(&fb, [_]u8{0} ** W);
     }
 
@@ -2984,7 +3067,7 @@ fn runBenchmark(path: []const u8, frame_count: usize) !void {
     var checksum: u64 = 0;
     const start = c.SDL_GetPerformanceCounter();
     for (0..frame_count) |frame| {
-        update();
+        if (!update()) return error.LuaUpdate;
         convertFrame(&output, false);
         checksum +%= output[(frame *% 8191) % output.len];
         @memset(&fb, [_]u8{0} ** W);
@@ -3009,9 +3092,8 @@ fn captureFrame(path: []const u8, frame_count: usize, output_path: []const u8) !
     defer c.SDL_Quit();
     try load(path);
     defer closeGameLua();
-    registerConstants();
     for (0..frame_count) |frame| {
-        update();
+        if (!update()) return error.LuaUpdate;
         if (frame + 1 < frame_count) @memset(&fb, [_]u8{0} ** W);
     }
 
@@ -3325,7 +3407,6 @@ pub fn main(init: std.process.Init) !void {
             return error.InvalidLupiArchive;
         const game = active_archive orelse requested;
         try load(game);
-        registerConstants();
         loaded = true;
     }
     _ = c.SDL_SetHint(c.SDL_HINT_RENDER_SCALE_QUALITY, "0");
@@ -3502,7 +3583,6 @@ pub fn main(init: std.process.Init) !void {
                         browser_notice = .demo_prepare_failed;
                         continue;
                     };
-                    registerConstants();
                     input_state.clearText();
                     ticks = 0;
                     loaded = true;
@@ -3543,7 +3623,7 @@ pub fn main(init: std.process.Init) !void {
                 }
             } else {
                 const update_start = c.SDL_GetPerformanceCounter();
-                update();
+                _ = update();
                 update_counts = c.SDL_GetPerformanceCounter() -% update_start;
                 simulation_updated = true;
             }

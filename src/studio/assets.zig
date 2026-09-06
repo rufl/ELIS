@@ -191,10 +191,10 @@ fn fieldValueStart(json: []const u8, field: []const u8) ?usize {
         const after_ok = after < json.len and json[after] == '"';
         if (before_ok and after_ok) {
             var value = after + 1;
-            while (value < json.len and (json[value] == ' ' or json[value] == '\t')) : (value += 1) {}
+            while (value < json.len and std.ascii.isWhitespace(json[value])) : (value += 1) {}
             if (value >= json.len or json[value] != ':') return null;
             value += 1;
-            while (value < json.len and (json[value] == ' ' or json[value] == '\t')) : (value += 1) {}
+            while (value < json.len and std.ascii.isWhitespace(json[value])) : (value += 1) {}
             return value;
         }
         cursor = after;
@@ -210,13 +210,15 @@ test "manifest parser keeps bounded bitmap assets and their geometry" {
         "103 64 ../outside {\"type\":\"bitmap\",\"width\":8,\"height\":8}\n" ++
         "104 64 props/tree {\"type\":\"bitmap\",\"width\":8,\"height\":8}\n" ++
         "105 64 props\\tree {\"type\":\"bitmap\",\"width\":8,\"height\":8}\n" ++
-        "106 64 props//tree {\"type\":\"bitmap\",\"width\":8,\"height\":8}\n";
+        "106 64 props//tree {\"type\":\"bitmap\",\"width\":8,\"height\":8}\n" ++
+        "107 64 props/whitespace {\"type\"\r:\r\"bitmap\",\"width\"\r:\r8,\"height\"\r:\r8}\n";
     const catalog = parseManifest(source);
-    try std.testing.expectEqual(@as(u8, 2), catalog.count);
+    try std.testing.expectEqual(@as(u8, 3), catalog.count);
     try std.testing.expectEqualStrings("maps/forest", catalog.items[0].name());
     try std.testing.expectEqual(@as(u16, 16), catalog.items[0].tiles);
     try std.testing.expectEqual(@as(?usize, 0), catalog.find("maps/forest"));
     try std.testing.expectEqual(@as(?usize, 1), catalog.firstTileSize(8));
+    try std.testing.expectEqualStrings("props/whitespace", catalog.items[2].name());
 }
 
 test "Lupi tileset compatibility enforces official size and tile bounds" {

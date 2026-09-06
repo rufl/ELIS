@@ -31,7 +31,7 @@ objcopy --remove-section=.sframe --remove-section=.rela.sframe \
 ZIG_LOCAL_CACHE_DIR="$work/input-cache" \
 ZIG_GLOBAL_CACHE_DIR="$work/input-global" \
 zig test-obj --test-no-exec -fPIC -fno-stack-check -lc \
-  $(pkg-config --cflags sdl2) src/input.zig -femit-bin="$work/input.o"
+  $(pkg-config --cflags sdl2 lua5.4 libzip libcurl sndfile) src/input.zig -femit-bin="$work/input.o"
 "$linker_cc" -nostartfiles -no-pie "$work/crt1.o" "$work/input.o" \
   -o "$work/input-test" $(pkg-config --libs sdl2) -lm -lpthread -ldl -lc
 "$work/input-test"

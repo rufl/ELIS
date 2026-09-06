@@ -6,7 +6,7 @@ ELIS supports keyboard, mouse, and controller operation, but its current custom 
 
 - Simulator menus have fixed keyboard fallbacks even when gameplay bindings are cleared.
 - All twelve console actions can be remapped, with duplicate-binding feedback and reset-to-default recovery.
-- Workshop's primary painting, erasing, selection, shape, layer, preview, save, and template workflows have keyboard and controller paths.
+- Workshop's keyboard and mouse paths cover layer and template selection; controllers can paint, erase, select, shape, preview, save, and edit the currently selected layer. Layer and template selection are not currently exposed on controller input.
 - Workshop supports `--reduce-motion`; information does not depend on guide animation.
 - Focus loss clears or finalizes active input ownership. Queued keyboard, pointer, text, and button input is ignored while suspended, and a held analog stick is sampled without creating a new edge when focus returns.
 - Important states use text and shape in addition to color: selection outlines, marker letters, status labels, errors, warnings, and lock/visibility labels.

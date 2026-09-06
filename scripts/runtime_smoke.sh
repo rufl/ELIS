@@ -1,13 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Every invocation, including malformed-archive failures, must stay headless.
+export SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
+
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 tmp="$(mktemp -d /tmp/elis-smoke.XXXXXX)"
 trap 'rm -rf "$tmp"' EXIT
+
+# Valid manifest metadata can exhaust Lua before any cartridge code executes.
+# It must report a load failure rather than aborting outside lua_pcall.
+python3 - "$tmp/sprite-heap" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+prefix = "/".join("d" * 120 + str(i) for i in range(6))
+(root / prefix).mkdir(parents=True)
+game = b"function update() end\n"
+(root / "game.lua").write_bytes(game)
+rows = [f"1 {len(game)} game.lua {{}}"]
+for index in range(4080):
+    relative = f"{prefix}/{index:04d}" + "x" * 196
+    (root / relative).write_bytes(b"\1")
+    rows.append(f'{index + 2} 1 {relative} {{"type":"bitmap","width":1,"height":1}}')
+(root / "lupi_manifest.txt").write_text("\n".join(rows) + "\n")
+PY
 ZIG_LOCAL_CACHE_DIR="$tmp/build-cache" \
 ZIG_GLOBAL_CACHE_DIR="$tmp/global-cache" \
 zig build native -Doptimize=ReleaseSafe >/dev/null
+
+set +e
+sprite_heap_output="$(./zig-out/bin/elis --screenshot "$tmp/sprite-heap" 1 "$tmp/sprite-heap.ppm" 2>&1)"
+sprite_heap_rc=$?
+set -e
+test "$sprite_heap_rc" -eq 1
+grep -q 'sprite initialization.*not enough memory' <<<"$sprite_heap_output"
+test ! -e "$tmp/sprite-heap.ppm"
 
 help_out="$(./zig-out/bin/elis --help 2>&1)"
 grep -q '^Usage:$' <<<"$help_out"
@@ -35,6 +65,30 @@ grep -q '^workshop_lua_source_bytes_max=131072$' <<<"$constraints"
 mkdir -p "$tmp/profile"
 settings_out="$(env XDG_DATA_HOME="$tmp/profile" ./zig-out/bin/elis --self-test-settings 2>&1)"
 grep -q 'settings round-trip: pass' <<<"$settings_out"
+
+mkdir -p "$tmp/init-constants"
+printf '%s\n' \
+  'assert(BTN_Z ~= nil and UP ~= nil)' \
+  'local captured = BTN_Z' \
+  'function update() assert(captured == BTN_Z) end' \
+  > "$tmp/init-constants/game.lua"
+./zig-out/bin/elis --screenshot "$tmp/init-constants" 1 "$tmp/init-constants.ppm" >/dev/null
+
+mkdir -p "$tmp/frame-error"
+printf 'function update() error("frame failure") end\n' > "$tmp/frame-error/game.lua"
+set +e
+frame_error_output="$(./zig-out/bin/elis --screenshot "$tmp/frame-error" 1 "$tmp/frame-error.ppm" 2>&1)"
+frame_error_rc=$?
+set -e
+test "$frame_error_rc" -ne 0
+grep -q 'frame failure' <<<"$frame_error_output"
+test ! -e "$tmp/frame-error.ppm"
+set +e
+benchmark_error_output="$(./zig-out/bin/elis --benchmark "$tmp/frame-error" 1 2>&1)"
+benchmark_error_rc=$?
+set -e
+test "$benchmark_error_rc" -ne 0
+grep -q 'frame failure' <<<"$benchmark_error_output"
 
 cp -R tests/api "$tmp/game"
 dd if=/dev/zero of="$tmp/game/tile.bin" bs=1 count=1 status=none
@@ -249,6 +303,12 @@ end
 LUA
 timeout 10s ./zig-out/bin/elis --screenshot \
   "$tmp/raster-bounds" 7 "$tmp/raster-bounds.ppm" >/dev/null
+
+mkdir -p "$tmp/raster-degenerate"
+printf 'function update() ui.draw_rect(0, 0, 0, 2147483647, true, 1) end\n' \
+  > "$tmp/raster-degenerate/game.lua"
+timeout 10s ./zig-out/bin/elis --screenshot \
+  "$tmp/raster-degenerate" 1 "$tmp/raster-degenerate.ppm" >/dev/null
 python3 - "$tmp/raster-bounds.ppm" <<'PY'
 from pathlib import Path
 import sys
