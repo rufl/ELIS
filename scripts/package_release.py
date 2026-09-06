@@ -214,6 +214,26 @@ def fetch_source_bytes(url, maximum):
     return data
 
 
+def source_license_texts(archive, prefix=""):
+    """Retain upstream legal texts when binary packages omit share/licenses."""
+    texts = {}
+    for member in archive:
+        if not member.isfile():
+            continue
+        name = member.name.replace("\\", "/")
+        if name.startswith("/") or any(part in ("", ".", "..") for part in name.split("/")):
+            raise RuntimeError(f"Unsafe source license path: {name}")
+        basename = name.rsplit("/", 1)[-1].upper()
+        if re.fullmatch(r"(?:COPYING|COPYRIGHT|LICENSE|LICENCE|NOTICE)(?:[._-].*)?", basename):
+            if member.size > 4 * 1024 * 1024 or len(texts) >= 4096:
+                raise RuntimeError("Source license collection exceeds bounds")
+            with archive.extractfile(member) as stream:
+                data = stream.read()
+            if data.strip():
+                texts[prefix + name] = data
+    return texts
+
+
 def corresponding_source(package):
     owner = package["name"]
     compatible_library_license(package["licenses"], owner)
@@ -318,11 +338,22 @@ def corresponding_source(package):
                     sources.append({"source": source, "archive_member": source_path, "checksums": checksums})
             if not sources:
                 raise RuntimeError(f"No upstream sources in {filename}")
+            license_texts = {}
+            if not package["license_files"]:
+                license_texts.update(source_license_texts(archive))
+                for entry in sources:
+                    member = members[entry["archive_member"]]
+                    if member.isfile() and re.search(r"\.tar\.(?:gz|bz2|xz)$|\.tgz$", member.name):
+                        with archive.extractfile(member) as stream:
+                            with tarfile.open(fileobj=stream, mode="r|*") as upstream:
+                                license_texts.update(source_license_texts(upstream, member.name + "/"))
+                if not license_texts:
+                    raise RuntimeError(f"No upstream license texts in corresponding sources for {owner}")
     return data, {
         "file": f"SOURCES/{filename}", "url": url, "sha256": sha256(data),
         "package_base": base, "version": version, "metadata_url": page_url,
         "srcinfo_sha256": sha256(info_bytes), "upstream_sources": sources,
-    }
+    }, license_texts
 
 
 def windows_libraries(binaries, files):
@@ -411,8 +442,6 @@ def windows_libraries(binaries, files):
                         raise RuntimeError(f"Empty installed license text: {filename}")
                     files[destination] = (license_data, 0o644)
                     license_paths.append(destination)
-                if not license_paths:
-                    raise RuntimeError(f"No installed license texts owned by shipped package: {owner}")
                 fields["license_files"] = sorted(license_paths)
                 fields["distribution"] = "MSYS2 UCRT64"
                 fields["package_information"] = f"https://packages.msys2.org/package/{owner}"
@@ -628,12 +657,16 @@ def main():
     provenance = windows_libraries(binaries, files) if windows else linux_libraries(binaries)
     if windows:
         for package in provenance["library_packages"]:
-            source_data, source = corresponding_source(package)
+            source_data, source, source_licenses = corresponding_source(package)
             destination = source["file"]
             if destination in files and files[destination][0] != source_data:
                 raise RuntimeError(f"Conflicting source archives: {destination}")
             files[destination] = (source_data, 0o644)
             package["corresponding_source"] = source
+            for name, data in sorted(source_licenses.items()):
+                destination = f"LICENSES/msys2/{package['name']}/sources/{name}"
+                files[destination] = (data, 0o644)
+                package["license_files"].append(destination)
     files["RUNNING.txt"] = (run_instructions(args.version, windows).encode(), 0o644)
     for name, executable in (("elis", "elis"), ("workshop", "elis-studio")):
         if windows:
