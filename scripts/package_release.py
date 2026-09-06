@@ -337,8 +337,8 @@ def corresponding_source(package):
             metadata = {}
             for line in info_bytes.decode("utf-8").splitlines():
                 if " = " in line:
-                    key, value = line.strip().split(" = ", 1)
-                    metadata.setdefault(key, []).append(value)
+                    key, value = line.split(" = ", 1)
+                    metadata.setdefault(key.strip(), []).append(value.strip())
             base = metadata.get("pkgbase", [""])[0]
             version = metadata.get("pkgver", [""])[0] + "-" + metadata.get("pkgrel", [""])[0]
             if metadata.get("epoch", ["0"])[0] != "0":
