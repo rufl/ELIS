@@ -672,35 +672,33 @@ def main():
     files["demos/catalog.txt"] = (("\n".join(catalog) + "\n").encode(), 0o644)
     provenance = windows_libraries(binaries, files) if windows else linux_libraries(binaries)
     if windows:
+        # Package-wide metadata includes tools/manuals not shipped as DLLs.
+        # Component scopes reviewed against upstream and package sources:
+        # https://github.com/xiph/flac/blob/1.5.0/README.md
+        # https://github.com/autotools-mirror/gettext/blob/v1.0/gettext-runtime/intl/libintl.rc
+        # https://github.com/msys2/MINGW-packages/blob/master/mingw-w64-libiconv/PKGBUILD
+        component_licenses = {
+            "mingw-w64-ucrt-x86_64-flac": (
+                "1.5.0-2", {"libflac.dll", "libflac-14.dll", "libflac++-11.dll"}, "BSD-3-Clause"),
+            "mingw-w64-ucrt-x86_64-gettext-runtime": (
+                "1.0-1", {"libintl-8.dll"}, "LGPL-2.1-or-later"),
+            "mingw-w64-ucrt-x86_64-libiconv": (
+                "1.19-1", {"libiconv-2.dll", "libcharset-1.dll"}, "LGPL-2.1-or-later"),
+        }
         for package in provenance["library_packages"]:
-            # FLAC's package metadata also covers GPL tools and FDL manuals.
-            # Only its BSD-licensed codec DLLs are approved here:
-            # https://github.com/xiph/flac/blob/1.5.0/README.md
-            if package["name"] == "mingw-w64-ucrt-x86_64-flac":
+            scope = component_licenses.get(package["name"])
+            if scope:
+                version, approved_dlls, license_expression = scope
                 shipped = {
                     library["file"].lower()
                     for library in provenance["shipped_libraries"]
                     if library["package"] == package["name"]
                 }
-                if (package["version"] != "1.5.0-2" or not shipped
-                        or not shipped <= {"libflac.dll", "libflac-14.dll", "libflac++-11.dll"}):
-                    raise RuntimeError(f"Unreviewed FLAC binary selection: {shipped}")
+                if package["version"] != version or not shipped or not shipped <= approved_dlls:
+                    raise RuntimeError(f"Unreviewed {package['name']} binary selection: {shipped}")
                 package["package_licenses"] = package["licenses"]
-                package["licenses"] = "BSD-3-Clause"
-                package["license_scope"] = "Bundled libFLAC/libFLAC++ codec DLLs only"
-            # gettext's GPL command-line tools are not part of libintl.
-            # https://github.com/autotools-mirror/gettext/blob/v1.0/gettext-runtime/intl/libintl.rc
-            if package["name"] == "mingw-w64-ucrt-x86_64-gettext-runtime":
-                shipped = {
-                    library["file"].lower()
-                    for library in provenance["shipped_libraries"]
-                    if library["package"] == package["name"]
-                }
-                if package["version"] != "1.0-1" or shipped != {"libintl-8.dll"}:
-                    raise RuntimeError(f"Unreviewed gettext binary selection: {shipped}")
-                package["package_licenses"] = package["licenses"]
-                package["licenses"] = "LGPL-2.1-or-later"
-                package["license_scope"] = "Bundled libintl DLL only"
+                package["licenses"] = license_expression
+                package["license_scope"] = "Bundled DLLs only: " + ", ".join(sorted(shipped))
             source_data, source, source_licenses = corresponding_source(package)
             destination = source["file"]
             if destination in files and files[destination][0] != source_data:
