@@ -5,6 +5,7 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 import zipfile
@@ -68,7 +69,10 @@ def main():
             env.pop(key, None)
         if os.name == "nt":
             env["PATH"] = str(package) + os.pathsep + str(Path(os.environ["SystemRoot"]) / "System32")
-            windows_https(package)
+            # ctypes keeps DLLs loaded; a child process releases the entire DLL
+            # dependency tree before TemporaryDirectory removes the package.
+            run([sys.executable, str(Path(__file__).resolve()), "--windows-https", str(package)],
+                package, env)
         env["XDG_DATA_HOME"] = str(root / "profile")
         assert "Usage:" in run([str(runtime), "--help"], package, env)
         assert "lua=5.4" in run([str(runtime), "--lupi-constraints"], package, env)
@@ -102,4 +106,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 3 and sys.argv[1] == "--windows-https":
+        windows_https(Path(sys.argv[2]))
+    else:
+        main()
