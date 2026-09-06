@@ -1,0 +1,148 @@
+name: Binaries
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Prerelease version (without v)
+        required: true
+        default: 0.1.0-rc.1
+      publish:
+        description: Publish verified archives from protected main
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binaries-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_VERSION: ${{ inputs.version || '0.1.0-rc.1' }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+          - os: windows-2025
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        with:
+          version: 0.16.0
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends binutils gcc pkg-config python3 zip lua5.4 libsdl2-dev liblua5.4-dev libzip-dev libcurl4-openssl-dev libsndfile1-dev
+      - name: Build and verify Linux
+        if: runner.os == 'Linux'
+        run: bash scripts/verify.sh
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        run: python3 scripts/package_release.py --platform linux-x86_64 --version "$RELEASE_VERSION" --output dist
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-lua54
+            mingw-w64-ucrt-x86_64-libzip
+            mingw-w64-ucrt-x86_64-curl-winssl
+            mingw-w64-ucrt-x86_64-libsndfile
+            mingw-w64-ucrt-x86_64-python
+      - name: Build and package Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          bash scripts/build_windows.sh ReleaseSafe
+          python3 scripts/package_release.py --platform windows-x86_64 --version "$RELEASE_VERSION" --output dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+            extension: tar.gz
+          - os: windows-2025
+            platform: windows-x86_64
+            extension: zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ matrix.platform }}
+          path: dist
+      - name: Install documented Linux runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libsdl2-2.0-0 liblua5.4-0 libzip4t64 libcurl4t64 libsndfile1
+      - name: Exercise extracted package
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          EXTENSION: ${{ matrix.extension }}
+        run: python scripts/smoke_release.py "dist/elis-$RELEASE_VERSION-$PLATFORM.$EXTENSION"
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: [build, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: artifacts
+      - name: Publish immutable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          version = os.environ['RELEASE_VERSION']
+          if not re.fullmatch(r'\d+\.\d+\.\d+-[A-Za-z0-9][A-Za-z0-9.-]*', version):
+              raise SystemExit('Only explicit prerelease versions are supported')
+          files = sorted(p for p in Path('artifacts').rglob('*') if p.is_file() and p.name != 'SHA256SUMS')
+          checksums = Path('SHA256SUMS')
+          checksums.write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
+          subprocess.run(['gh', 'release', 'create', 'v' + version, '--target', os.environ['SOURCE_SHA'], '--prerelease', '--title', 'ELIS ' + version, '--notes', 'Experimental x86-64 binaries. Linux requires Ubuntu 24.04 runtime libraries documented in the archive. Windows includes native DLL dependencies and their notices. Unsigned binaries; no hardware certification. Mr. Rescue is not bundled.', *map(str, files), str(checksums)], check=True)
+          PY

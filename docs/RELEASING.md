@@ -29,10 +29,13 @@ This is the maintainer checklist for source publication and future tagged releas
 - Set the description to “Native Lupi simulator and deterministic Workshop editor in Zig.”
 - Add topics such as `zig`, `lua`, `sdl2`, `fantasy-console`, `game-development`, and `level-editor`.
 - Keep `main` as the default branch and require the `Verify / verify` status check before merge.
-- Require pull-request review and block force-pushes or deletion on `main`.
+- Require pull requests and block force-pushes or deletion on `main`. The
+  solo-maintainer policy requires documented code review and passing CI, but
+  does not require another account's approval. Restore required peer approval
+  when an independent maintainer is available.
 - Enable Issues so the bundled forms are available.
 - Enable GitHub private vulnerability reporting if available; keep the email path in `SECURITY.md` as a fallback.
-- Do not publish a GitHub Release or mark Mr. Rescue hardware-approved until the documented release and named-board gates pass.
+- Publish ELIS binaries only after the binary release gates below pass. Mr. Rescue additionally requires named-board approval and is excluded from ELIS binary archives.
 
 ## Tagged source release
 
@@ -46,6 +49,26 @@ ELIS has no stable release series yet. Before the first tag:
 - verify binaries on a clean system matching the documented environment.
 
 The current native build is dynamically linked and host-specific. Do not publish `zig-out/` from an arbitrary developer machine as a portable release.
+
+## Binary prereleases
+
+The initial candidate version is `0.1.0-rc.1`, not a stable release.
+`.github/workflows/binaries.yml` builds Linux x86-64 on Ubuntu 24.04 and Windows
+x86-64 using MSYS2 UCRT64. Linux archives require the documented system
+libraries; Windows archives include their recursively resolved DLL dependencies
+and license notices. Neither package includes Mr. Rescue.
+
+Pull requests build packages and exercise extracted runtime and Workshop binaries
+on fresh runners. The Windows smoke process removes MSYS2 and other development
+directories from `PATH`. Both use SDL dummy video/audio rather than
+an interactive desktop. Artifacts expire after 14 days and are not releases.
+
+After documented code review and merge to protected `main`, dispatch **Binaries**
+with the chosen prerelease version and `publish=true`. Publication requires both
+platform builds and extracted-package smoke jobs to pass. It creates a prerelease
+at the exact workflow commit with archives, dependency manifests, and SHA256SUMS.
+Existing releases must not be overwritten. Binaries are unsigned; checksums
+detect corruption but are not a substitute for code-signing identity.
 
 ## Cartridge certification
 

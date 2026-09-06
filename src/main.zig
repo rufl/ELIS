@@ -6,7 +6,8 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const c = @import("native.zig").c;
+const native = @import("native.zig");
+const c = native.c;
 const input_mod = @import("input.zig");
 const Input = input_mod.Input;
 const Audio = @import("audio.zig").Audio;
@@ -222,7 +223,7 @@ fn copyTree(source: []const u8, destination: []const u8) bool {
     var destination_z: [2048]u8 = undefined;
     const src = std.fmt.bufPrintZ(&source_z, "{s}", .{source}) catch return false;
     const dst = std.fmt.bufPrintZ(&destination_z, "{s}", .{destination}) catch return false;
-    if (c.mkdir(dst.ptr, 0o755) != 0 and packageEntryKind(destination) != .directory) {
+    if (native.mkdir(dst.ptr, 0o755) != 0 and packageEntryKind(destination) != .directory) {
         return false;
     }
     const dir = c.opendir(src.ptr) orelse return false;
@@ -259,8 +260,7 @@ fn githubRepositorySlug(url: []const u8) ?[]const u8 {
 }
 
 fn githubPathComponent(component: []const u8) bool {
-    if (component.len == 0 or std.mem.eql(u8, component, ".") or
-        std.mem.eql(u8, component, "..")) return false;
+    if (!@import("studio/package_path.zig").safeComponent(component)) return false;
     for (component) |byte| {
         if (!std.ascii.isAlphanumeric(byte) and byte != '_' and byte != '-' and byte != '.') {
             return false;
@@ -289,7 +289,7 @@ fn copyRuntimeMedia(source: []const u8, destination: []const u8, replace_existin
         if (packageEntryKind(source_path) == .directory) {
             var destination_z: [2048]u8 = undefined;
             const target = std.fmt.bufPrintZ(&destination_z, "{s}", .{destination_path}) catch return .{ .success = false };
-            _ = c.mkdir(target.ptr, 0o755);
+            _ = native.mkdir(target.ptr, 0o755);
             const nested = copyRuntimeMedia(source_path, destination_path, replace_existing);
             if (!nested.success) return nested;
             result.changed = result.changed or nested.changed;
@@ -348,6 +348,10 @@ fn runCodec(codec_root: []const u8, input_root: []const u8, output_root: []const
     const state = c.luaL_newstate() orelse return false;
     defer c.lua_close(state);
     c.luaL_openlibs(state);
+    if (native.windows and !@import("codec_windows.zig").install(state, output_root)) {
+        if (c.lua_tolstring(state, -1, null)) |message| std.debug.print("Codec host: {s}\n", .{message});
+        return false;
+    }
     _ = c.lua_getglobal(state, "package");
     _ = c.lua_pushstring(state, package.ptr);
     c.lua_setfield(state, -2, "path");
@@ -361,7 +365,10 @@ fn runCodec(codec_root: []const u8, input_root: []const u8, output_root: []const
     c.lua_rawseti(state, -2, 2);
     c.lua_setglobal(state, "arg");
     if (c.luaL_loadfilex(state, script_path.ptr, null) != c.LUA_OK) return false;
-    if (c.lua_pcallk(state, 0, 0, 0, 0, null) != c.LUA_OK) return false;
+    if (c.lua_pcallk(state, 0, 0, 0, 0, null) != c.LUA_OK) {
+        if (c.lua_tolstring(state, -1, null)) |message| std.debug.print("Codec: {s}\n", .{message});
+        return false;
+    }
     return true;
 }
 
@@ -417,10 +424,8 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
         return false;
     };
     defer A.free(catalog);
-    var work_template: [256]u8 = undefined;
-    const work_z = std.fmt.bufPrintZ(&work_template, "/tmp/elis-native-XXXXXX", .{}) catch return false;
-    const work_ptr = c.mkdtemp(work_z.ptr) orelse return false;
-    const work = std.mem.span(work_ptr);
+    var work_template: [2048]u8 = undefined;
+    const work = native.temporaryDirectory(&work_template, "elis-native") orelse return false;
     defer removeTree(work);
 
     const codec_zip = std.fmt.allocPrint(A, "{s}/codec.zip", .{work}) catch return false;
@@ -555,7 +560,7 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
                 failed = true;
                 continue;
             }
-            _ = c.mkdir("demos", 0o755);
+            _ = native.mkdir("demos", 0o755);
             if (installTreeAtomically(current_path, target_path)) updated = true else {
                 browser_notice = .demo_prepare_failed;
                 failed = true;
@@ -1381,17 +1386,12 @@ const PackageScan = struct {
     entries: usize = 0,
 };
 
-const PackageEntryKind = enum { regular, directory, invalid };
+const PackageEntryKind = native.EntryKind;
 
 fn packageEntryKind(path: []const u8) PackageEntryKind {
     var path_buffer: [2048]u8 = undefined;
     const path_z = std.fmt.bufPrintZ(&path_buffer, "{s}", .{path}) catch return .invalid;
-    var info: c.struct_stat = undefined;
-    if (c.lstat(path_z.ptr, &info) != 0) return .invalid;
-    const kind = info.st_mode & c.S_IFMT;
-    if (kind == c.S_IFREG) return .regular;
-    if (kind == c.S_IFDIR) return .directory;
-    return .invalid;
+    return native.entryKind(path_z.ptr);
 }
 
 fn scanPackageTree(
@@ -1464,17 +1464,18 @@ fn makeParentDirs(path: []const u8) void {
     // Start after the leading slash so absolute temporary paths keep their
     // root component. Only separators are replaced temporarily.
     for (buf[1..path.len], 1..) |byte, index| {
-        if (byte != '/') continue;
+        if (byte != '/' and !(native.windows and byte == '\\')) continue;
+        if (native.windows and index == 2 and buf[1] == ':') continue;
         buf[index] = 0;
-        _ = c.mkdir(&buf, 0o755);
-        buf[index] = '/';
+        _ = native.mkdir(buf[0..index :0].ptr, 0o755);
+        buf[index] = byte;
     }
 }
 fn removeTree(path: []const u8) void {
     var path_z_buf: [2048]u8 = undefined;
     const path_z = std.fmt.bufPrintZ(&path_z_buf, "{s}", .{path}) catch return;
     if (packageEntryKind(path) != .directory) {
-        _ = c.remove(path_z.ptr);
+        _ = native.remove(path_z.ptr);
         return;
     }
     const dir = c.opendir(path_z.ptr) orelse return;
@@ -1485,7 +1486,7 @@ fn removeTree(path: []const u8) void {
         const child_path = std.fmt.bufPrintZ(&child, "{s}/{s}", .{ path, name }) catch continue;
         if (packageEntryKind(child_path) == .directory) {
             removeTree(child_path);
-        } else _ = c.remove(child_path.ptr);
+        } else _ = native.remove(child_path.ptr);
     }
     _ = c.closedir(dir);
     _ = c.rmdir(path_z.ptr);
@@ -1494,9 +1495,9 @@ fn removeTree(path: []const u8) void {
 /// returned path and must remove the directory and free the slice.
 fn extractArchive(path: []const u8, bytes_max: usize) ?[]u8 {
     if (fileSizeLimited(path, bytes_max) == null) return null;
-    var template: [256]u8 = undefined;
-    const t = std.fmt.bufPrintZ(&template, "/tmp/elis-archive-XXXXXX", .{}) catch return null;
-    const root = c.mkdtemp(t.ptr) orelse return null;
+    var template: [2048]u8 = undefined;
+    const root_path = native.temporaryDirectory(&template, "elis-archive") orelse return null;
+    const root = root_path.ptr;
     var keep_root = false;
     defer if (!keep_root) removeTree(std.mem.span(root));
     const archive_z = std.fmt.allocPrintSentinel(A, "{s}", .{path}, 0) catch return null;
@@ -1531,12 +1532,13 @@ fn extractArchive(path: []const u8, bytes_max: usize) ?[]u8 {
         ) catch return null;
         if (name[name.len - 1] == '/') {
             makeParentDirs(out_path);
-            _ = c.mkdir(out_path.ptr, 0o755);
+            if (native.mkdir(out_path.ptr, 0o755) != 0 and packageEntryKind(out_path) != .directory) return null;
             continue;
         }
         makeParentDirs(out_path);
         const zf = c.zip_fopen_index(za, index, 0) orelse return null;
-        const file = c.fopen(out_path.ptr, "wb") orelse {
+        // Exclusive creation also rejects Win32 case/short-name aliases.
+        const file = c.fopen(out_path.ptr, "wbx") orelse {
             _ = c.zip_fclose(zf);
             return null;
         };
@@ -1582,9 +1584,7 @@ fn archivePathUnsafe(path: []const u8) bool {
     var component_count: usize = 0;
     var components = std.mem.splitScalar(u8, relative, '/');
     while (components.next()) |component| {
-        if (component.len == 0 or std.mem.eql(u8, component, ".") or
-            std.mem.eql(u8, component, "..") or component_count == 32)
-        {
+        if (!@import("studio/package_path.zig").safeComponent(component) or component_count == 32) {
             return true;
         }
         component_count += 1;
@@ -3356,7 +3356,13 @@ fn printLupiConstraints() void {
 pub fn main(init: std.process.Init) !void {
     for (&fb) |*r| @memset(r, 0);
     defer clearDemos();
-    const args = init.minimal.args.vector;
+    c.SDL_SetMainReady();
+    var iterator = try std.process.Args.Iterator.initAllocator(init.minimal.args, A);
+    defer iterator.deinit();
+    var arguments: std.ArrayList([*:0]const u8) = .empty;
+    defer arguments.deinit(A);
+    while (iterator.next()) |argument| try arguments.append(A, argument.ptr);
+    const args = arguments.items;
     if (args.len == 2 and std.mem.eql(u8, std.mem.span(args[1]), "--self-test-parity")) return verifyParityCore();
     if (args.len == 2 and std.mem.eql(u8, std.mem.span(args[1]), "--self-test-settings")) return verifySettingsRoundTrip();
     if (args.len == 2 and std.mem.eql(u8, std.mem.span(args[1]), "--self-test-compositor")) return verifySdlCompositor();
@@ -3418,7 +3424,8 @@ pub fn main(init: std.process.Init) !void {
     defer c.SDL_DestroyWindow(win);
     input_state.setFocused(c.SDL_GetWindowFlags(win) & c.SDL_WINDOW_INPUT_FOCUS != 0);
     c.SDL_SetWindowMinimumSize(win, W, H);
-    const ren = c.SDL_CreateRenderer(win, -1, c.SDL_RENDERER_ACCELERATED | c.SDL_RENDERER_PRESENTVSYNC) orelse return error.SdlRenderer;
+    const ren = c.SDL_CreateRenderer(win, -1, c.SDL_RENDERER_ACCELERATED | c.SDL_RENDERER_PRESENTVSYNC) orelse
+        c.SDL_CreateRenderer(win, -1, c.SDL_RENDERER_SOFTWARE) orelse return error.SdlRenderer;
     defer c.SDL_DestroyRenderer(ren);
     const tex = c.SDL_CreateTexture(ren, c.SDL_PIXELFORMAT_RGBA8888, c.SDL_TEXTUREACCESS_STREAMING, W, H) orelse return error.SdlTexture;
     defer c.SDL_DestroyTexture(tex);

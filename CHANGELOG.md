@@ -1,11 +1,20 @@
 # ELIS Changelog
 
-## Unreleased
+## 0.1.0-rc.1 — release candidate
 
+- Added native Windows x86-64 UCRT64 builds and portable package-path, temporary
+  directory, archive extraction, and codec-host handling.
+- Added Ubuntu 24.04 and Windows binary packaging, dependency/source provenance,
+  checksums, extracted-package smoke gates, and protected-main prerelease publication.
+- Scoped Windows dependency licenses to the bundled library components and verified
+  pinned Git source archives using makepkg-compatible checksums without trusting
+  downloaded repository configuration.
 - Protected manifest-driven sprite initialization against Lua heap exhaustion,
   preserving host allocation cleanup and returning a controlled cartridge-load error.
 - Fixed clean Ubuntu CI dependency discovery and Lua interpreter installation,
   disabled persisted checkout credentials, and made every runtime smoke invocation headless.
+- Added runtime software-renderer fallback for hosts without SDL acceleration,
+  matching Workshop, and explicitly disabled executable stacks in native links.
 - Added Mario Paint-style line and outline/filled rectangle tools with live drag previews, erase-shapes, controller/keyboard parity, and single-command undo.
 - Added LDtk-style per-layer session visibility and painting locks with compact controls and keyboard shortcuts.
 - Added bounded map resize/rebase with nine content anchors, preflight clipping counts, spawn/goal warnings, semantic smart-terrain refresh, and unified undo/redo.
