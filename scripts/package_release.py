@@ -126,6 +126,16 @@ def compatible_library_license(expression, owner, version):
     if (owner == "mingw-w64-ucrt-x86_64-bzip2" and version == "1.0.8-4"
             and expression == "custom"):
         return
+    # Reviewed legacy metadata, not blanket acceptance of unknown licenses.
+    # LAME's COPYING is the GNU Library GPL v2; Vorbis uses BSD-3-Clause:
+    # https://github.com/rbrito/lame/blob/master/COPYING
+    # https://github.com/xiph/vorbis/blob/v1.3.7/COPYING
+    legacy_licenses = {
+        ("mingw-w64-ucrt-x86_64-lame", "3.100-3", "LGPL"),
+        ("mingw-w64-ucrt-x86_64-libvorbis", "1.3.7-3", "custom"),
+    }
+    if (owner, version, expression) in legacy_licenses:
+        return
     allowed = {
         "MIT", "BSD-2-Clause", "BSD-3-Clause", "BSD-4-Clause", "0BSD", "ISC",
         "Zlib", "curl", "Apache-2.0", "BSL-1.0", "Unlicense", "CC0-1.0",
