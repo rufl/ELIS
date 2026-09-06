@@ -1,7 +1,11 @@
 # ELIS Changelog
 
-## Unreleased
+## 0.1.0-rc.1 — release candidate
 
+- Added native Windows x86-64 UCRT64 builds and portable package-path, temporary
+  directory, archive extraction, and codec-host handling.
+- Added Ubuntu 24.04 and Windows binary packaging, dependency/source provenance,
+  checksums, extracted-package smoke gates, and protected-main prerelease publication.
 - Protected manifest-driven sprite initialization against Lua heap exhaustion,
   preserving host allocation cleanup and returning a controlled cartridge-load error.
 - Fixed clean Ubuntu CI dependency discovery and Lua interpreter installation,

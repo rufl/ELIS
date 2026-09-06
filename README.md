@@ -17,6 +17,11 @@ in [COMPATIBILITY.md](COMPATIBILITY.md).
 > a hardware-approved release. See [ROADMAP.md](ROADMAP.md) and
 > [BACKLOG.md](BACKLOG.md) for the remaining proof boundaries.
 
+Experimental binary packaging targets Ubuntu 24.04 x86-64 and Windows 10 1903+
+x86-64. Windows packages include native DLLs and their corresponding sources;
+Linux packages use system libraries. See [binary release gates](docs/RELEASING.md#binary-prereleases).
+Prereleases are unsigned and do not include the Mr. Rescue validation cartridge.
+
 Contributor entry points:
 
 - [Architecture and ownership](ARCHITECTURE.md)
@@ -39,6 +44,19 @@ sudo apt-get install --yes --no-install-recommends \
   libsdl2-dev liblua5.4-dev libzip-dev \
   libcurl4-openssl-dev libsndfile1-dev
 ```
+
+For Windows builds, install Zig 0.16.0 and open an MSYS2 **UCRT64** shell:
+
+```sh
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,pkgconf,SDL2,lua54,libzip,curl,libsndfile}
+bash scripts/build_windows.sh ReleaseSafe
+```
+
+Run `zig-out/bin/elis.exe` or `elis-studio.exe` with the UCRT64 DLL directory
+on `PATH`; release ZIPs include the needed DLLs. Automatic conversion of source
+demos additionally requires MSYS2 Bash/coreutils and
+`mingw-w64-ucrt-x86_64-imagemagick`. Set `ELIS_CODEC_BASH` if Bash is not at
+`C:/msys64/usr/bin/bash.exe`. Already encoded cartridges need no conversion tools.
 
 Build and run from the repository root:
 

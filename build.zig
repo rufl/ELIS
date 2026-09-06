@@ -1,8 +1,7 @@
 //! Host-native build graph for the simulator, Workshop, and maintained gates.
 //!
-//! C dependency discovery and the GCC CRT compatibility copy remain in
-//! `scripts/build_native.sh`; this graph intentionally exposes no target that
-//! the host-specific linker path cannot honor.
+//! Dependency discovery and linking remain in host-specific build scripts.
+//! Cross-compilation is deliberately not offered without the native libraries.
 
 const std = @import("std");
 
@@ -10,11 +9,14 @@ pub fn build(b: *std.Build) void {
     // Native dependencies and the CRT workaround are host-specific. Omitting
     // standardTargetOptions prevents a misleading, silently ignored -Dtarget.
     const optimize = b.standardOptimizeOption(.{});
-    const native_cmd = b.addSystemCommand(&.{ "bash", "scripts/build_native.sh" });
+    const windows = @import("builtin").os.tag == .windows;
+    const native_cmd = b.addSystemCommand(&.{
+        "bash", if (windows) "scripts/build_windows.sh" else "scripts/build_native.sh",
+    });
     native_cmd.addArg(@tagName(optimize));
     b.getInstallStep().dependOn(&native_cmd.step);
 
-    const run = b.addSystemCommand(&.{"zig-out/bin/elis"});
+    const run = b.addSystemCommand(&.{if (windows) "zig-out/bin/elis.exe" else "zig-out/bin/elis"});
     run.step.dependOn(&native_cmd.step);
     if (b.args) |args| run.addArgs(args);
     const step = b.step("run", "Run ELIS");
@@ -23,7 +25,7 @@ pub fn build(b: *std.Build) void {
     const native = b.step("native", "Build the native binary with the portable linker workaround");
     native.dependOn(&native_cmd.step);
 
-    const studio_run = b.addSystemCommand(&.{"zig-out/bin/elis-studio"});
+    const studio_run = b.addSystemCommand(&.{if (windows) "zig-out/bin/elis-studio.exe" else "zig-out/bin/elis-studio"});
     studio_run.step.dependOn(&native_cmd.step);
     if (b.args) |args| studio_run.addArgs(args);
     const studio = b.step("studio", "Open the playful native ELIS Workshop map and level editor");

@@ -157,9 +157,7 @@ fn safeAssetPath(path: []const u8) bool {
     var component_count: usize = 0;
     var components = std.mem.splitScalar(u8, path, '/');
     while (components.next()) |component| {
-        if (component.len == 0 or std.mem.eql(u8, component, ".") or
-            std.mem.eql(u8, component, "..") or component_count == 32)
-        {
+        if (!@import("../package_path.zig").safeComponent(component) or component_count == 32) {
             return false;
         }
         component_count += 1;

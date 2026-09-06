@@ -793,6 +793,7 @@ fn verifyAtlasIdentity(allocator: std.mem.Allocator) !void {
 }
 
 pub fn main(init: std.process.Init) !void {
+    c.SDL_SetMainReady();
     var project_path: []const u8 = "save/world.elisworld";
     var export_path: []const u8 = "save/world.lua";
     var tileset_name: []const u8 = "tiles/world";
@@ -811,7 +812,7 @@ pub fn main(init: std.process.Init) !void {
     var self_test_atlas_identity = false;
     var window_width: i32 = 1280;
     var window_height: i32 = 760;
-    var args = std.process.Args.Iterator.init(init.minimal.args);
+    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
     defer args.deinit();
     _ = args.skip();
     while (args.next()) |argument| {
