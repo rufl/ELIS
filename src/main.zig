@@ -260,7 +260,7 @@ fn githubRepositorySlug(url: []const u8) ?[]const u8 {
 }
 
 fn githubPathComponent(component: []const u8) bool {
-    if (!@import("package_path.zig").safeComponent(component)) return false;
+    if (!@import("studio/package_path.zig").safeComponent(component)) return false;
     for (component) |byte| {
         if (!std.ascii.isAlphanumeric(byte) and byte != '_' and byte != '-' and byte != '.') {
             return false;
@@ -1584,7 +1584,7 @@ fn archivePathUnsafe(path: []const u8) bool {
     var component_count: usize = 0;
     var components = std.mem.splitScalar(u8, relative, '/');
     while (components.next()) |component| {
-        if (!@import("package_path.zig").safeComponent(component) or component_count == 32) {
+        if (!@import("studio/package_path.zig").safeComponent(component) or component_count == 32) {
             return true;
         }
         component_count += 1;

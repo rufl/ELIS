@@ -500,7 +500,7 @@ external manifest. Archive timestamps are normalized, not build timestamps.
 """
     if windows:
         return common + """
-Platform: Windows 10/11 x86_64, UCRT. This is a native Windows build.
+Platform: Windows 10 version 1903 or newer / Windows 11 x86_64, UCRT.
 No MSYS2 installation or compiler is needed to run it. Non-system imported
 DLLs are bundled recursively; Windows supplies OS/API-set DLLs. A working
 display/audio driver is needed for interactive use.
@@ -509,6 +509,11 @@ Double-click run-elis.cmd or run-workshop.cmd. PowerShell alternatives:
   .\\elis.exe example
   .\\elis.exe mazestein3d
   .\\elis-studio.exe
+
+Optional source-demo conversion requires MSYS2 Bash/coreutils plus
+mingw-w64-ucrt-x86_64-imagemagick (ImageMagick 7). ELIS_CODEC_BASH selects
+bash.exe when it is not at C:/msys64/usr/bin/bash.exe. Encoded cartridges
+and the bundled examples do not require these tools.
 
 LICENSES/msys2 retains each shipped package's installed license texts.
 Library package versions, upstream URLs and license expressions are in

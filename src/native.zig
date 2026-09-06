@@ -9,6 +9,11 @@ pub const windows = @import("builtin").os.tag == .windows;
 pub const c = @cImport({
     @cDefine("SDL_MAIN_HANDLED", "1");
     if (windows) {
+        // Import CRT declarations, not GCC object-size fortify wrappers that
+        // Zig 0.16 cannot translate. Prebuilt DLL hardening is unchanged;
+        // ELIS buffer bounds remain checked by ReleaseSafe Zig code.
+        @cUndef("_FORTIFY_SOURCE");
+        @cDefine("_FORTIFY_SOURCE", "0");
         @cDefine("WIN32_LEAN_AND_MEAN", "1");
         @cInclude("windows.h");
         @cInclude("direct.h");
