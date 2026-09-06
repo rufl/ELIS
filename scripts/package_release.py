@@ -141,7 +141,7 @@ def compatible_library_license(expression, owner, version):
         "Zlib", "curl", "Apache-2.0", "BSL-1.0", "Unlicense", "CC0-1.0",
         "LGPL-2.0-only", "LGPL-2.0-or-later", "LGPL-2.1-only",
         "LGPL-2.1-or-later", "LGPL-3.0-only", "LGPL-3.0-or-later",
-        "Unicode-3.0", "Unicode-DFS-2016", "MPL-2.0",
+        "Unicode-3.0", "Unicode-DFS-2016", "MPL-2.0", "BSD-3-Clause-Clear",
     }
     tokens = re.findall(r"\(|\)|[^\s()]+", expression.replace("spdx:", ""))
     position = 0
@@ -677,6 +677,9 @@ def main():
         # https://github.com/xiph/flac/blob/1.5.0/README.md
         # https://github.com/autotools-mirror/gettext/blob/v1.0/gettext-runtime/intl/libintl.rc
         # https://github.com/msys2/MINGW-packages/blob/master/mingw-w64-libiconv/PKGBUILD
+        # https://github.com/gnutls/libtasn1/blob/master/README.md
+        # https://github.com/tukaani-project/xz/blob/master/COPYING
+        # https://gmplib.org/manual/Copying
         component_licenses = {
             "mingw-w64-ucrt-x86_64-flac": (
                 "1.5.0-2", {"libflac.dll", "libflac-14.dll", "libflac++-11.dll"}, "BSD-3-Clause"),
@@ -684,6 +687,12 @@ def main():
                 "1.0-1", {"libintl-8.dll"}, "LGPL-2.1-or-later"),
             "mingw-w64-ucrt-x86_64-libiconv": (
                 "1.19-1", {"libiconv-2.dll", "libcharset-1.dll"}, "LGPL-2.1-or-later"),
+            "mingw-w64-ucrt-x86_64-libtasn1": (
+                "4.21.0-1", {"libtasn1-6.dll"}, "LGPL-2.1-or-later"),
+            "mingw-w64-ucrt-x86_64-xz": (
+                "5.8.3-1", {"liblzma-5.dll"}, "0BSD"),
+            "mingw-w64-ucrt-x86_64-gmp": (
+                "6.3.0-2", {"libgmp-10.dll", "libgmpxx-4.dll"}, "LGPL-3.0-or-later"),
         }
         for package in provenance["library_packages"]:
             scope = component_licenses.get(package["name"])
