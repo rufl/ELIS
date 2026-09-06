@@ -663,6 +663,21 @@ def main():
     provenance = windows_libraries(binaries, files) if windows else linux_libraries(binaries)
     if windows:
         for package in provenance["library_packages"]:
+            # FLAC's package metadata also covers GPL tools and FDL manuals.
+            # Only its BSD-licensed codec DLLs are approved here:
+            # https://github.com/xiph/flac/blob/1.5.0/README.md
+            if package["name"] == "mingw-w64-ucrt-x86_64-flac":
+                shipped = {
+                    library["file"].lower()
+                    for library in provenance["shipped_libraries"]
+                    if library["package"] == package["name"]
+                }
+                if (package["version"] != "1.5.0-2" or not shipped
+                        or not shipped <= {"libflac.dll", "libflac-14.dll", "libflac++-11.dll"}):
+                    raise RuntimeError(f"Unreviewed FLAC binary selection: {shipped}")
+                package["package_licenses"] = package["licenses"]
+                package["licenses"] = "BSD-3-Clause"
+                package["license_scope"] = "Bundled libFLAC/libFLAC++ codec DLLs only"
             source_data, source, source_licenses = corresponding_source(package)
             destination = source["file"]
             if destination in files and files[destination][0] != source_data:
