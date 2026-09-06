@@ -65,7 +65,7 @@ jobs:
             mingw-w64-ucrt-x86_64-SDL2
             mingw-w64-ucrt-x86_64-lua54
             mingw-w64-ucrt-x86_64-libzip
-            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-curl-winssl
             mingw-w64-ucrt-x86_64-libsndfile
             mingw-w64-ucrt-x86_64-python
       - name: Build and package Windows

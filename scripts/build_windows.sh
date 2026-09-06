@@ -24,6 +24,8 @@ if [[ "$(pkg-config --modversion "$lua_pkg")" != 5.4.* ]]; then
   echo "ELIS requires mingw-w64-ucrt-x86_64-lua54 (Lua 5.4), not the unversioned Lua package" >&2
   exit 1
 fi
+# Use the Windows trust store, not a build-machine CA-bundle path.
+pacman -Q mingw-w64-ucrt-x86_64-curl-winssl >/dev/null
 packages=(sdl2 "$lua_pkg" libzip libcurl sndfile)
 pkg-config --exists "${packages[@]}"
 work_dir="$(mktemp -d)"

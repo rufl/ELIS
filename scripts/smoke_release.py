@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise extracted release binaries without a checkout or developer display."""
+import ctypes
 import argparse
 import os
 from pathlib import Path
@@ -14,6 +15,34 @@ def run(command, cwd, env):
     if result.returncode:
         raise RuntimeError(f"{command}: {result.returncode}\n{result.stdout}\n{result.stderr}")
     return result.stdout + result.stderr
+
+
+def windows_https(package):
+    # Exercise TLS from the shipped DLL against the native certificate store.
+    # No MSYS2 CA files, disabled verification, or development DLL paths.
+    with os.add_dll_directory(str(package)):
+        curl = ctypes.CDLL(str(package / "libcurl-4.dll"))
+        curl.curl_global_init.argtypes = [ctypes.c_long]
+        curl.curl_easy_init.restype = ctypes.c_void_p
+        curl.curl_easy_setopt.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        curl.curl_easy_perform.argtypes = [ctypes.c_void_p]
+        curl.curl_easy_cleanup.argtypes = [ctypes.c_void_p]
+        curl.curl_easy_getinfo.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        assert curl.curl_global_init(3) == 0
+        handle = curl.curl_easy_init()
+        assert handle
+        try:
+            for option, value in ((10002, ctypes.c_char_p(b"https://api.github.com/")),
+                                  (10018, ctypes.c_char_p(b"ELIS-release-smoke")),
+                                  (44, ctypes.c_long(1)), (13, ctypes.c_long(30))):
+                assert curl.curl_easy_setopt(handle, option, value) == 0
+            assert curl.curl_easy_perform(handle) == 0, "Packaged HTTPS certificate validation failed"
+            status = ctypes.c_long()
+            assert curl.curl_easy_getinfo(handle, 0x200002, ctypes.byref(status)) == 0
+            assert status.value == 200, f"Unexpected HTTPS status: {status.value}"
+        finally:
+            curl.curl_easy_cleanup(handle)
+            curl.curl_global_cleanup()
 
 
 def main():
@@ -39,6 +68,7 @@ def main():
             env.pop(key, None)
         if os.name == "nt":
             env["PATH"] = str(package) + os.pathsep + str(Path(env["SystemRoot"]) / "System32")
+            windows_https(package)
         env["XDG_DATA_HOME"] = str(root / "profile")
         assert "Usage:" in run([str(runtime), "--help"], package, env)
         assert "lua=5.4" in run([str(runtime), "--lupi-constraints"], package, env)

@@ -48,7 +48,7 @@ sudo apt-get install --yes --no-install-recommends \
 For Windows builds, install Zig 0.16.0 and open an MSYS2 **UCRT64** shell:
 
 ```sh
-pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,pkgconf,SDL2,lua54,libzip,curl,libsndfile}
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,pkgconf,SDL2,lua54,libzip,curl-winssl,libsndfile}
 bash scripts/build_windows.sh ReleaseSafe
 ```
 
@@ -57,6 +57,8 @@ on `PATH`; release ZIPs include the needed DLLs. Automatic conversion of source
 demos additionally requires MSYS2 Bash/coreutils and
 `mingw-w64-ucrt-x86_64-imagemagick`. Set `ELIS_CODEC_BASH` if Bash is not at
 `C:/msys64/usr/bin/bash.exe`. Already encoded cartridges need no conversion tools.
+The Windows build uses libcurl's Schannel backend and the Windows certificate
+store, so HTTPS downloads do not depend on an MSYS2 CA-bundle path.
 
 Build and run from the repository root:
 
