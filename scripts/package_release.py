@@ -680,6 +680,7 @@ def main():
         # https://github.com/gnutls/libtasn1/blob/master/README.md
         # https://github.com/tukaani-project/xz/blob/master/COPYING
         # https://gmplib.org/manual/Copying
+        # https://github.com/libidn/libidn2/blob/v2.3.8/README.md
         component_licenses = {
             "mingw-w64-ucrt-x86_64-flac": (
                 "1.5.0-2", {"libflac.dll", "libflac-14.dll", "libflac++-11.dll"}, "BSD-3-Clause"),
@@ -693,6 +694,8 @@ def main():
                 "5.8.3-1", {"liblzma-5.dll"}, "0BSD"),
             "mingw-w64-ucrt-x86_64-gmp": (
                 "6.3.0-2", {"libgmp-10.dll", "libgmpxx-4.dll"}, "LGPL-3.0-or-later"),
+            "mingw-w64-ucrt-x86_64-libidn2": (
+                "2.3.8-4", {"libidn2-0.dll"}, "LGPL-3.0-or-later"),
         }
         for package in provenance["library_packages"]:
             scope = component_licenses.get(package["name"])
