@@ -6,6 +6,8 @@
   preserving host allocation cleanup and returning a controlled cartridge-load error.
 - Fixed clean Ubuntu CI dependency discovery and Lua interpreter installation,
   disabled persisted checkout credentials, and made every runtime smoke invocation headless.
+- Added runtime software-renderer fallback for hosts without SDL acceleration,
+  matching Workshop, and explicitly disabled executable stacks in native links.
 - Added Mario Paint-style line and outline/filled rectangle tools with live drag previews, erase-shapes, controller/keyboard parity, and single-command undo.
 - Added LDtk-style per-layer session visibility and painting locks with compact controls and keyboard shortcuts.
 - Added bounded map resize/rebase with nine content anchors, preflight clipping counts, spawn/goal warnings, semantic smart-terrain refresh, and unified undo/redo.

@@ -3418,7 +3418,8 @@ pub fn main(init: std.process.Init) !void {
     defer c.SDL_DestroyWindow(win);
     input_state.setFocused(c.SDL_GetWindowFlags(win) & c.SDL_WINDOW_INPUT_FOCUS != 0);
     c.SDL_SetWindowMinimumSize(win, W, H);
-    const ren = c.SDL_CreateRenderer(win, -1, c.SDL_RENDERER_ACCELERATED | c.SDL_RENDERER_PRESENTVSYNC) orelse return error.SdlRenderer;
+    const ren = c.SDL_CreateRenderer(win, -1, c.SDL_RENDERER_ACCELERATED | c.SDL_RENDERER_PRESENTVSYNC) orelse
+        c.SDL_CreateRenderer(win, -1, c.SDL_RENDERER_SOFTWARE) orelse return error.SdlRenderer;
     defer c.SDL_DestroyRenderer(ren);
     const tex = c.SDL_CreateTexture(ren, c.SDL_PIXELFORMAT_RGBA8888, c.SDL_TEXTUREACCESS_STREAMING, W, H) orelse return error.SdlTexture;
     defer c.SDL_DestroyTexture(tex);

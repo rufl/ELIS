@@ -77,11 +77,11 @@ build_object_with_retry() {
 build_object_with_retry src/main.zig "$work_dir/elis.o" elis
 build_object_with_retry src/studio_app.zig "$work_dir/elis-studio.o" studio
 
-"$linker_cc" -nostartfiles -no-pie "$work_dir/crt1.o" "$work_dir/elis.o" \
+"$linker_cc" -nostartfiles -no-pie -Wl,-z,noexecstack "$work_dir/crt1.o" "$work_dir/elis.o" \
   -o zig-out/bin/elis \
   $(pkg-config --libs sdl2 "$lua_pkg" libzip libcurl sndfile) -lm -lpthread -ldl -lc
 
-"$linker_cc" -nostartfiles -no-pie "$work_dir/crt1.o" "$work_dir/elis-studio.o" \
+"$linker_cc" -nostartfiles -no-pie -Wl,-z,noexecstack "$work_dir/crt1.o" "$work_dir/elis-studio.o" \
   -o zig-out/bin/elis-studio \
   $(pkg-config --libs sdl2 "$lua_pkg" libzip libcurl sndfile) -lm -lpthread -ldl -lc
 
