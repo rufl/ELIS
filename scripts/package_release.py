@@ -678,6 +678,19 @@ def main():
                 package["package_licenses"] = package["licenses"]
                 package["licenses"] = "BSD-3-Clause"
                 package["license_scope"] = "Bundled libFLAC/libFLAC++ codec DLLs only"
+            # gettext's GPL command-line tools are not part of libintl.
+            # https://github.com/autotools-mirror/gettext/blob/v1.0/gettext-runtime/intl/libintl.rc
+            if package["name"] == "mingw-w64-ucrt-x86_64-gettext-runtime":
+                shipped = {
+                    library["file"].lower()
+                    for library in provenance["shipped_libraries"]
+                    if library["package"] == package["name"]
+                }
+                if package["version"] != "1.0-1" or shipped != {"libintl-8.dll"}:
+                    raise RuntimeError(f"Unreviewed gettext binary selection: {shipped}")
+                package["package_licenses"] = package["licenses"]
+                package["licenses"] = "LGPL-2.1-or-later"
+                package["license_scope"] = "Bundled libintl DLL only"
             source_data, source, source_licenses = corresponding_source(package)
             destination = source["file"]
             if destination in files and files[destination][0] != source_data:
