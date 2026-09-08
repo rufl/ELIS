@@ -17,6 +17,9 @@
 - Added audited, reproducible Mr. Rescue playtest packaging with separate
   checksums, explicit replacement, and Linux/Windows launchers for installed
   bundles and source builds; added archive-integrity and failure-preservation gates.
+- Separated Mr. Rescue's stage from its bottom HUD and added bounded vertical
+  camera tracking, preserving native-size floors, characters, and assets.
+  Added a framebuffer overlap regression and refreshed affected render baselines.
 
 ## 0.1.0-rc.1 — release candidate
 

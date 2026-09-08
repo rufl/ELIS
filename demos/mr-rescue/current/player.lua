@@ -421,6 +421,11 @@ function Player.cameraX()
   return math.floor(cap(Player.x - 240, 0, Profile.map_width * 16 - Profile.width))
 end
 
+function Player.cameraY()
+  return math.floor(cap(Player.y - Profile.stage_height / 2,
+                        0, Profile.map_height * Profile.tile_size - Profile.stage_height))
+end
+
 function Player.draw(camera_x, origin_y, water_color)
   local frame = math.floor(Player.animation / 7.2) % 4
   local screen_x = math.floor(Player.x - camera_x)

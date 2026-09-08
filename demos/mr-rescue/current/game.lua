@@ -682,7 +682,7 @@ end
 
 local function drawHud()
   local hud_x = 112
-  local hud_y = 238
+  local hud_y = Profile.stage_height
   ui.tile(hud_sprite, 0, hud_x, hud_y)
 
   local water_width = math.floor(Player.water * 55 / Player.water_capacity + 0.5)
@@ -727,8 +727,9 @@ end
 
 local function drawPlay(world_offset, hide_boss_hud)
   ui.cls(COLOR_BLACK)
+  ui.clip(0, 0, Profile.width, Profile.stage_height)
   local camera_x = Player.cameraX()
-  local origin_y = 14 + (world_offset or 0)
+  local origin_y = -Player.cameraY() + (world_offset or 0)
   World.draw(camera_x, origin_y, family_presentation)
   Player.draw(camera_x, origin_y, COLOR_BLUE)
   World.draw(camera_x, origin_y, family_presentation, "front")
@@ -740,6 +741,7 @@ local function drawPlay(world_offset, hide_boss_hud)
   end
   World.drawWarnings(camera_x, origin_y, frames, family_presentation)
   if not hide_boss_hud then World.drawBossHud() end
+  ui.clip()
   drawHud()
 end
 

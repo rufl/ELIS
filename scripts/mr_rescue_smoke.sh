@@ -117,6 +117,8 @@ assert(maximum_rooms * 2 * 3 == profile.generated_enemy_max)
 assert(profile.fire_max == 35 * 18)
 LUA
 
+python3 scripts/mr_rescue_viewport_smoke.py --game "$game"
+
 title_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$game" 1 "$tmp/title.ppm" 2>&1)"
 if grep -Eqi 'Erro|error:' <<<"$title_output"; then
@@ -247,7 +249,7 @@ grep -Eq 'SAFE=[1-9][0-9]*' <<<"$play_output"
 while read -r lua_bytes; do
   test "$lua_bytes" -lt $((4 * 1024 * 1024))
 done < <(grep -o 'MR_RESCUE_LUA_BYTES=[0-9]*' <<<"$play_output" | cut -d= -f2)
-expected_play="915b5c160153baf009b44e954d6b71ac1340d9e7f042b43c5c987c95b93522fe"
+expected_play="adb1fff5d2bcade7bce04ec1d08d6e8a4a419be87656cff97b36dcf2f46c0e74"
 test "$(sha256sum "$tmp/play.ppm" | awk '{print $1}')" = "$expected_play"
 
 cp -R "$game" "$tmp/family"
@@ -261,7 +263,7 @@ test "$(grep 'MR_RESCUE_HUMAN=' <<<"$family_output")" = \
 test "$(grep 'MR_RESCUE_LUA_BYTES=' <<<"$family_output" | tail -1 | \
   grep -o 'X=.*')" = \
   "$(grep 'MR_RESCUE_LUA_BYTES=' <<<"$play_output" | tail -1 | grep -o 'X=.*')"
-expected_family="389e745cb7d5f34009c45bd8265c1dcbfad769f50322516d9ef4c51ea8b1c1e0"
+expected_family="4deb74eef13d1f11edc76789955b1ca949054419c62b95f8d3e38ae3390a31b1"
 test "$(sha256sum "$tmp/family.ppm" | awk '{print $1}')" = "$expected_family"
 
 cp -R "$game" "$tmp/high"
@@ -282,13 +284,13 @@ for enemy_kind in 1 2 3 4 5 6 7; do
 done
 grep -Eq 'MR_RESCUE_ENEMY=(2|5) .*STATE=2' <<<"$high_output"
 grep -Eq 'MR_RESCUE_WORLD .*PROJECTILES=[1-9][0-9]*' <<<"$high_output"
-expected_high="1e99a9105fdc0f37c6dc921200b757d3c956be8e9410d14e1447874802d40cf2"
+expected_high="67f3b40106ab545f7a554a8c32471c3814e247ff2216026e539a54fd0a7ba8f1"
 test "$(sha256sum "$tmp/high.ppm" | awk '{print $1}')" = "$expected_high"
 
 boss_hashes=(
-  4354671916c7d39b9c36c3bc5765a4d40c868663c236d50f37a6f8c897130680
-  4f9601f7f36da691c442cd33d956039c861ca7bac40c8ac1561fc4d36215a226
-  fd9c1d5711ac461df96433afbfffa5609d2fc0bdbd658348f3a4e3b9ec9fc545
+  fb896abe7bb8387818bd53f2bccb07977dabd59a964a225389de17ac2c6ae00a
+  c81c13a09dab1b5b1d7ffb070322bff74303c12980d7f11817c851fb3a9d2db4
+  bca7b52a255f5f28655e2bfc5c3df4dfebae6a4672410a51c88655dd1e076249
 )
 for boss in 1 2 3; do
   cp -R "$game" "$tmp/boss-$boss"
