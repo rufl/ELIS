@@ -66,6 +66,11 @@ const BrowserNotice = enum {
     codec_extract_failed,
     codec_invalid,
     demo_prepare_failed,
+    codec_host_failed,
+    codec_run_failed,
+    codec_output_missing,
+    demo_source_invalid,
+    demo_install_failed,
     audio_copy_failed,
     demos_updated,
     no_updates,
@@ -108,6 +113,8 @@ fn luaAllocate(
 
 var settings_state = Settings{};
 var browser_notice: BrowserNotice = .none;
+var update_log: ?*c.FILE = null;
+var update_log_available = false;
 var update_dialog = false;
 var quit_dialog = false;
 var quit_selection: usize = 0;
@@ -184,7 +191,12 @@ fn downloadFile(url: []const u8, path: []const u8) bool {
     {
         return false;
     }
-    if (c.curl_easy_perform(easy) != c.CURLE_OK or c.fflush(file) != 0) {
+    const result = c.curl_easy_perform(easy);
+    if (result != c.CURLE_OK) {
+        logUpdate("Download", std.mem.span(c.curl_easy_strerror(result)));
+        return false;
+    }
+    if (c.fflush(file) != 0) {
         return false;
     }
     const close_result = c.fclose(file);
@@ -341,6 +353,8 @@ fn findFileRoot(root: []const u8, filename: []const u8, depth: usize) ?[]const u
     return null;
 }
 fn runCodec(codec_root: []const u8, input_root: []const u8, output_root: []const u8) bool {
+    const previous_notice = browser_notice;
+    browser_notice = .codec_run_failed;
     var script: [2048]u8 = undefined;
     const script_path = std.fmt.bufPrintZ(&script, "{s}/run.lua", .{codec_root}) catch return false;
     var package_path: [4096]u8 = undefined;
@@ -349,7 +363,9 @@ fn runCodec(codec_root: []const u8, input_root: []const u8, output_root: []const
     defer c.lua_close(state);
     c.luaL_openlibs(state);
     if (native.windows and !@import("codec_windows.zig").install(state, output_root)) {
-        if (c.lua_tolstring(state, -1, null)) |message| std.debug.print("Codec host: {s}\n", .{message});
+        browser_notice = .codec_host_failed;
+        logUpdate("Windows converter", "Requires MSYS2 Bash/coreutils and ImageMagick 7. Set ELIS_CODEC_BASH if Bash is not C:/msys64/usr/bin/bash.exe.");
+        if (c.lua_tolstring(state, -1, null)) |message| logUpdate("Codec host", std.mem.span(message));
         return false;
     }
     _ = c.lua_getglobal(state, "package");
@@ -364,11 +380,15 @@ fn runCodec(codec_root: []const u8, input_root: []const u8, output_root: []const
     _ = c.lua_pushlstring(state, output_root.ptr, output_root.len);
     c.lua_rawseti(state, -2, 2);
     c.lua_setglobal(state, "arg");
-    if (c.luaL_loadfilex(state, script_path.ptr, null) != c.LUA_OK) return false;
-    if (c.lua_pcallk(state, 0, 0, 0, 0, null) != c.LUA_OK) {
-        if (c.lua_tolstring(state, -1, null)) |message| std.debug.print("Codec: {s}\n", .{message});
+    if (c.luaL_loadfilex(state, script_path.ptr, null) != c.LUA_OK) {
+        if (c.lua_tolstring(state, -1, null)) |message| logUpdate("Codec load", std.mem.span(message));
         return false;
     }
+    if (c.lua_pcallk(state, 0, 0, 0, 0, null) != c.LUA_OK) {
+        if (c.lua_tolstring(state, -1, null)) |message| logUpdate("Codec", std.mem.span(message));
+        return false;
+    }
+    browser_notice = previous_notice;
     return true;
 }
 
@@ -406,10 +426,28 @@ fn normalizeCodecPaletteOrder(codec_root: []const u8) bool {
     return c.fwrite(source.ptr, 1, source.len, file) == source.len and
         c.fflush(file) == 0;
 }
+fn logUpdate(stage: []const u8, detail: []const u8) void {
+    std.debug.print("{s}: {s}\n", .{ stage, detail });
+    if (update_log) |file| {
+        _ = c.fwrite(stage.ptr, 1, stage.len, file);
+        _ = c.fwrite(": ", 1, 2, file);
+        _ = c.fwrite(detail.ptr, 1, detail.len, file);
+        _ = c.fwrite("\n", 1, 1, file);
+    }
+}
+
 fn updateCatalog(replace_existing: bool) bool {
+    update_log = c.fopen("elis-update.log", "wb");
+    update_log_available = update_log != null;
+    defer {
+        if (update_log) |file| _ = c.fclose(file);
+        update_log = null;
+    }
+    logUpdate("Updater", "Official demo download and conversion");
     browser_notice = .searching;
     const success = nativeUpdateCatalog(replace_existing);
     if (!success and browser_notice == .searching) browser_notice = .update_failed;
+    logUpdate("Result", localizedBrowserNotice(localization.get(.en)));
     return success;
 }
 
@@ -469,6 +507,7 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
         const name = parts.next() orelse continue;
         const url = parts.next() orelse continue;
         if (std.mem.startsWith(u8, url, "builtin:")) continue;
+        logUpdate("Demo", url);
         const slug = githubRepositorySlug(url) orelse continue;
         if (slug.len > 80) continue;
         var target: [2048]u8 = undefined;
@@ -512,7 +551,7 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
                 A.free(source_archive);
             }
             const source_root = findGameRoot(source_archive, 2) orelse {
-                browser_notice = .demo_prepare_failed;
+                browser_notice = .demo_source_invalid;
                 failed = true;
                 continue;
             };
@@ -537,7 +576,6 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
                 continue;
             };
             if (!runCodec(codec_root, source_root, output_path)) {
-                browser_notice = .demo_prepare_failed;
                 failed = true;
                 continue;
             }
@@ -551,7 +589,7 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
                 continue;
             };
             if (!fileExists(current_path)) {
-                browser_notice = .demo_prepare_failed;
+                browser_notice = .codec_output_missing;
                 failed = true;
                 continue;
             }
@@ -562,7 +600,8 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
             }
             _ = native.mkdir("demos", 0o755);
             if (installTreeAtomically(current_path, target_path)) updated = true else {
-                browser_notice = .demo_prepare_failed;
+                browser_notice = .demo_install_failed;
+                logUpdate("Install failed; check destination permissions", target_path);
                 failed = true;
             }
         }
@@ -1060,6 +1099,11 @@ fn localizedBrowserNotice(strings: localization.Text) []const u8 {
         .codec_extract_failed => strings.codec_extract_failed,
         .codec_invalid => strings.codec_invalid,
         .demo_prepare_failed => strings.demo_prepare_failed,
+        .codec_host_failed => strings.codec_host_failed,
+        .codec_run_failed => strings.codec_run_failed,
+        .codec_output_missing => strings.codec_output_missing,
+        .demo_source_invalid => strings.demo_source_invalid,
+        .demo_install_failed => strings.demo_install_failed,
         .audio_copy_failed => strings.audio_copy_failed,
         .demos_updated => strings.demos_updated,
         .no_updates => strings.no_updates,
@@ -1100,6 +1144,8 @@ fn drawBrowserStatus(strings: localization.Text) void {
     rect(27, 233, 426, 19, false, accent);
     text(browserNoticePhaseText(strings, phase), 34, 239, accent);
     text(notice, 112, 239, 4);
+    if (phase == .failed and browser_notice != .demo_prepare_failed and update_log_available)
+        text("elis-update.log", 32, 257, 4);
 }
 
 fn drawMenuRow(label: []const u8, index: usize, selected: usize, y: i32, accent: bool) void {
@@ -3623,6 +3669,8 @@ pub fn main(init: std.process.Init) !void {
                 if (input_state.confirm_pressed) {
                     if (quit_selection == 0) {
                         unloadGame(&loaded, &active_archive);
+                        discoverDemos();
+                        selected_demo = @min(selected_demo, demo_count + 2);
                         quit_dialog = false;
                         browser_mode = true;
                         input_state.clearText();

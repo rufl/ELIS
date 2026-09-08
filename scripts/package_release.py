@@ -576,6 +576,9 @@ Catalog HTTPS entries are optional upstream downloads, not bundled games.
 Downloads and source conversion can require additional tools and network
 access; this archive does not include downloaded games or lupi-codec.
 Simulator results are not physical Lupi hardware certification.
+Each updater attempt writes elis-update.log in this folder when writable.
+The browser distinguishes converter setup/conversion and installation failures.
+For additional diagnostics, run elis --fetch-demos from a terminal.
 
 LICENSE and THIRD_PARTY_NOTICES.md retain project and upstream attribution.
 The notices describe source-only content too; their Mr. Rescue and Contributor
@@ -600,6 +603,8 @@ Optional source-demo conversion requires MSYS2 Bash/coreutils plus
 mingw-w64-ucrt-x86_64-imagemagick (ImageMagick 7). ELIS_CODEC_BASH selects
 bash.exe when it is not at C:/msys64/usr/bin/bash.exe. Encoded cartridges
 and the bundled examples do not require these tools.
+Install the conversion dependencies in an MSYS2 UCRT64 terminal:
+  pacman -S --needed bash coreutils mingw-w64-ucrt-x86_64-imagemagick
 
 LICENSES/msys2 retains each shipped package's installed license texts.
 Library package versions, upstream URLs and license expressions are in
@@ -630,6 +635,11 @@ needed for interactive use. Run:
   ./elis example
   ./elis mazestein3d
   ./run-workshop.sh
+
+Optional source-demo conversion also needs POSIX shell/coreutils and ImageMagick
+7 with magick on PATH. These are not bundled or supplied by the runtime list
+above; ImageMagick 6's convert command is insufficient. Encoded cartridges
+do not need conversion tools.
 
 If a renderer is unavailable, try SDL_RENDER_DRIVER=software ./elis example.
 Exact build-host runtime package versions are retained in manifest.json;

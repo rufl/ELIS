@@ -1,5 +1,14 @@
 # ELIS Changelog
 
+## Unreleased
+
+- Distinguished updater converter setup, conversion, missing-output, invalid-source,
+  and installation failures; retained available converter/network diagnostics in
+  `elis-update.log`, including missing Windows Bash/ImageMagick details.
+- Refreshed demo discovery when returning from a directly launched cartridge.
+- Prepared a separately licensed Mr. Rescue desktop playtest bundle and manual
+  acceptance checklist without changing its physical-validation candidate status.
+
 ## 0.1.0-rc.1 — release candidate
 
 - Added native Windows x86-64 UCRT64 builds and portable package-path, temporary

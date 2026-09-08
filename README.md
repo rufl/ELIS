@@ -60,6 +60,17 @@ demos additionally requires MSYS2 Bash/coreutils and
 The Windows build uses libcurl's Schannel backend and the Windows certificate
 store, so HTTPS downloads do not depend on an MSYS2 CA-bundle path.
 
+For source-demo conversion on Windows, install the additional tools in an
+MSYS2 UCRT64 terminal:
+
+```sh
+pacman -S --needed bash coreutils mingw-w64-ucrt-x86_64-imagemagick
+```
+
+On Linux, source conversion also needs POSIX shell/coreutils and ImageMagick
+**7** (`magick` on `PATH`); the runtime/build dependencies above do not provide
+these automatically. ImageMagick 6's `convert` command alone is insufficient.
+
 Build and run from the repository root:
 
 ```sh
@@ -249,6 +260,21 @@ With no command-line game argument, the simulator opens its demo browser. It dis
 bundled Mazestein 3D demo. It also exposes Mr. Rescue: Lupi Edition with an
 explicit physical-validation label; that cartridge remains unapproved until
 named-board proof exists. Future entries can be added to `demos/catalog.txt`.
+
+Updater attempts write `elis-update.log` in the working directory (the extracted
+ELIS folder when using a release launcher). Failure statuses distinguish converter
+host setup, conversion, missing output, invalid source, and installation permissions;
+the browser shows the log filename when it was opened successfully. The log retains
+the demo URL and available converter/network error details. If that directory is
+not writable, diagnostics still go to stderr. To collect them from Windows:
+
+```powershell
+.\elis.exe --fetch-demos 2>&1 | Tee-Object elis-download.log
+```
+
+Returning to the browser after directly launching a cartridge refreshes discovery.
+Mr. Rescue's separately licensed desktop playtest instructions and promotion
+checklist are in [its README](demos/mr-rescue/README.md#manual-desktop-playtest).
 
 This port keeps the console framebuffer indexed and scales it with nearest-neighbor pixels, so game logic remains resolution-independent. Keyboard, SDL game controllers, generic joysticks, hot-plug, and the left analog stick are supported.
 
