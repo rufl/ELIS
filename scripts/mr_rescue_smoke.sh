@@ -118,6 +118,7 @@ assert(profile.fire_max == 35 * 18)
 LUA
 
 python3 scripts/mr_rescue_viewport_smoke.py --game "$game"
+python3 scripts/mr_rescue_failure_smoke.py --game "$game"
 
 title_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$game" 1 "$tmp/title.ppm" 2>&1)"

@@ -236,6 +236,7 @@ local function beginGame()
   campaign_section = 1
   campaign_casualties = 0
   last_missed = 0
+  failure_message = "YOUR SUIT OVERHEATED!"
   maximum_casualties = Progression.maximumCasualties(difficulty)
   normal_music_index = (difficulty - 1) % #normal_music + 1
   Campaign.reset()
@@ -802,9 +803,9 @@ local function drawFailed()
   if family_presentation and message == "TOO MANY CIVILIANS HAVE DIED!" then
     message = "TOO MANY CIVILIANS WERE MISSED!"
   end
-  ui.print(message, 133, 107, COLOR_RED)
+  ui.print(message, math.floor((Profile.width - #message * 6) / 2), 151, COLOR_INK)
   ui.print("GAME OVER", 204, 132, COLOR_PAPER)
-  ui.print("PRESS Z TO CONTINUE", 181, 162, COLOR_INK)
+  ui.print("PRESS Z TO CONTINUE", 181, 174, COLOR_INK)
 end
 
 local function drawCountdown()

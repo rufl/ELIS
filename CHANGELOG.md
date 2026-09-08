@@ -20,6 +20,8 @@
 - Separated Mr. Rescue's stage from its bottom HUD and added bounded vertical
   camera tracking, preserving native-size floors, characters, and assets.
   Added a framebuffer overlap regression and refreshed affected render baselines.
+- Kept failure dialogs history-independent when restarting a campaign and moved
+  failure reasons below the captain portrait with high-contrast text.
 
 ## 0.1.0-rc.1 — release candidate
 
