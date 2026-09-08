@@ -14,6 +14,9 @@
   custom keyboard/controller mappings and language. Saved profiles record their
   keyboard-default revision so explicitly removing E is respected on later loads.
 - Added a focused, isolated persisted-preferences upgrade regression to the runtime gate.
+- Added audited, reproducible Mr. Rescue playtest packaging with separate
+  checksums, explicit replacement, and Linux/Windows launchers for installed
+  bundles and source builds; added archive-integrity and failure-preservation gates.
 
 ## 0.1.0-rc.1 — release candidate
 

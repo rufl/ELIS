@@ -21,10 +21,24 @@ Named physical-board timing proof remains staged.
 
 ## Manual desktop playtest
 
+Build or refresh the local bundle from the repository root:
+
+```sh
+python3 scripts/package_mr_rescue_playtest.py --output dist --replace
+```
+
+This audits the manifest and attribution before packaging the encoded cartridge;
+it does not compile ELIS, download assets, or approve physical hardware. Without
+`--replace`, existing playtest artifacts are left untouched. The output includes
+`mr-rescue-playtest.SHA256SUMS` for the cartridge and outer ZIP. Archive timestamps
+are normalized to 1980 by default; `SOURCE_DATE_EPOCH` can supply another epoch.
+Identical inputs and packaging tooling produce identical archives.
+
 The transferable bundle is `dist/mr-rescue-playtest.zip`. It contains a
 `mr-rescue-playtest/` folder with `mr-rescue.lupi`, this README, `PARITY.md`,
-`SOURCE.md`, `LICENSE.upstream`, and `CC-BY-SA-3.0.txt`. No ELIS executable or
-runtime libraries are included: use an existing working ELIS installation.
+`SOURCE.md`, `LICENSE.upstream`, `CC-BY-SA-3.0.txt`, and Linux/Windows play
+launchers. No ELIS executable or runtime libraries are included: use an existing
+working ELIS installation.
 Keep the attribution files with the cartridge when redistributing the bundle.
 The `.lupi` is a standard ZIP with the unchanged `current/` contents at its
 root, not inside a `current/` directory. Attribution stays outside the cartridge
@@ -42,8 +56,12 @@ To launch the transferable bundle instead:
 
 ```sh
 unzip dist/mr-rescue-playtest.zip -d games
-./zig-out/bin/elis games/mr-rescue-playtest/mr-rescue.lupi
+sh games/mr-rescue-playtest/play-mr-rescue.sh
 ```
+
+The launcher finds `elis` in the installation root or `zig-out/bin/elis` in a
+source checkout. It establishes the working directory itself, so it also works
+when called from another folder.
 
 The unpackaged source cartridge can also be launched without rebuilding:
 
@@ -58,8 +76,13 @@ in that ELIS directory, leaving its bundled DLLs and other runtime files intact:
 
 ```powershell
 Expand-Archive -LiteralPath .\mr-rescue-playtest.zip -DestinationPath .\games
-.\elis.exe .\games\mr-rescue-playtest\mr-rescue.lupi
+.\games\mr-rescue-playtest\play-mr-rescue.cmd
 ```
+
+You can also double-click `play-mr-rescue.cmd` in that extracted folder. It runs
+the included PowerShell launcher without changing the machine's execution policy.
+The launcher looks for `elis.exe` at the installation root or under `zig-out/bin`,
+keeps DLL resolution local to that executable, and reports missing installations.
 
 These commands assume a fresh extraction destination. The same cartridge works
 on both desktop platforms; do not rename the outer playtest ZIP to `.lupi`.

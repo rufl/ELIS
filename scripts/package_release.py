@@ -648,11 +648,12 @@ Ubuntu security updates providing compatible ABIs remain recommended.
 
 
 def archive_payload(path, root_name, files, windows, epoch):
+    prefix = f"{root_name}/" if root_name else ""
     if windows:
         date = datetime.datetime.fromtimestamp(max(epoch, 315532800), datetime.timezone.utc)
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for name, (data, mode) in sorted(files.items()):
-                info = zipfile.ZipInfo(f"{root_name}/{name}", date.timetuple()[:6])
+                info = zipfile.ZipInfo(f"{prefix}{name}", date.timetuple()[:6])
                 info.create_system = 3
                 info.external_attr = (0o100000 | mode) << 16
                 info.compress_type = zipfile.ZIP_DEFLATED
@@ -662,7 +663,7 @@ def archive_payload(path, root_name, files, windows, epoch):
             with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=epoch, compresslevel=9) as compressed:
                 with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as archive:
                     for name, (data, mode) in sorted(files.items()):
-                        info = tarfile.TarInfo(f"{root_name}/{name}")
+                        info = tarfile.TarInfo(f"{prefix}{name}")
                         info.size = len(data)
                         info.mode = mode
                         info.mtime = epoch
