@@ -801,7 +801,7 @@ local function drawFailed()
     message = "TOO MANY CIVILIANS WERE MISSED!"
   end
   ui.print(message, 133, 107, COLOR_RED)
-  ui.print("GAME OVER", 204, 132, COLOR_INK)
+  ui.print("GAME OVER", 204, 132, COLOR_PAPER)
   ui.print("PRESS Z TO CONTINUE", 181, 162, COLOR_INK)
 end
 
@@ -834,8 +834,7 @@ local function drawTransitionOut()
 end
 
 local function drawPause()
-  drawPlay()
-  ui.rectfill(0, 0, 479, 269, COLOR_BLACK)
+  ui.cls(COLOR_BLACK)
   ui.print("PAUSED", 219, 72, COLOR_PAPER)
   ui.print(pause_selection == 1 and "> RESUME" or "  RESUME", 195, 116, COLOR_GREEN)
   ui.print(pause_selection == 2 and "> QUIT" or "  QUIT", 195, 142, COLOR_RED)

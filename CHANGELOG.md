@@ -8,6 +8,8 @@
 - Refreshed demo discovery when returning from a directly launched cartridge.
 - Prepared a separately licensed Mr. Rescue desktop playtest bundle and manual
   acceptance checklist without changing its physical-validation candidate status.
+- Restored readable Mr. Rescue game-over text over the captain panel and cleared
+  the entire paused framebuffer without rendering the hidden game beneath it.
 
 ## 0.1.0-rc.1 — release candidate
 
