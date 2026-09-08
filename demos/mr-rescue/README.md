@@ -84,6 +84,10 @@ saved custom bindings in ELIS Controls can override them.
 
 At the title, press Z or Enter, use arrows to select a menu item, then Z to
 confirm. M and E are both physical rescue keys for default ELIS bindings.
+The published `0.1.0-rc.1` ELIS binary uses M only: E requires a newer runtime
+or a manual binding change in ELIS Controls. Updating the cartridge alone does
+not change host keys. Current ELIS also upgrades saved, untouched legacy keyboard
+defaults; custom keyboard profiles are preserved.
 
 ### Manual promotion checklist
 

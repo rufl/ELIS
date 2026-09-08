@@ -10,6 +10,10 @@
   acceptance checklist without changing its physical-validation candidate status.
 - Restored readable Mr. Rescue game-over text over the captain panel and cleared
   the entire paused framebuffer without rendering the hidden game beneath it.
+- Upgraded untouched legacy keyboard profiles to include E for `BTN_E`, preserving
+  custom keyboard/controller mappings and language. Saved profiles record their
+  keyboard-default revision so explicitly removing E is respected on later loads.
+- Added a focused, isolated persisted-preferences upgrade regression to the runtime gate.
 
 ## 0.1.0-rc.1 — release candidate
 

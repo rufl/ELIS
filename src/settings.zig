@@ -9,6 +9,7 @@ const input = @import("input.zig");
 const localization = @import("localization.zig");
 
 const format_version = 1;
+const keyboard_defaults_version = 2;
 const file_name = "settings-v1.ini";
 const maximum_file_size = 4096;
 
@@ -35,6 +36,7 @@ pub const Settings = struct {
         var found_language = false;
         var found_keyboard = false;
         var found_gamepad = false;
+        var keyboard_revision: u32 = 1;
         var lines = std.mem.splitScalar(u8, contents[0..length], '\n');
         while (lines.next()) |raw_line| {
             const line = std.mem.trim(u8, raw_line, " \t\r");
@@ -43,13 +45,26 @@ pub const Settings = struct {
             } else if (std.mem.startsWith(u8, line, "language=")) {
                 candidate.language = localization.Language.fromTag(line[9..]) orelse continue;
                 found_language = true;
+            } else if (std.mem.startsWith(u8, line, "keyboard_defaults=")) {
+                keyboard_revision = std.fmt.parseUnsigned(u32, line["keyboard_defaults=".len..], 10) catch return result;
+                if (keyboard_revision == 0) return result;
             } else if (std.mem.startsWith(u8, line, "keyboard=")) {
                 found_keyboard = parseKeyboard(line[9..], &candidate.bindings);
             } else if (std.mem.startsWith(u8, line, "gamepad=")) {
                 found_gamepad = parseGamepad(line[8..], &candidate.bindings);
             }
         }
-        if (found_version and found_language and found_keyboard and found_gamepad and validBindings(candidate.bindings)) return candidate;
+        if (found_version and found_language and found_keyboard and found_gamepad and validBindings(candidate.bindings)) {
+            if (keyboard_revision == 1) {
+                const current = input.Bindings.defaults().keyboard;
+                var legacy = current;
+                legacy[@intFromEnum(input.Action.face_x)] = .{ c.SDL_SCANCODE_M, input.unbound, input.unbound };
+                // Only untouched old keyboard defaults gain E. Custom keyboard
+                // profiles, language and controller bindings remain unchanged.
+                if (std.meta.eql(candidate.bindings.keyboard, legacy)) candidate.bindings.keyboard = current;
+            }
+            return candidate;
+        }
         return result;
     }
 
@@ -61,7 +76,7 @@ pub const Settings = struct {
         const path = settingsPath(&path_buffer) orelse return saveFailure("preference path");
         var contents: [maximum_file_size]u8 = undefined;
         var used: usize = 0;
-        if (!append(&contents, &used, "version={d}\nlanguage={s}\nkeyboard=", .{ format_version, self.language.tag() })) return false;
+        if (!append(&contents, &used, "version={d}\nlanguage={s}\nkeyboard_defaults={d}\nkeyboard=", .{ format_version, self.language.tag(), keyboard_defaults_version })) return false;
         for (self.bindings.keyboard, 0..) |row, action_index| {
             for (row, 0..) |value, slot| {
                 if (!append(&contents, &used, "{s}{d}", .{ if (action_index == 0 and slot == 0) "" else ",", value })) return false;

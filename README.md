@@ -232,7 +232,7 @@ Default keyboard/controller mapping:
 | Directions | WASD or arrows | D-pad / left stick |
 | `BTN_Z` | K, Z or Space | A / lower face |
 | `BTN_X` | J or X | B / right face |
-| `BTN_E` | M | X / left face |
+| `BTN_E` | M or E | X / left face |
 | `BTN_Q` | L | Y / upper face |
 | `BTN_F`, `BTN_G` | G, H | L, R |
 | Select | Tab or Backspace | Select/Back |
@@ -243,6 +243,17 @@ under `lupi-org-br/lupinho-zig/settings-v1.ini`. ELIS intentionally retains
 that pre-rename identifier so upgrades preserve existing preferences. Writes
 are atomic and the simulator safely restores defaults if that versioned file
 is incomplete or invalid.
+Legacy profiles whose complete keyboard mapping still matches the pre-E defaults
+gain E for `BTN_E` at load time. Custom keyboard mappings, controller bindings,
+and language remain unchanged. The next settings save records the keyboard-default
+revision so explicitly removing E afterwards survives future loads; launching alone
+does not rewrite the preferences file.
+
+Run the focused persisted-profile regression without a display:
+
+```sh
+python3 scripts/settings_upgrade_smoke.py
+```
 
 The explicit aliases `SNES_A`, `SNES_B`, `SNES_X`, `SNES_Y`, `SNES_L`,
 `SNES_R`, `BTN_SELECT` and `BTN_START` are also available. `BTN_X` retains its

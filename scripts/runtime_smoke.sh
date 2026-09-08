@@ -65,6 +65,7 @@ grep -q '^workshop_lua_source_bytes_max=131072$' <<<"$constraints"
 mkdir -p "$tmp/profile"
 settings_out="$(env XDG_DATA_HOME="$tmp/profile" ./zig-out/bin/elis --self-test-settings 2>&1)"
 grep -q 'settings round-trip: pass' <<<"$settings_out"
+python3 scripts/settings_upgrade_smoke.py
 
 mkdir -p "$tmp/init-constants"
 printf '%s\n' \
