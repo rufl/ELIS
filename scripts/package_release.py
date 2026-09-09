@@ -640,7 +640,6 @@ Optional source-demo conversion also needs POSIX shell/coreutils and ImageMagick
 7 with magick on PATH. These are not bundled or supplied by the runtime list
 above; ImageMagick 6's convert command is insufficient. Encoded cartridges
 do not need conversion tools.
-
 If a renderer is unavailable, try SDL_RENDER_DRIVER=software ./elis example.
 Exact build-host runtime package versions are retained in manifest.json;
 Ubuntu security updates providing compatible ABIs remain recommended.

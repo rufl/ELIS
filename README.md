@@ -70,7 +70,6 @@ pacman -S --needed bash coreutils mingw-w64-ucrt-x86_64-imagemagick
 On Linux, source conversion also needs POSIX shell/coreutils and ImageMagick
 **7** (`magick` on `PATH`); the runtime/build dependencies above do not provide
 these automatically. ImageMagick 6's `convert` command alone is insufficient.
-
 Build and run from the repository root:
 
 ```sh
