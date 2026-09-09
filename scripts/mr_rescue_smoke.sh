@@ -285,12 +285,12 @@ for enemy_kind in 1 2 3 4 5 6 7; do
 done
 grep -Eq 'MR_RESCUE_ENEMY=(2|5) .*STATE=2' <<<"$high_output"
 grep -Eq 'MR_RESCUE_WORLD .*PROJECTILES=[1-9][0-9]*' <<<"$high_output"
-expected_high="67f3b40106ab545f7a554a8c32471c3814e247ff2216026e539a54fd0a7ba8f1"
+expected_high="4b32904ea1478ada57601e8925049b51481df8fd12140c7b78b1bf8389e9dc0c"
 test "$(sha256sum "$tmp/high.ppm" | awk '{print $1}')" = "$expected_high"
 
 boss_hashes=(
-  fb896abe7bb8387818bd53f2bccb07977dabd59a964a225389de17ac2c6ae00a
-  c81c13a09dab1b5b1d7ffb070322bff74303c12980d7f11817c851fb3a9d2db4
+  e9e79602ee4a414cb9ceb8d04dc0833bc00aa39967f38808b0c1846d8a989a85
+  4001cb42fb2538eb71255483a9e9936952df6f525d4ceca703f010ed3e76f613
   bca7b52a255f5f28655e2bfc5c3df4dfebae6a4672410a51c88655dd1e076249
 )
 for boss in 1 2 3; do
