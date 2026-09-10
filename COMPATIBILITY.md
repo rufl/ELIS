@@ -16,6 +16,9 @@ or implement upstream placeholders; they are not accidental renderer drift:
 
 - ELIS deliberately links Lua 5.4 rather than the public web simulator's
   currently vendored Lua 5.5, and caps the game Lua heap at 4 MiB.
+- Cartridge source loading translates the reference's `0b`/`0B` integer
+  literals into Lua 5.4 hexadecimal tokens, preserving integer wraparound
+  and operator precedence without rewriting strings or comments.
 - `ui.cls` resets clipping; `ui.spr` and `ui.tile` accept explicit horizontal
   and vertical flips as documented by the console API.
 - `ui.map.layers` provides strict bottom-to-top ordering. Legacy multi-layer

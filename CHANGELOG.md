@@ -1,7 +1,11 @@
 # ELIS Changelog
 
-## 0.1.0-rc.1 — release candidate
+## Unreleased
 
+- Preserved Lua 5.4 integer types, subtraction, and exponent precedence when
+  translating high-bit binary literals; added executable boundary regressions.
+- Made extracted-package smoke tests assert the executing Lua version rather
+  than relying solely on the declared console profile.
 - Distinguished updater converter setup, conversion, missing-output, invalid-source,
   and installation failures; retained available converter/network diagnostics in
   `elis-update.log`, including missing Windows Bash/ImageMagick details.

@@ -95,7 +95,11 @@ def main():
         run([str(studio), f"--game-root={game}", f"--project={project}", "--smoke"], package, env)
         assert project.read_bytes() == original
         (game / "map.lua").write_bytes(exported.read_bytes())
-        (game / "game.lua").write_text('local project = require("map")\nfunction update() ui.cls(0) ui.map(project.map) end\n')
+        (game / "game.lua").write_text(
+            'assert(_VERSION == "Lua 5.4", "Packaged runtime must execute Lua 5.4")\n'
+            'local project = require("map")\n'
+            'function update() ui.cls(0) ui.map(project.map) end\n'
+        )
         with (game / "lupi_manifest.txt").open("a") as manifest:
             for index, name in enumerate(("game.lua", "map.lua", "palette.lua"), 2):
                 manifest.write(f"{index} {(game / name).stat().st_size} {name} {{}}\n")

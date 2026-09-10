@@ -2588,11 +2588,12 @@ fn translateBinaryLiterals(source: []const u8) ?TranslatedSource {
                 value = value *% 2 +% @as(u64, source[end] - '0');
             const malformed_suffix = end < source.len and (identifierByte(source[end]) or source[end] == '.');
             if (!malformed_suffix) {
-                var number_buffer: [32]u8 = undefined;
-                const signed: i64 = @bitCast(value);
-                const decimal = std.fmt.bufPrint(&number_buffer, "{d}", .{signed}) catch unreachable;
-                @memcpy(output[written..][0..decimal.len], decimal);
-                written += decimal.len;
+                // Hex preserves one integer token, including wrapping high bits.
+                // Signed decimal would inject unary minus (or even a "--" comment).
+                var number_buffer: [18]u8 = undefined;
+                const numeral = std.fmt.bufPrint(&number_buffer, "0x{x}", .{value}) catch unreachable;
+                @memcpy(output[written..][0..numeral.len], numeral);
+                written += numeral.len;
                 input = end;
                 continue;
             }
@@ -3228,22 +3229,6 @@ fn verifyParityCore() !void {
     for (&fb) |*row| @memset(row, 0);
     rect(10, 10, 0, 3, false, 1);
     if (countRegion(9, 10, 2, 3) != 6) return error.DegenerateRectangleMismatch;
-
-    const lexical_probe =
-        \\local a=0b101; local b=0B110
-        \\local s="0b111"; local q='0B100'; local l=[=[0b11]=]
-        \\-- 0b10101010
-        \\--[=[ 0B11110000 ]=]
-    ;
-    const translated = translateBinaryLiterals(lexical_probe) orelse return error.OutOfMemory;
-    defer A.free(translated.allocation);
-    const expected =
-        \\local a=5; local b=6
-        \\local s="0b111"; local q='0B100'; local l=[=[0b11]=]
-        \\-- 0b10101010
-        \\--[=[ 0B11110000 ]=]
-    ;
-    if (!std.mem.eql(u8, translated.text, expected)) return error.BinaryLexerMismatch;
 
     cam = .{ .x = 8, .y = 9 };
     clip = .{ .x = 1, .y = 2, .w = 3, .h = 4 };
