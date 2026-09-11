@@ -22,6 +22,51 @@ x86-64. Windows packages include native DLLs and their corresponding sources;
 Linux packages use system libraries. See [binary release gates](docs/RELEASING.md#binary-prereleases).
 Prereleases are unsigned and do not include the Mr. Rescue validation cartridge.
 
+## Em português (Brasil)
+
+### Leia isto antes de clonar
+
+ELIS é um projeto-fonte para colaboração, não um jogo pronto e ainda não é
+um produto com release estável. Ele combina um simulador nativo compatível com
+Lupi e um editor nativo de mapas chamado Workshop.
+
+Antes de começar, espere:
+
+- não há instalador, binário estável publicado, configuração pronta de
+  Workshop ou certificado de hardware;
+- a configuração mantida é Linux com Zig 0.16.0, SDL2, Lua 5.4, libzip,
+  libcurl, libsndfile, compilador C e `pkg-config`;
+- Windows tem empacotamento experimental, mas exige MSYS2 UCRT64 e não é a
+  plataforma principal de desenvolvimento;
+- a conversão de demos-fonte exige Bash/coreutils e ImageMagick 7; demos já
+  codificadas não precisam dessas ferramentas;
+- os testes automatizados comprovam contratos de software, não desempenho em
+  placa física, compatibilidade com todo firmware, nem a experiência de um
+  jogo completo;
+- Mr. Rescue é candidato à validação física, ainda não aprovado; Hex-a-Hop
+  continua bloqueado até essa aprovação;
+- os arquivos de terceiros e cartuchos mantêm suas próprias licenças; o
+  conteúdo deles não vira MIT por estar neste repositório.
+
+Se você procura uma engine pronta para distribuir um jogo hoje, este
+repositório vai exigir trabalho de integração. Se procura um simulador
+inspecionável, um contrato de compatibilidade explícito e um editor de mapas
+com exportação determinística, esse é o objetivo do projeto.
+
+### Primeiro caminho
+
+1. Instale os requisitos de [Build and run](#build-and-run).
+2. Execute `zig build native`.
+3. Rode `zig-out/bin/elis example` para abrir o exemplo.
+4. Execute `zig build studio` para abrir o Workshop.
+5. Leia [COMPATIBILITY.md](COMPATIBILITY.md), [STUDIO.md](STUDIO.md) e
+   [docs/LUPI_CONSTRAINTS.md](docs/LUPI_CONSTRAINTS.md) antes de tratar uma
+   capacidade como compatibilidade garantida.
+
+Os documentos técnicos continuam em inglês para manter nomes de API, comandos e
+contratos consistentes; o [índice de documentação](docs/README.md) indica o
+que cada página cobre e quais limites ainda estão abertos.
+
 Contributor entry points:
 
 - [Architecture and ownership](ARCHITECTURE.md)

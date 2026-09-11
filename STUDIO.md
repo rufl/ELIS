@@ -5,6 +5,35 @@ remains `zig-out/bin/elis-studio`, separate from the Lupinho-compatible
 `zig-out/bin/elis` simulator. Its Playful and Studio presentations are two views
 of the same project—not separate beginner and expert file formats.
 
+## Resumo em português (Brasil)
+
+O Workshop é o editor nativo de mapas e níveis do ELIS. Ele é separado do
+simulador `elis`: editar um mapa não altera o framebuffer, o estado Lua, a
+paleta, a entrada ou o relógio do simulador. A exportação é uma operação
+explícita, e a prévia mostra o mapa do editor; ela não prova que mecânicas
+específicas do jogo, áudio ou desempenho em hardware funcionarão.
+
+O caminho mais curto:
+
+```sh
+zig build studio
+zig build studio -- --game-root=game \
+  --project=projects/world.elisworld \
+  --export=projects/world.lua
+```
+
+O projeto salvo é `.elisworld` v4, com migração das versões anteriores,
+histórico de desfazer/refazer, camadas visuais, colisão, spawn, objetivo e
+entidades tipadas. A exportação só passa quando o manifesto, os limites
+espaciais e os limites de dados do perfil Lupi são válidos. Sem manifesto
+válido, é possível salvar o projeto, mas a exportação é bloqueada.
+
+Limites importantes: a exportação aprovada não valida Lua escrito à mão,
+animação, áudio, chamadas adicionais de mapa, taxa de quadros de placa física
+ou um playtest interativo completo. Controle físico e aprovação em hardware
+continuam sendo evidências separadas. Para os atalhos e contratos completos,
+continue nesta página em inglês.
+
 ## Design boundary
 
 The workflow takes ZYLVE World Studio's directness and mode-aware controller

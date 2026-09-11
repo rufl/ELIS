@@ -2,6 +2,21 @@
 
 This is the maintainer checklist for source publication and future tagged releases. It does not grant hardware approval to a cartridge.
 
+## Resumo em português (Brasil)
+
+Este checklist orienta publicação do código-fonte e futuros releases; ele não
+aprova hardware nem transforma um cartucho em release físico certificado.
+
+Hoje não há uma série estável. Pacotes experimentais são host-specific,
+unsigned e precisam passar pelos gates de build, smoke extraído, licenças,
+checksums e revisão descritos abaixo. Linux é o host mantido; Windows tem
+empacotamento experimental. Mr. Rescue não deve ser incluído como cartucho
+aprovado, e medições em placa nomeada continuam obrigatórias para qualquer
+alegação de validação física.
+
+Os nomes de workflow, comandos e critérios normativos permanecem em inglês
+para corresponder à configuração do repositório.
+
 ## Source-publication preflight
 
 1. Confirm the working tree contains no caches, captures, local projects, downloaded demos, credentials, or generated archives.

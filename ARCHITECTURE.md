@@ -2,6 +2,19 @@
 
 This document is the entry point for contributors changing the simulator or Workshop. The compatibility contract is in [COMPATIBILITY.md](COMPATIBILITY.md); enforced hardware and package ceilings are in [docs/LUPI_CONSTRAINTS.md](docs/LUPI_CONSTRAINTS.md).
 
+## Resumo em português (Brasil)
+
+O ELIS tem dois executáveis nativos separados: `elis`, o simulador compatível
+com Lupi, e `elis-studio`, o editor de mapas. Eles compartilham tipos e
+limites, mas não estado mutável. O Workshop exporta um módulo Lua e ativos
+validados; ele não injeta estado no simulador.
+
+As fronteiras de prova são deliberadas: paridade automatizada não é
+certificação de console físico; smoke tests não substituem medições em placa
+nomeada; e uma exportação segura não comprova mecânicas, áudio ou desempenho
+que não estejam no contrato do simulador. Os nomes de módulos, invariantes e
+comandos abaixo permanecem em inglês para corresponder ao código.
+
 ## Processes
 
 ELIS builds two native Linux executables:
