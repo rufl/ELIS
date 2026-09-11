@@ -2,6 +2,19 @@
 
 This document is the entry point for contributors changing the simulator or Workshop. The compatibility contract is in [COMPATIBILITY.md](COMPATIBILITY.md); enforced hardware and package ceilings are in [docs/LUPI_CONSTRAINTS.md](docs/LUPI_CONSTRAINTS.md).
 
+## Resumo em português (Brasil)
+
+O ELIS tem dois executáveis nativos separados: `elis`, o simulador compatível
+com Lupi, e `elis-studio`, o editor de mapas. Eles compartilham tipos e
+limites, mas não estado mutável. O Workshop exporta um módulo Lua e ativos
+validados; ele não injeta estado no simulador.
+
+As fronteiras de prova são deliberadas: paridade automatizada não é
+certificação de console físico; smoke tests não substituem medições em placa
+nomeada; e uma exportação segura não comprova mecânicas, áudio ou desempenho
+que não estejam no contrato do simulador. Os nomes de módulos, invariantes e
+comandos abaixo permanecem em inglês para corresponder ao código.
+
 ## Processes
 
 ELIS builds two native Linux executables:
@@ -58,6 +71,12 @@ A new intentional difference from the pinned Lupinho baseline belongs in `COMPAT
 - The game Lua allocator rejects growth beyond 4 MiB and must return to zero after `lua_close`.
 - Archive roots are removed when a game unloads and on every extraction failure.
 - Manifest and bitmap reads are bounded before allocation.
+- Sprite/tile draws reuse at most 32 bitmap entries and 256 KiB of pixel data,
+  with fixed-size path storage. Every request checks file identity, length, and
+  timestamps; Windows requests with active writers reread rather than reuse.
+  Cache storage is cleared before game admission and after Lua finalizers run.
+- Runtime and Workshop share structured top-level bitmap metadata parsing with
+  64 KiB of temporary scratch storage; no parser allocation crosses a Lua call.
 - SDL windows, renderers, textures, controllers, and audio devices are paired with immediate `defer` cleanup.
 - `Audio` state is read by SDL's callback thread. Public mutations lock the device; helpers ending in `Unlocked` require the caller to hold that lock.
 - Workshop `Project`, `History`, `Command`, and `Stamp` values have explicit ownership. Project snapshots are encoded byte slices owned by their history command.

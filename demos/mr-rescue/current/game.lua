@@ -221,7 +221,7 @@ local function loadSection(first_section, fade_in)
   end
   frames = 0
   if first_section and not PortMode.auto_start then
-    sfx.music()
+    sfx.music(-1)
     music_state = "stopped"
     state = STATE_COUNTDOWN_IN
   elseif fade_in then
@@ -236,6 +236,7 @@ local function beginGame()
   campaign_section = 1
   campaign_casualties = 0
   last_missed = 0
+  failure_message = "YOUR SUIT OVERHEATED!"
   maximum_casualties = Progression.maximumCasualties(difficulty)
   normal_music_index = (difficulty - 1) % #normal_music + 1
   Campaign.reset()
@@ -355,7 +356,7 @@ end
 local function enterSummary()
   Campaign.finalize()
   state = STATE_SUMMARY
-  sfx.music()
+  sfx.music(-1)
   music_state = "stopped"
 end
 
@@ -420,7 +421,7 @@ local function updateTransitionOut()
     if campaign_casualties >= maximum_casualties then
       failure_message = "TOO MANY CIVILIANS HAVE DIED!"
       state = STATE_FAILED
-      sfx.music()
+      sfx.music(-1)
       music_state = "stopped"
     else
       campaign_section = campaign_section + 1
@@ -431,7 +432,7 @@ local function updateTransitionOut()
     end
   elseif transition_outcome == 2 then
     state = STATE_FAILED
-    sfx.music()
+    sfx.music(-1)
     music_state = "stopped"
   else
     Player.warp(World.startPosition())
@@ -682,7 +683,7 @@ end
 
 local function drawHud()
   local hud_x = 112
-  local hud_y = 238
+  local hud_y = Profile.stage_height
   ui.tile(hud_sprite, 0, hud_x, hud_y)
 
   local water_width = math.floor(Player.water * 55 / Player.water_capacity + 0.5)
@@ -727,8 +728,9 @@ end
 
 local function drawPlay(world_offset, hide_boss_hud)
   ui.cls(COLOR_BLACK)
+  ui.clip(0, 0, Profile.width, Profile.stage_height)
   local camera_x = Player.cameraX()
-  local origin_y = 14 + (world_offset or 0)
+  local origin_y = -Player.cameraY() + (world_offset or 0)
   World.draw(camera_x, origin_y, family_presentation)
   Player.draw(camera_x, origin_y, COLOR_BLUE)
   World.draw(camera_x, origin_y, family_presentation, "front")
@@ -740,6 +742,7 @@ local function drawPlay(world_offset, hide_boss_hud)
   end
   World.drawWarnings(camera_x, origin_y, frames, family_presentation)
   if not hide_boss_hud then World.drawBossHud() end
+  ui.clip()
   drawHud()
 end
 
@@ -800,9 +803,9 @@ local function drawFailed()
   if family_presentation and message == "TOO MANY CIVILIANS HAVE DIED!" then
     message = "TOO MANY CIVILIANS WERE MISSED!"
   end
-  ui.print(message, 133, 107, COLOR_RED)
-  ui.print("GAME OVER", 204, 132, COLOR_INK)
-  ui.print("PRESS Z TO CONTINUE", 181, 162, COLOR_INK)
+  ui.print(message, math.floor((Profile.width - #message * 6) / 2), 151, COLOR_INK)
+  ui.print("GAME OVER", 204, 132, COLOR_PAPER)
+  ui.print("PRESS Z TO CONTINUE", 181, 174, COLOR_INK)
 end
 
 local function drawCountdown()
@@ -834,8 +837,7 @@ local function drawTransitionOut()
 end
 
 local function drawPause()
-  drawPlay()
-  ui.rectfill(0, 0, 479, 269, COLOR_BLACK)
+  ui.cls(COLOR_BLACK)
   ui.print("PAUSED", 219, 72, COLOR_PAPER)
   ui.print(pause_selection == 1 and "> RESUME" or "  RESUME", 195, 116, COLOR_GREEN)
   ui.print(pause_selection == 2 and "> QUIT" or "  QUIT", 195, 142, COLOR_RED)

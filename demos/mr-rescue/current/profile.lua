@@ -2,6 +2,7 @@
 local Profile = {
   width = 480,
   height = 270,
+  hud_height = 32,
   update_hz = 60,
   dt = 1 / 60,
   map_width = 41,
@@ -22,6 +23,7 @@ local Profile = {
   lua_heap_bytes_max = 4 * 1024 * 1024,
   flash_bytes_max = 16 * 1024 * 1024,
 }
+Profile.stage_height = Profile.height - Profile.hud_height
 
 assert(Profile.map_width * Profile.map_height == 656)
 assert(Profile.fire_max == 35 * 18)

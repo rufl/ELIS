@@ -22,6 +22,51 @@ x86-64. Windows packages include native DLLs and their corresponding sources;
 Linux packages use system libraries. See [binary release gates](docs/RELEASING.md#binary-prereleases).
 Prereleases are unsigned and do not include the Mr. Rescue validation cartridge.
 
+## Em português (Brasil)
+
+### Leia isto antes de clonar
+
+ELIS é um projeto-fonte para colaboração, não um jogo pronto e ainda não é
+um produto com release estável. Ele combina um simulador nativo compatível com
+Lupi e um editor nativo de mapas chamado Workshop.
+
+Antes de começar, espere:
+
+- não há instalador, binário estável publicado, configuração pronta de
+  Workshop ou certificado de hardware;
+- a configuração mantida é Linux com Zig 0.16.0, SDL2, Lua 5.4, libzip,
+  libcurl, libsndfile, compilador C e `pkg-config`;
+- Windows tem empacotamento experimental, mas exige MSYS2 UCRT64 e não é a
+  plataforma principal de desenvolvimento;
+- a conversão de demos-fonte exige Bash/coreutils e ImageMagick 7; demos já
+  codificadas não precisam dessas ferramentas;
+- os testes automatizados comprovam contratos de software, não desempenho em
+  placa física, compatibilidade com todo firmware, nem a experiência de um
+  jogo completo;
+- Mr. Rescue é candidato à validação física, ainda não aprovado; Hex-a-Hop
+  continua bloqueado até essa aprovação;
+- os arquivos de terceiros e cartuchos mantêm suas próprias licenças; o
+  conteúdo deles não vira MIT por estar neste repositório.
+
+Se você procura uma engine pronta para distribuir um jogo hoje, este
+repositório vai exigir trabalho de integração. Se procura um simulador
+inspecionável, um contrato de compatibilidade explícito e um editor de mapas
+com exportação determinística, esse é o objetivo do projeto.
+
+### Primeiro caminho
+
+1. Instale os requisitos de [Build and run](#build-and-run).
+2. Execute `zig build native`.
+3. Rode `zig-out/bin/elis example` para abrir o exemplo.
+4. Execute `zig build studio` para abrir o Workshop.
+5. Leia [COMPATIBILITY.md](COMPATIBILITY.md), [STUDIO.md](STUDIO.md) e
+   [docs/LUPI_CONSTRAINTS.md](docs/LUPI_CONSTRAINTS.md) antes de tratar uma
+   capacidade como compatibilidade garantida.
+
+Os documentos técnicos continuam em inglês para manter nomes de API, comandos e
+contratos consistentes; o [índice de documentação](docs/README.md) indica o
+que cada página cobre e quais limites ainda estão abertos.
+
 Contributor entry points:
 
 - [Architecture and ownership](ARCHITECTURE.md)
@@ -60,6 +105,16 @@ demos additionally requires MSYS2 Bash/coreutils and
 The Windows build uses libcurl's Schannel backend and the Windows certificate
 store, so HTTPS downloads do not depend on an MSYS2 CA-bundle path.
 
+For source-demo conversion on Windows, install the additional tools in an
+MSYS2 UCRT64 terminal:
+
+```sh
+pacman -S --needed bash coreutils mingw-w64-ucrt-x86_64-imagemagick
+```
+
+On Linux, source conversion also needs POSIX shell/coreutils and ImageMagick
+**7** (`magick` on `PATH`); the runtime/build dependencies above do not provide
+these automatically. ImageMagick 6's `convert` command alone is insufficient.
 Build and run from the repository root:
 
 ```sh
@@ -221,7 +276,7 @@ Default keyboard/controller mapping:
 | Directions | WASD or arrows | D-pad / left stick |
 | `BTN_Z` | K, Z or Space | A / lower face |
 | `BTN_X` | J or X | B / right face |
-| `BTN_E` | M | X / left face |
+| `BTN_E` | M or E | X / left face |
 | `BTN_Q` | L | Y / upper face |
 | `BTN_F`, `BTN_G` | G, H | L, R |
 | Select | Tab or Backspace | Select/Back |
@@ -232,6 +287,17 @@ under `lupi-org-br/lupinho-zig/settings-v1.ini`. ELIS intentionally retains
 that pre-rename identifier so upgrades preserve existing preferences. Writes
 are atomic and the simulator safely restores defaults if that versioned file
 is incomplete or invalid.
+Legacy profiles whose complete keyboard mapping still matches the pre-E defaults
+gain E for `BTN_E` at load time. Custom keyboard mappings, controller bindings,
+and language remain unchanged. The next settings save records the keyboard-default
+revision so explicitly removing E afterwards survives future loads; launching alone
+does not rewrite the preferences file.
+
+Run the focused persisted-profile regression without a display:
+
+```sh
+python3 scripts/settings_upgrade_smoke.py
+```
 
 The explicit aliases `SNES_A`, `SNES_B`, `SNES_X`, `SNES_Y`, `SNES_L`,
 `SNES_R`, `BTN_SELECT` and `BTN_START` are also available. `BTN_X` retains its
@@ -249,6 +315,21 @@ With no command-line game argument, the simulator opens its demo browser. It dis
 bundled Mazestein 3D demo. It also exposes Mr. Rescue: Lupi Edition with an
 explicit physical-validation label; that cartridge remains unapproved until
 named-board proof exists. Future entries can be added to `demos/catalog.txt`.
+
+Updater attempts write `elis-update.log` in the working directory (the extracted
+ELIS folder when using a release launcher). Failure statuses distinguish converter
+host setup, conversion, missing output, invalid source, and installation permissions;
+the browser shows the log filename when it was opened successfully. The log retains
+the demo URL and available converter/network error details. If that directory is
+not writable, diagnostics still go to stderr. To collect them from Windows:
+
+```powershell
+.\elis.exe --fetch-demos 2>&1 | Tee-Object elis-download.log
+```
+
+Returning to the browser after directly launching a cartridge refreshes discovery.
+Mr. Rescue's separately licensed desktop playtest instructions and promotion
+checklist are in [its README](demos/mr-rescue/README.md#manual-desktop-playtest).
 
 This port keeps the console framebuffer indexed and scales it with nearest-neighbor pixels, so game logic remains resolution-independent. Keyboard, SDL game controllers, generic joysticks, hot-plug, and the left analog stick are supported.
 

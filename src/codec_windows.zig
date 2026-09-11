@@ -32,7 +32,7 @@ fn shell(state: ?*c.lua_State) callconv(.c) c_int {
         .stderr_limit = .limited(1024 * 1024),
     }) catch |err| {
         std.debug.print("Windows demo conversion requires MSYS2 Bash/coreutils and ImageMagick 7. Set ELIS_CODEC_BASH to bash.exe when not installed at C:/msys64: {s}\n", .{@errorName(err)});
-        return failure(lua, "could not run codec Bash command");
+        return failure(lua, @errorName(err));
     };
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
@@ -42,15 +42,15 @@ fn shell(state: ?*c.lua_State) callconv(.c) c_int {
     };
     if (!succeeded) {
         std.debug.print("Codec command failed: {s}\n{s}\n", .{ command[0..length], result.stderr });
-        return failure(lua, "codec command failed (see diagnostics)");
+        return failure(lua, if (result.stderr.len != 0) result.stderr else "codec command failed without diagnostics");
     }
     _ = c.lua_pushlstring(lua, result.stdout.ptr, result.stdout.len);
     return 1;
 }
 
-fn failure(state: *c.lua_State, message: [:0]const u8) c_int {
+fn failure(state: *c.lua_State, message: []const u8) c_int {
     c.lua_pushnil(state);
-    _ = c.lua_pushstring(state, message.ptr);
+    _ = c.lua_pushlstring(state, message.ptr, message.len);
     return 2;
 }
 
@@ -85,5 +85,5 @@ const adapters =
     \\  end
     \\  return true, "exit", 0
     \\end
-    \\assert(elis_codec_shell("for tool in magick mkdir cp ls test stat; do command -v \"$tool\" >/dev/null || exit 127; done"))
+    \\assert(elis_codec_shell("for tool in magick mkdir cp ls test stat; do command -v \"$tool\" >/dev/null || { printf 'Missing converter tool: %s\\n' \"$tool\" >&2; exit 127; }; done"))
 ;

@@ -31,6 +31,22 @@ ZIG_LOCAL_CACHE_DIR="$tmp/build-cache" \
 ZIG_GLOBAL_CACHE_DIR="$tmp/global-cache" \
 zig build native -Doptimize=ReleaseSafe >/dev/null
 
+# Run native cache, catalog, and loader regressions with the same private CRT
+# workaround used by the existing native input tests.
+mkdir -p "$tmp/test-cache" "$tmp/test-global"
+linker_cc="${ELIS_LINK_CC:-${ZILF_LINK_CC:-gcc-15}}"
+command -v "$linker_cc" >/dev/null 2>&1 || linker_cc=gcc
+crt1_path="$("$linker_cc" -print-file-name=crt1.o)"
+[[ -f "$crt1_path" ]] || { echo "could not locate crt1.o through $linker_cc" >&2; exit 1; }
+objcopy --remove-section=.sframe --remove-section=.rela.sframe "$crt1_path" "$tmp/crt1.o"
+ZIG_LOCAL_CACHE_DIR="$tmp/test-cache" ZIG_GLOBAL_CACHE_DIR="$tmp/test-global" \
+zig test-obj --test-no-exec -fPIC -fno-stack-check -lc \
+  $(pkg-config --cflags sdl2 lua5.4 libzip libcurl sndfile) \
+  src/main.zig -femit-bin="$tmp/runtime-tests.o"
+"$linker_cc" -nostartfiles -no-pie -Wl,-z,noexecstack "$tmp/crt1.o" "$tmp/runtime-tests.o" \
+  -o "$tmp/runtime-tests" $(pkg-config --libs sdl2 lua5.4 libzip libcurl sndfile) -lm -lpthread -ldl -lc
+"$tmp/runtime-tests"
+
 set +e
 sprite_heap_output="$(./zig-out/bin/elis --screenshot "$tmp/sprite-heap" 1 "$tmp/sprite-heap.ppm" 2>&1)"
 sprite_heap_rc=$?
@@ -65,6 +81,7 @@ grep -q '^workshop_lua_source_bytes_max=131072$' <<<"$constraints"
 mkdir -p "$tmp/profile"
 settings_out="$(env XDG_DATA_HOME="$tmp/profile" ./zig-out/bin/elis --self-test-settings 2>&1)"
 grep -q 'settings round-trip: pass' <<<"$settings_out"
+python3 scripts/settings_upgrade_smoke.py
 
 mkdir -p "$tmp/init-constants"
 printf '%s\n' \
@@ -73,6 +90,16 @@ printf '%s\n' \
   'function update() assert(captured == BTN_Z) end' \
   > "$tmp/init-constants/game.lua"
 ./zig-out/bin/elis --screenshot "$tmp/init-constants" 1 "$tmp/init-constants.ppm" >/dev/null
+
+# Cartridge modules take precedence over same-named launch-directory modules.
+mkdir -p "$tmp/module-root"
+printf 'return "host"\n' > "$tmp/helper.lua"
+printf 'return "cartridge"\n' > "$tmp/module-root/helper.lua"
+printf '%s\n' \
+  'assert(require("helper") == "cartridge")' \
+  'function update() end' > "$tmp/module-root/game.lua"
+(cd "$tmp" && "$root/zig-out/bin/elis" --screenshot \
+  "$tmp/module-root" 1 "$tmp/module-root.ppm") >/dev/null
 
 mkdir -p "$tmp/frame-error"
 printf 'function update() error("frame failure") end\n' > "$tmp/frame-error/game.lua"

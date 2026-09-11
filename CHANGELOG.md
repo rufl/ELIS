@@ -1,7 +1,47 @@
 # ELIS Changelog
 
-## 0.1.0-rc.1 — release candidate
+## Unreleased
 
+- Reviewed MSYS2 xz 5.8.4-1 for Windows packaging, retaining the exact-version
+  and `liblzma-5.dll`-only 0BSD license gate.
+- Kept Workshop resize revisions monotonic so resize/save/resize cannot hide
+  unsaved changes; rejected imported/exported entity values outside their schema
+  while preserving legacy untyped decoration values during migration.
+- Restored cartridge-first module resolution and Lua 5.4 loader filenames,
+  return arity, and compilation-error propagation.
+- Shared bounded, structured bitmap metadata parsing between runtime and
+  Workshop, preventing nested or duplicate JSON keys from changing asset identity.
+- Added a 32-entry, 256 KiB bitmap pixel cache with file-change invalidation,
+  bounded eviction, and cleanup on unload and failed loads.
+- Corrected Mr. Rescue's music-stop calls at gameplay transitions.
+- Rejected malformed demo catalogs before network acquisition and made release
+  smoke checks execute under optimized Python, including HTTPS operations.
+- Preserved Lua 5.4 integer types, subtraction, and exponent precedence when
+  translating high-bit binary literals; added executable boundary regressions.
+- Made extracted-package smoke tests assert the executing Lua version rather
+  than relying solely on the declared console profile.
+- Distinguished updater converter setup, conversion, missing-output, invalid-source,
+  and installation failures; retained available converter/network diagnostics in
+  `elis-update.log`, including missing Windows Bash/ImageMagick details.
+- Refreshed demo discovery when returning from a directly launched cartridge.
+- Prepared a separately licensed Mr. Rescue desktop playtest bundle and manual
+  acceptance checklist without changing its physical-validation candidate status.
+- Restored readable Mr. Rescue game-over text over the captain panel and cleared
+  the entire paused framebuffer without rendering the hidden game beneath it.
+- Upgraded untouched legacy keyboard profiles to include E for `BTN_E`, preserving
+  custom keyboard/controller mappings and language. Saved profiles record their
+  keyboard-default revision so explicitly removing E is respected on later loads.
+- Added a focused, isolated persisted-preferences upgrade regression to the runtime gate.
+- Added audited, reproducible Mr. Rescue playtest packaging with separate
+  checksums, explicit replacement, and Linux/Windows launchers for installed
+  bundles and source builds; added archive-integrity and failure-preservation gates.
+- Separated Mr. Rescue's stage from its bottom HUD and added bounded vertical
+  camera tracking, preserving native-size floors, characters, and assets.
+  Added a framebuffer overlap regression and refreshed affected render baselines.
+- Kept failure dialogs history-independent when restarting a campaign and moved
+  failure reasons below the captain portrait with high-contrast text.
+
+## 0.1.0-rc.1 — release candidate
 - Added native Windows x86-64 UCRT64 builds and portable package-path, temporary
   directory, archive extraction, and codec-host handling.
 - Added Ubuntu 24.04 and Windows binary packaging, dependency/source provenance,

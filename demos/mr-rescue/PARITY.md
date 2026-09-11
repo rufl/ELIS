@@ -9,9 +9,11 @@ sprite is visible.
 
 These are compatible adaptations rather than omitted behavior:
 
-- The original 256×200 camera views the same 656×256 world through Lupi's
-  480×270 framebuffer. World coordinates, 16-pixel tiles, speeds, and timers stay
-  in original units; the wider camera reveals more horizontal space.
+- The original 256×200 camera views the same 656×256 world through a 480×238
+  stage viewport and a separate 32-pixel HUD band in Lupi's 480×270 framebuffer.
+  A bounded vertical camera keeps the player's floor visible without HUD overlap.
+  World coordinates, unscaled 16-pixel tiles and character art, speeds, and timers
+  stay in original units; the wider camera reveals more horizontal space.
 - Original RGB colors map deterministically to their exact RGB555 values. Index
   zero replaces source alpha transparency.
 - Sheets are repacked into tile-major chunks no larger than 49,152 pixels.
@@ -54,7 +56,9 @@ doors/windows, civilian/fire contact, item theft, and projectile collisions.
 Transition ticks and mapped effect events are asserted alongside intro/menu/
 options/history/highscores/level/countdown/play/pause/resume, section/prescreen,
 game-over/summary/highscore entry, all nine tutorial slides, campaign arithmetic,
-HUD textures, particles, enemy states, and projectile activity. The remaining
+HUD textures, particles, enemy states, and projectile activity. A focused native
+framebuffer regression checks complete body/floor spans at both vertical camera
+limits and prevents stage pixels leaking into the fixed HUD band. The remaining
 release proof is:
 
 - Longer physical-device soak runs beyond the passing 832-generation simulator

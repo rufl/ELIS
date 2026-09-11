@@ -2,6 +2,21 @@
 
 ELIS welcomes focused bug fixes, compatibility fixtures, documentation improvements, Workshop refinements, and licensed cartridge work.
 
+## Resumo em português (Brasil)
+
+Contribuições bem-vindas incluem correções focadas, fixtures de
+compatibilidade, melhorias de documentação, refinamentos do Workshop e
+cartuchos licenciados. O ambiente mantido é Linux com Zig 0.16.0; Windows é
+alvo de empacotamento experimental, não a referência principal de
+desenvolvimento.
+
+Antes de abrir uma issue, procure reproduzir o problema com o menor cartucho
+ou projeto `.elisworld` possível. Rode apenas o gate focado durante o
+desenvolvimento. Testes gráficos precisam de display descartável isolado, e
+afirmações sobre FPS, memória, controle físico ou hardware exigem uma placa
+nomeada. Para detalhes de ownership, compatibilidade, licenças e comandos,
+continue na seção em inglês.
+
 ## Before opening an issue
 
 - Search existing issues and [BACKLOG.md](BACKLOG.md).

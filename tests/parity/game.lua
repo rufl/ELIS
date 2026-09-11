@@ -1,4 +1,8 @@
-local helper = require("helper")
+local loaded = table.pack(require("helper"))
+assert(loaded.n == 2 and type(loaded[2]) == "string")
+local helper = loaded[1]
+assert(select("#", require("helper")) == 1)
+assert(require("helper") == helper)
 
 local upstream_api = {
   "btn", "btnp", "camera", "circfill", "clip", "cls", "draw_circle",
@@ -17,6 +21,14 @@ assert(helper.long == "0b111")
 assert(helper.escaped == "quote: \"0b1000\"")
 assert(helper.value == 5)
 assert(helper.upper_value == 6)
+
+-- Binary literals retain Lua integer identity and expression binding at bit 63.
+local minimum = 0b1000000000000000000000000000000000000000000000000000000000000000
+assert(math.type(minimum) == "integer" and minimum == math.mininteger)
+local difference = 1-0b1111111111111111111111111111111111111111111111111111111111111111
+assert(difference == 2)
+assert(0b1111111111111111111111111111111111111111111111111111111111111111^2 == 1)
+assert(0b10000000000000000000000000000000000000000000000000000000000000000 == 0)
 
 -- Core upstream calls reject missing required arguments.
 assert(not pcall(ui.cls))

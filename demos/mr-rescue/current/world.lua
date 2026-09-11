@@ -2168,16 +2168,16 @@ local function drawWarningAt(world_x, world_y, frame, camera_x, origin_y)
   local screen_x = world_x - camera_x
   local screen_y = world_y + origin_y
   if screen_x >= 12 and screen_x <= Profile.width - 12 and
-     screen_y >= 28 and screen_y <= Profile.height - 28 then
+     screen_y >= 28 and screen_y <= Profile.stage_height - 28 then
     return
   end
   local delta_x = screen_x - Profile.width / 2
-  local delta_y = screen_y - Profile.height / 2
+  local delta_y = screen_y - Profile.stage_height / 2
   local scale_x = delta_x == 0 and 1000 or (Profile.width / 2 - 14) / math.abs(delta_x)
-  local scale_y = delta_y == 0 and 1000 or (Profile.height / 2 - 30) / math.abs(delta_y)
+  local scale_y = delta_y == 0 and 1000 or (Profile.stage_height / 2 - 30) / math.abs(delta_y)
   local scale = math.min(scale_x, scale_y)
   local icon_x = math.floor(Profile.width / 2 + delta_x * scale - 11)
-  local icon_y = math.floor(Profile.height / 2 + delta_y * scale - 10)
+  local icon_y = math.floor(Profile.stage_height / 2 + delta_y * scale - 10)
   ui.tile(warning_sprites[frame + 1], 0, icon_x, icon_y)
 end
 

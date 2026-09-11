@@ -11,6 +11,38 @@ pub const max_asset_path: usize = 127;
 /// The official lupi-codec rejects tileset images above 512×96 pixels.
 pub const lupi_tileset_pixels_max: u32 = lupi_profile.tileset_pixels_max;
 
+pub const BitmapMetadata = struct {
+    width: u16,
+    height: u16,
+    tiles: u16 = 1,
+};
+
+/// Decode root bitmap fields without borrowing the input or retaining allocations.
+pub fn parseBitmapMetadata(json: []const u8) ?BitmapMetadata {
+    var scratch: [64 * 1024]u8 = undefined;
+    var buffer_allocator = std.heap.FixedBufferAllocator.init(&scratch);
+    const allocator = buffer_allocator.allocator();
+    // Parse the complete tree so duplicate keys in unknown metadata are rejected too.
+    const parsed = std.json.parseFromSlice(std.json.Value, allocator, json, .{
+        .duplicate_field_behavior = .@"error",
+    }) catch return null;
+    defer parsed.deinit();
+    if (parsed.value != .object) return null;
+    const fields = parsed.value.object;
+    const asset_type = fields.get("type") orelse return null;
+    if (asset_type != .string or !std.mem.eql(u8, asset_type.string, "bitmap")) return null;
+    const width = metadataUnsigned(fields.get("width") orelse return null) orelse return null;
+    const height = metadataUnsigned(fields.get("height") orelse return null) orelse return null;
+    const tiles = metadataUnsigned(fields.get("tiles") orelse .{ .integer = 1 }) orelse return null;
+    if (width == 0 or height == 0 or tiles == 0 or tiles > 1024) return null;
+    return .{ .width = width, .height = height, .tiles = tiles };
+}
+
+fn metadataUnsigned(value: std.json.Value) ?u16 {
+    if (value != .integer) return null;
+    return std.math.cast(u16, value.integer);
+}
+
 pub const BitmapAsset = struct {
     path: [max_asset_path + 1]u8 = .{0} ** (max_asset_path + 1),
     path_len: u8 = 0,
@@ -83,17 +115,14 @@ pub fn parseManifest(source: []const u8) Catalog {
         const path = tokens.next() orelse continue;
         const json = tokens.rest();
         if (!safeAssetPath(path) or path.len > max_asset_path or
-            result.find(path) != null or !jsonStringEquals(json, "type", "bitmap")) continue;
-        const width = jsonUnsigned(json, "width") orelse continue;
-        const height = jsonUnsigned(json, "height") orelse continue;
-        if (width == 0 or height == 0 or width > 64 or height > 64) continue;
-        const tiles = jsonUnsigned(json, "tiles") orelse 1;
-        if (tiles == 0 or tiles > 1024) continue;
+            result.find(path) != null) continue;
+        const metadata = parseBitmapMetadata(json) orelse continue;
+        if (metadata.width > 64 or metadata.height > 64) continue;
         const byte_len = std.fmt.parseUnsigned(u32, byte_text, 10) catch continue;
         var asset = BitmapAsset{
-            .width = @intCast(width),
-            .height = @intCast(height),
-            .tiles = @intCast(tiles),
+            .width = metadata.width,
+            .height = metadata.height,
+            .tiles = metadata.tiles,
             .byte_len = byte_len,
         };
         @memcpy(asset.path[0..path.len], path);
@@ -165,39 +194,75 @@ fn safeAssetPath(path: []const u8) bool {
     return component_count > 0;
 }
 
-fn jsonUnsigned(json: []const u8, field: []const u8) ?u16 {
-    const at = fieldValueStart(json, field) orelse return null;
-    var end = at;
-    while (end < json.len and std.ascii.isDigit(json[end])) : (end += 1) {}
-    if (end == at) return null;
-    return std.fmt.parseUnsigned(u16, json[at..end], 10) catch null;
+test "bitmap metadata uses root fields and decodes escaped strings" {
+    const nested = parseBitmapMetadata(
+        \\{"custom":{"width":1,"type":"other"},"type":"bitmap","width":2,"height":1}
+    ).?;
+    try std.testing.expectEqual(@as(u16, 2), nested.width);
+    try std.testing.expectEqual(@as(u16, 1), nested.height);
+    try std.testing.expectEqual(@as(u16, 1), nested.tiles);
+    const escaped = parseBitmapMetadata(
+        \\{"ty\u0070e":"bit\u006dap","wi\u0064th":65535,"height":1,"tiles":1024,"custom":"\"width\":1"}
+    ).?;
+    try std.testing.expectEqual(@as(u16, 65535), escaped.width);
+    try std.testing.expectEqual(@as(u16, 1024), escaped.tiles);
+    const catalog = parseManifest(
+        \\100 2 sprites/root {"custom":{"width":1},"type":"bitmap","width":2,"height":1}
+    );
+    try std.testing.expectEqual(@as(u8, 1), catalog.count);
+    try std.testing.expectEqual(@as(u16, 2), catalog.items[0].width);
 }
 
-fn jsonStringEquals(json: []const u8, field: []const u8, expected: []const u8) bool {
-    var at = fieldValueStart(json, field) orelse return false;
-    if (at >= json.len or json[at] != '"') return false;
-    at += 1;
-    const end_relative = std.mem.indexOfScalar(u8, json[at..], '"') orelse return false;
-    return std.mem.eql(u8, json[at .. at + end_relative], expected);
+test "bitmap metadata rejects malformed duplicate and incorrectly typed fields" {
+    const invalid = [_][]const u8{
+        \\{"type":"bitmap","width":2,"height":1
+        ,
+        \\{"type":"bitmap","width":2,"height":1} trailing
+        ,
+        \\{"type":"bitmap","width":2,"height":1,}
+        ,
+        \\{"type":"bitmap","width":2,"width":3,"height":1}
+        ,
+        \\{"type":"bitmap","width":2,"wi\u0064th":3,"height":1}
+        ,
+        \\{"type":"bitmap","width":2,"height":1,"custom":1,"custom":2}
+        ,
+        \\{"type":"bitmap","width":2,"height":1,"custom":{"x":1,"x":2}}
+        ,
+        \\{"type":"bitmap","width":"2","height":1}
+        ,
+        \\{"type":"bitmap","width":2.5,"height":1}
+        ,
+        \\{"type":"bitmap","width":2,"height":true}
+        ,
+        \\{"type":"bitmap","width":2,"height":1,"tiles":null}
+        ,
+        \\{"type":["bitmap"],"width":2,"height":1}
+        ,
+        \\{"type":"lua_code","width":2,"height":1}
+        ,
+        \\{"type":"bitmap","height":1,"custom":{"width":2}}
+        ,
+        \\[{"type":"bitmap","width":2,"height":1}]
+        ,
+        \\{"type":"bitmap","width":0,"height":1}
+        ,
+        \\{"type":"bitmap","width":2,"height":-1}
+        ,
+        \\{"type":"bitmap","width":65536,"height":1}
+        ,
+        \\{"type":"bitmap","width":2,"height":1,"tiles":0}
+        ,
+        \\{"type":"bitmap","width":2,"height":1,"tiles":1025}
+        ,
+    };
+    for (invalid) |json| try std.testing.expectEqual(@as(?BitmapMetadata, null), parseBitmapMetadata(json));
 }
 
-fn fieldValueStart(json: []const u8, field: []const u8) ?usize {
-    var cursor: usize = 0;
-    while (std.mem.indexOfPos(u8, json, cursor, field)) |at| {
-        const before_ok = at > 0 and json[at - 1] == '"';
-        const after = at + field.len;
-        const after_ok = after < json.len and json[after] == '"';
-        if (before_ok and after_ok) {
-            var value = after + 1;
-            while (value < json.len and std.ascii.isWhitespace(json[value])) : (value += 1) {}
-            if (value >= json.len or json[value] != ':') return null;
-            value += 1;
-            while (value < json.len and std.ascii.isWhitespace(json[value])) : (value += 1) {}
-            return value;
-        }
-        cursor = after;
-    }
-    return null;
+test "bitmap metadata returns null when bounded scratch is exhausted" {
+    const json = "{\"type\":\"bitmap\",\"width\":2,\"height\":1,\"custom\":\"" ++
+        ("x" ** (64 * 1024)) ++ "\"}";
+    try std.testing.expectEqual(@as(?BitmapMetadata, null), parseBitmapMetadata(json));
 }
 
 test "manifest parser keeps bounded bitmap assets and their geometry" {

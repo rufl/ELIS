@@ -576,6 +576,9 @@ Catalog HTTPS entries are optional upstream downloads, not bundled games.
 Downloads and source conversion can require additional tools and network
 access; this archive does not include downloaded games or lupi-codec.
 Simulator results are not physical Lupi hardware certification.
+Each updater attempt writes elis-update.log in this folder when writable.
+The browser distinguishes converter setup/conversion and installation failures.
+For additional diagnostics, run elis --fetch-demos from a terminal.
 
 LICENSE and THIRD_PARTY_NOTICES.md retain project and upstream attribution.
 The notices describe source-only content too; their Mr. Rescue and Contributor
@@ -600,6 +603,8 @@ Optional source-demo conversion requires MSYS2 Bash/coreutils plus
 mingw-w64-ucrt-x86_64-imagemagick (ImageMagick 7). ELIS_CODEC_BASH selects
 bash.exe when it is not at C:/msys64/usr/bin/bash.exe. Encoded cartridges
 and the bundled examples do not require these tools.
+Install the conversion dependencies in an MSYS2 UCRT64 terminal:
+  pacman -S --needed bash coreutils mingw-w64-ucrt-x86_64-imagemagick
 
 LICENSES/msys2 retains each shipped package's installed license texts.
 Library package versions, upstream URLs and license expressions are in
@@ -631,6 +636,10 @@ needed for interactive use. Run:
   ./elis mazestein3d
   ./run-workshop.sh
 
+Optional source-demo conversion also needs POSIX shell/coreutils and ImageMagick
+7 with magick on PATH. These are not bundled or supplied by the runtime list
+above; ImageMagick 6's convert command is insufficient. Encoded cartridges
+do not need conversion tools.
 If a renderer is unavailable, try SDL_RENDER_DRIVER=software ./elis example.
 Exact build-host runtime package versions are retained in manifest.json;
 Ubuntu security updates providing compatible ABIs remain recommended.
@@ -638,11 +647,12 @@ Ubuntu security updates providing compatible ABIs remain recommended.
 
 
 def archive_payload(path, root_name, files, windows, epoch):
+    prefix = f"{root_name}/" if root_name else ""
     if windows:
         date = datetime.datetime.fromtimestamp(max(epoch, 315532800), datetime.timezone.utc)
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for name, (data, mode) in sorted(files.items()):
-                info = zipfile.ZipInfo(f"{root_name}/{name}", date.timetuple()[:6])
+                info = zipfile.ZipInfo(f"{prefix}{name}", date.timetuple()[:6])
                 info.create_system = 3
                 info.external_attr = (0o100000 | mode) << 16
                 info.compress_type = zipfile.ZIP_DEFLATED
@@ -652,7 +662,7 @@ def archive_payload(path, root_name, files, windows, epoch):
             with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=epoch, compresslevel=9) as compressed:
                 with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as archive:
                     for name, (data, mode) in sorted(files.items()):
-                        info = tarfile.TarInfo(f"{root_name}/{name}")
+                        info = tarfile.TarInfo(f"{prefix}{name}")
                         info.size = len(data)
                         info.mode = mode
                         info.mtime = epoch
@@ -719,7 +729,7 @@ def main():
         # https://github.com/autotools-mirror/gettext/blob/v1.0/gettext-runtime/intl/libintl.rc
         # https://github.com/msys2/MINGW-packages/blob/master/mingw-w64-libiconv/PKGBUILD
         # https://github.com/gnutls/libtasn1/blob/master/README.md
-        # https://github.com/tukaani-project/xz/blob/master/COPYING
+        # https://github.com/tukaani-project/xz/blob/v5.8.4/COPYING
         # https://gmplib.org/manual/Copying
         # https://github.com/libidn/libidn2/blob/v2.3.8/README.md
         component_licenses = {
@@ -732,7 +742,7 @@ def main():
             "mingw-w64-ucrt-x86_64-libtasn1": (
                 "4.21.0-1", {"libtasn1-6.dll"}, "LGPL-2.1-or-later"),
             "mingw-w64-ucrt-x86_64-xz": (
-                "5.8.3-1", {"liblzma-5.dll"}, "0BSD"),
+                "5.8.4-1", {"liblzma-5.dll"}, "0BSD"),
             "mingw-w64-ucrt-x86_64-gmp": (
                 "6.3.0-2", {"libgmp-10.dll", "libgmpxx-4.dll"}, "LGPL-3.0-or-later"),
             "mingw-w64-ucrt-x86_64-libidn2": (

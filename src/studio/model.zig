@@ -677,8 +677,25 @@ fn entitySchemaFieldCount(project: *const Project, schema_index: usize) u8 {
 fn validateEntityFieldValue(project: Project, kind: EntityKind, field: usize, value: u16) !void {
     if (kind == .none or field >= max_entity_fields) return error.InvalidEditorChange;
     const schema_index = entitySchemaIndex(kind);
+    switch (project.entity_field_kinds[schema_index][field]) {
+        .unsigned => {},
+        .toggle => if (value > 1) return error.InvalidEditorChange,
+        .tile => if (value > max_tile_id) return error.InvalidEditorChange,
+    }
     if (value < project.entity_field_mins[schema_index][field] or value > project.entity_field_maxes[schema_index][field]) {
         return error.InvalidEditorChange;
+    }
+}
+
+fn validateEntityFields(project: Project) !void {
+    for (project.entities, 0..) |raw_kind, index| {
+        if (raw_kind > @intFromEnum(EntityKind.decoration)) return error.InvalidEditorChange;
+        const kind: EntityKind = @enumFromInt(raw_kind);
+        if (kind == .none) continue;
+        // Unnamed slots retain their schema bounds, just as field edits do.
+        for (0..max_entity_fields) |field| {
+            try validateEntityFieldValue(project, kind, field, project.entityFieldAt(index, field));
+        }
     }
 }
 
@@ -1282,7 +1299,6 @@ pub const History = struct {
         if (width == project.width and height == project.height) return .{};
         var resized = try buildResizedProject(project.*, width, height, anchor);
         errdefer resized.project.deinit();
-        resized.project.revision +%= 1;
         const command = try buildProjectSnapshotCommand(self.allocator, project.*, resized.project);
         try self.commit(command);
         var previous = project.*;
@@ -1384,6 +1400,7 @@ fn buildResizedProject(project: Project, width: u16, height: u16, anchor: Resize
     resized.spawn = mapResizedPoint(project.spawn, offset_x, offset_y, width, height);
     resized.goal = mapResizedPoint(project.goal, offset_x, offset_y, width, height);
     refreshResizedSmartTerrain(&resized);
+    resized.revision = project.revision +% 1;
     return .{ .project = resized, .report = report };
 }
 
@@ -1477,6 +1494,7 @@ pub const IssueKind = enum {
     goal_blocked,
     goal_unreachable,
     entity_blocked,
+    invalid_entity_fields,
     empty_background,
 };
 pub const Issue = struct { severity: Severity, kind: IssueKind };
@@ -1505,6 +1523,9 @@ pub fn validate(project: Project) ValidationReport {
     var report = ValidationReport{};
     if (project.spawn == null) report.add(.{ .severity = .@"error", .kind = .missing_spawn });
     if (project.goal == null) report.add(.{ .severity = .@"error", .kind = .missing_goal });
+    validateEntityFields(project) catch {
+        report.add(.{ .severity = .@"error", .kind = .invalid_entity_fields });
+    };
     var has_background = false;
     for (project.layerCells(0)) |tile| if (tile != empty_tile) {
         has_background = true;
@@ -1677,9 +1698,27 @@ fn decodeLayered(
         }
         if (has_entity_schema) {
             for (project.entity_fields) |*value| value.* = try takeU16(bytes, cursor);
+            validateEntityFields(project) catch return error.InvalidWorldProject;
         } else {
             for (0..project.cellCount()) |index| {
                 project.entity_fields[index * max_entity_fields] = try takeU16(bytes, cursor);
+                // V3 stored an untyped u16, including decoration values outside
+                // the tile range introduced by V4. Preserve those values and
+                // make their migrated schema representable on the next save.
+                if (project.entityKindAt(index) == .decoration and
+                    project.entityFieldAt(index, 0) > max_tile_id and
+                    project.entityFieldKind(.decoration, 0) == .tile)
+                {
+                    try project.setEntityFieldSchema(
+                        .decoration,
+                        0,
+                        "variant",
+                        .unsigned,
+                        0,
+                        0,
+                        std.math.maxInt(u16),
+                    );
+                }
             }
         }
     }
@@ -2303,6 +2342,28 @@ test "version three projects migrate the old value into field zero" {
     try std.testing.expectEqual(@as(u16, 0), migrated.entityFieldAt(index, 1));
 }
 
+test "version three decoration values beyond the tile range survive migration and export" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "maps/entities");
+    defer project.deinit();
+    const index = project.cellIndex(3, 2);
+    project.entities[index] = @intFromEnum(EntityKind.decoration);
+    project.entity_fields[index * max_entity_fields] = std.math.maxInt(u16);
+    const legacy = try encodeV3ForTest(std.testing.allocator, project);
+    defer std.testing.allocator.free(legacy);
+    var migrated = try decode(std.testing.allocator, legacy);
+    defer migrated.deinit();
+    const current = try encode(std.testing.allocator, migrated);
+    defer std.testing.allocator.free(current);
+    var reloaded = try decode(std.testing.allocator, current);
+    defer reloaded.deinit();
+    try std.testing.expectEqual(std.math.maxInt(u16), reloaded.entityFieldAt(index, 0));
+    try std.testing.expectEqual(EntityFieldKind.unsigned, reloaded.entityFieldKind(.decoration, 0));
+    try std.testing.expect(validate(reloaded).valid());
+    const output = try exportLua(std.testing.allocator, reloaded);
+    defer std.testing.allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "fields = {65535,0,0,0}") != null);
+}
+
 test "version two projects migrate with an empty entity layer" {
     var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "maps/layered");
     defer project.deinit();
@@ -2366,6 +2427,29 @@ test "anchored resize preserves semantic cells and is reversible" {
     try std.testing.expect(try history.redo(&project));
     try std.testing.expectEqual(@as(u16, 4), project.width);
     try std.testing.expectEqual(EntityKind.pickup, project.entityKindAt(project.cellIndex(3, 3)));
+}
+
+test "consecutive resizes and history traversal never reuse a saved revision" {
+    var project = try Project.initStarter(std.testing.allocator, 6, 5, 16, "tiles/world");
+    defer project.deinit();
+    var history = History.init(std.testing.allocator);
+    defer history.deinit();
+    const initial_revision = project.revision;
+    try std.testing.expect((try history.resize(&project, 7, 5, .top_left)).changed);
+    try std.testing.expectEqual(initial_revision +% 1, project.revision);
+    const saved_revision = project.revision;
+    try std.testing.expect((try history.resize(&project, 8, 5, .top_left)).changed);
+    try std.testing.expectEqual(saved_revision +% 1, project.revision);
+    try std.testing.expect(try history.undo(&project));
+    try std.testing.expectEqual(@as(u16, 7), project.width);
+    try std.testing.expectEqual(saved_revision +% 2, project.revision);
+    try std.testing.expect(try history.redo(&project));
+    try std.testing.expectEqual(@as(u16, 8), project.width);
+    try std.testing.expectEqual(saved_revision +% 3, project.revision);
+    try std.testing.expect((try history.resize(&project, 9, 5, .top_left)).changed);
+    try std.testing.expectEqual(saved_revision +% 4, project.revision);
+    try std.testing.expect(!(try history.resize(&project, 9, 5, .top_left)).changed);
+    try std.testing.expectEqual(saved_revision +% 4, project.revision);
 }
 
 test "resize refreshes smart terrain along a clipped edge" {
@@ -2617,6 +2701,48 @@ test "project entity schemas persist typed fields and export metadata" {
     try std.testing.expect(std.mem.indexOf(u8, output, "schema = 4") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "name = \"Guard\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "fields = {4,1,0,0}") != null);
+}
+
+test "entity schema values are checked on import and export including unnamed slots" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "tiles/world");
+    defer project.deinit();
+    try project.setEntityFieldSchema(.enemy, 0, "speed", .unsigned, 3, 1, 10);
+    try project.setEntityFieldSchema(.enemy, 2, "sprite", .tile, 0, 0, max_tile_id);
+    try project.setEntityFieldSchema(.enemy, 3, "", .unsigned, 0, 0, 10);
+    const index = project.cellIndex(3, 2);
+    var builder = CommandBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+    try builder.setEntity(&project, index, .enemy, 3);
+    // Preserve the setter's policy: unnamed slots still accept in-range values.
+    try builder.setEntityField(&project, index, 3, 7);
+    const valid_bytes = try encode(std.testing.allocator, project);
+    defer std.testing.allocator.free(valid_bytes);
+    var decoded = try decode(std.testing.allocator, valid_bytes);
+    defer decoded.deinit();
+    const output = try exportLua(std.testing.allocator, decoded);
+    defer std.testing.allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "fields = {3,0,0,7}") != null);
+
+    const invalid_values = [_]struct { field: usize, value: u16 }{
+        .{ .field = 0, .value = 0 },
+        .{ .field = 0, .value = 11 },
+        .{ .field = 1, .value = std.math.maxInt(u16) },
+        .{ .field = 2, .value = max_tile_id + 1 },
+        .{ .field = 3, .value = 11 },
+    };
+    for (invalid_values) |invalid| {
+        const slot = &project.entity_fields[index * max_entity_fields + invalid.field];
+        const previous = slot.*;
+        defer slot.* = previous;
+        slot.* = invalid.value;
+        const bytes = try encode(std.testing.allocator, project);
+        defer std.testing.allocator.free(bytes);
+        try std.testing.expectError(error.InvalidWorldProject, decode(std.testing.allocator, bytes));
+        const report = validate(project);
+        try std.testing.expect(!report.valid());
+        try std.testing.expectEqual(IssueKind.invalid_entity_fields, report.issues[0].kind);
+        try std.testing.expectError(error.InvalidProjectForExport, exportLua(std.testing.allocator, project));
+    }
 }
 
 test "Lua export enforces bounded Lupi tile sampling work" {
