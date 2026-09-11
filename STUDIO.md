@@ -84,6 +84,7 @@ The issue panel checks:
 - required player spawn and goal markers;
 - whether either marker occupies a blocked cell;
 - four-neighbor critical-path reachability through the collision mask;
+- whether entity fields satisfy their declared ranges and toggle/tile kinds;
 - whether the background layer is empty.
 
 Preview mode refuses maps with spatial errors. Lua export additionally requires
@@ -93,6 +94,10 @@ call, at most 4,096 conservatively weighted Lua data entries, and at most 128 Ki
 of generated Lua source. Visual, collision, and smart-terrain tables export
 sparsely; absent collision/smart entries mean false/empty. Without a valid
 manifest, the source can still be saved but export is blocked.
+
+V4 project import also rejects entity fields outside their schema. V3 stored
+an untyped integer: legacy decoration values above the tile-ID range migrate
+to an unsigned field rather than being discarded or clamped.
 
 A successful `LUPI-SAFE EXPORT: PASS` therefore guarantees that Workshop's
 unchanged generated module satisfies ELIS's fail-closed console admission

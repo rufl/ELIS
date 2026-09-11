@@ -18,6 +18,11 @@ def run(command, cwd, env):
     return result.stdout + result.stderr
 
 
+def check(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
 def windows_https(package):
     # Exercise TLS from the shipped DLL against the native certificate store.
     # No MSYS2 CA files, disabled verification, or development DLL paths.
@@ -29,20 +34,25 @@ def windows_https(package):
         curl.curl_easy_perform.argtypes = [ctypes.c_void_p]
         curl.curl_easy_cleanup.argtypes = [ctypes.c_void_p]
         curl.curl_easy_getinfo.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        assert curl.curl_global_init(3) == 0
-        handle = curl.curl_easy_init()
-        assert handle
+        check(curl.curl_global_init(3) == 0, "Packaged libcurl initialization failed")
         try:
-            for option, value in ((10002, ctypes.c_char_p(b"https://api.github.com/")),
-                                  (10018, ctypes.c_char_p(b"ELIS-release-smoke")),
-                                  (44, ctypes.c_long(1)), (13, ctypes.c_long(30))):
-                assert curl.curl_easy_setopt(handle, option, value) == 0
-            assert curl.curl_easy_perform(handle) == 0, "Packaged HTTPS certificate validation failed"
-            status = ctypes.c_long()
-            assert curl.curl_easy_getinfo(handle, 0x200002, ctypes.byref(status)) == 0
-            assert status.value == 200, f"Unexpected HTTPS status: {status.value}"
+            handle = curl.curl_easy_init()
+            check(handle, "Packaged libcurl could not create an HTTPS handle")
+            try:
+                for option, value in ((10002, ctypes.c_char_p(b"https://api.github.com/")),
+                                      (10018, ctypes.c_char_p(b"ELIS-release-smoke")),
+                                      (44, ctypes.c_long(1)), (13, ctypes.c_long(30))):
+                    check(curl.curl_easy_setopt(handle, option, value) == 0,
+                          f"Packaged libcurl rejected option {option}")
+                check(curl.curl_easy_perform(handle) == 0,
+                      "Packaged HTTPS certificate validation failed")
+                status = ctypes.c_long()
+                check(curl.curl_easy_getinfo(handle, 0x200002, ctypes.byref(status)) == 0,
+                      "Packaged libcurl could not read the HTTPS status")
+                check(status.value == 200, f"Unexpected HTTPS status: {status.value}")
+            finally:
+                curl.curl_easy_cleanup(handle)
         finally:
-            curl.curl_easy_cleanup(handle)
             curl.curl_global_cleanup()
 
 
@@ -74,11 +84,14 @@ def main():
             run([sys.executable, str(Path(__file__).resolve()), "--windows-https", str(package)],
                 package, env)
         env["XDG_DATA_HOME"] = str(root / "profile")
-        assert "Usage:" in run([str(runtime), "--help"], package, env)
-        assert "lua=5.4" in run([str(runtime), "--lupi-constraints"], package, env)
+        check("Usage:" in run([str(runtime), "--help"], package, env),
+              "Packaged runtime did not print usage")
+        check("lua=5.4" in run([str(runtime), "--lupi-constraints"], package, env),
+              "Packaged runtime did not report Lua 5.4")
         frame = root / "example.ppm"
         run([str(runtime), "--screenshot", str(package / "example"), "2", str(frame)], package, env)
-        assert frame.read_bytes().startswith(b"P6\n480 270\n255\n")
+        check(frame.read_bytes().startswith(b"P6\n480 270\n255\n"),
+              "Packaged runtime produced an invalid screenshot")
         game = root / "workspace"
         game.mkdir()
         (game / "world").write_bytes(bytes([1]) * 4096)
@@ -89,11 +102,11 @@ def main():
         capture = root / "studio.bmp"
         run([str(studio), f"--game-root={game}", f"--project={project}", f"--export={exported}",
              "--template=platformer", "--save-export", "--smoke", f"--capture={capture}"], package, env)
-        assert project.is_file() and exported.is_file()
-        assert capture.read_bytes().startswith(b"BM")
+        check(project.is_file() and exported.is_file(), "Workshop did not save and export")
+        check(capture.read_bytes().startswith(b"BM"), "Workshop produced an invalid capture")
         original = project.read_bytes()
         run([str(studio), f"--game-root={game}", f"--project={project}", "--smoke"], package, env)
-        assert project.read_bytes() == original
+        check(project.read_bytes() == original, "Workshop changed the saved project on reload")
         (game / "map.lua").write_bytes(exported.read_bytes())
         (game / "game.lua").write_text(
             'assert(_VERSION == "Lua 5.4", "Packaged runtime must execute Lua 5.4")\n'
@@ -105,7 +118,8 @@ def main():
                 manifest.write(f"{index} {(game / name).stat().st_size} {name} {{}}\n")
         exported_frame = root / "exported.ppm"
         run([str(runtime), "--screenshot", str(game), "1", str(exported_frame)], package, env)
-        assert exported_frame.read_bytes().startswith(b"P6\n480 270\n255\n")
+        check(exported_frame.read_bytes().startswith(b"P6\n480 270\n255\n"),
+              "Exported map produced an invalid screenshot")
         print("Extracted runtime screenshot, Workshop save/export/reload, and exported map rendering: pass")
 
 

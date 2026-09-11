@@ -2717,6 +2717,7 @@ fn issueLabel(kind: model.IssueKind) []const u8 {
         .spawn_blocked => "ERROR: SPAWN IS BLOCKED",
         .goal_blocked => "ERROR: GOAL IS BLOCKED",
         .goal_unreachable => "ERROR: GOAL UNREACHABLE",
+        .invalid_entity_fields => "ERROR: INVALID ENTITY FIELDS",
         .entity_blocked => "WARN: ENTITY ON COLLISION",
         .empty_background => "WARN: BACKGROUND EMPTY",
     };

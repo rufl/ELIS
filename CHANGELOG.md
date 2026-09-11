@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Kept Workshop resize revisions monotonic so resize/save/resize cannot hide
+  unsaved changes; rejected imported/exported entity values outside their schema
+  while preserving legacy untyped decoration values during migration.
+- Restored cartridge-first module resolution and Lua 5.4 loader filenames,
+  return arity, and compilation-error propagation.
+- Shared bounded, structured bitmap metadata parsing between runtime and
+  Workshop, preventing nested or duplicate JSON keys from changing asset identity.
+- Added a 32-entry, 256 KiB bitmap pixel cache with file-change invalidation,
+  bounded eviction, and cleanup on unload and failed loads.
+- Corrected Mr. Rescue's music-stop calls at gameplay transitions.
+- Rejected malformed demo catalogs before network acquisition and made release
+  smoke checks execute under optimized Python, including HTTPS operations.
 - Preserved Lua 5.4 integer types, subtraction, and exponent precedence when
   translating high-bit binary literals; added executable boundary regressions.
 - Made extracted-package smoke tests assert the executing Lua version rather

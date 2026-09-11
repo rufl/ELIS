@@ -58,6 +58,12 @@ A new intentional difference from the pinned Lupinho baseline belongs in `COMPAT
 - The game Lua allocator rejects growth beyond 4 MiB and must return to zero after `lua_close`.
 - Archive roots are removed when a game unloads and on every extraction failure.
 - Manifest and bitmap reads are bounded before allocation.
+- Sprite/tile draws reuse at most 32 bitmap entries and 256 KiB of pixel data,
+  with fixed-size path storage. Every request checks file identity, length, and
+  timestamps; Windows requests with active writers reread rather than reuse.
+  Cache storage is cleared before game admission and after Lua finalizers run.
+- Runtime and Workshop share structured top-level bitmap metadata parsing with
+  64 KiB of temporary scratch storage; no parser allocation crosses a Lua call.
 - SDL windows, renderers, textures, controllers, and audio devices are paired with immediate `defer` cleanup.
 - `Audio` state is read by SDL's callback thread. Public mutations lock the device; helpers ending in `Unlocked` require the caller to hold that lock.
 - Workshop `Project`, `History`, `Command`, and `Stamp` values have explicit ownership. Project snapshots are encoded byte slices owned by their history command.

@@ -221,7 +221,7 @@ local function loadSection(first_section, fade_in)
   end
   frames = 0
   if first_section and not PortMode.auto_start then
-    sfx.music()
+    sfx.music(-1)
     music_state = "stopped"
     state = STATE_COUNTDOWN_IN
   elseif fade_in then
@@ -356,7 +356,7 @@ end
 local function enterSummary()
   Campaign.finalize()
   state = STATE_SUMMARY
-  sfx.music()
+  sfx.music(-1)
   music_state = "stopped"
 end
 
@@ -421,7 +421,7 @@ local function updateTransitionOut()
     if campaign_casualties >= maximum_casualties then
       failure_message = "TOO MANY CIVILIANS HAVE DIED!"
       state = STATE_FAILED
-      sfx.music()
+      sfx.music(-1)
       music_state = "stopped"
     else
       campaign_section = campaign_section + 1
@@ -432,7 +432,7 @@ local function updateTransitionOut()
     end
   elseif transition_outcome == 2 then
     state = STATE_FAILED
-    sfx.music()
+    sfx.music(-1)
     music_state = "stopped"
   else
     Player.warp(World.startPosition())

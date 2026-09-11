@@ -1,3 +1,8 @@
+local name, path = ...
+assert(name == "helper" and type(path) == "string")
+local source = assert(io.open(path, "rb"))
+source:close()
+
 -- Binary-looking text in every Lua lexical form must remain untouched.
 local quoted = "0b101"
 local single = '0B110'

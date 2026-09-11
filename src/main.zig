@@ -16,6 +16,7 @@ const Settings = @import("settings.zig").Settings;
 const font = @import("font.zig");
 const debug_mod = @import("debug.zig");
 const lupi_profile = @import("studio/lupi_profile.zig");
+const studio_assets = @import("studio/assets.zig");
 
 // The Lupi ABI fixes the logical resolution. SDL scales this indexed surface;
 // games never observe the host window size.
@@ -451,17 +452,47 @@ fn updateCatalog(replace_existing: bool) bool {
     return success;
 }
 
+const CatalogEntry = struct {
+    name: []const u8,
+    source: []const u8,
+    slug: []const u8,
+    builtin: bool,
+};
+
+fn parseCatalogLine(raw: []const u8) error{InvalidCatalog}!?CatalogEntry {
+    const catalog_line = std.mem.trim(u8, raw, " \t\r");
+    if (catalog_line.len == 0 or catalog_line[0] == '#') return null;
+    var fields = std.mem.splitScalar(u8, catalog_line, '|');
+    const name = std.mem.trim(u8, fields.next() orelse return error.InvalidCatalog, " \t");
+    const source = std.mem.trim(u8, fields.next() orelse return error.InvalidCatalog, " \t");
+    if (name.len == 0 or source.len == 0 or fields.next() != null) return error.InvalidCatalog;
+    const is_builtin = std.mem.startsWith(u8, source, "builtin:");
+    const slug = if (is_builtin) source["builtin:".len..] else githubRepositorySlug(source) orelse return error.InvalidCatalog;
+    if (slug.len > 80 or (is_builtin and archivePathUnsafe(slug))) return error.InvalidCatalog;
+    return .{ .name = name, .source = source, .slug = slug, .builtin = is_builtin };
+}
+
+fn validateCatalog(catalog: []const u8) error{InvalidCatalog}!void {
+    var lines = std.mem.splitScalar(u8, catalog, '\n');
+    while (lines.next()) |catalog_line| _ = try parseCatalogLine(catalog_line);
+}
+
 fn nativeUpdateCatalog(replace_existing: bool) bool {
-    if (c.curl_global_init(c.CURL_GLOBAL_DEFAULT) != c.CURLE_OK) {
-        browser_notice = .network_failed;
-        return false;
-    }
-    defer c.curl_global_cleanup();
     const catalog = assetAll("demos/catalog.txt") orelse {
         browser_notice = .catalog_missing;
         return false;
     };
     defer A.free(catalog);
+    validateCatalog(catalog) catch {
+        browser_notice = .update_failed;
+        logUpdate("Catalog", "Invalid entry: expected name|https://github.com/owner/repository or name|builtin:relative/path (slug at most 80 bytes)");
+        return false;
+    };
+    if (c.curl_global_init(c.CURL_GLOBAL_DEFAULT) != c.CURLE_OK) {
+        browser_notice = .network_failed;
+        return false;
+    }
+    defer c.curl_global_cleanup();
     var work_template: [2048]u8 = undefined;
     const work = native.temporaryDirectory(&work_template, "elis-native") orelse return false;
     defer removeTree(work);
@@ -497,19 +528,13 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
     }
     var updated = false;
     var failed = false;
-    var cursor: usize = 0;
-    while (cursor < catalog.len) {
-        const end = std.mem.indexOfScalarPos(u8, catalog, cursor, '\n') orelse catalog.len;
-        const line_text = std.mem.trim(u8, catalog[cursor..end], " \t\r");
-        cursor = if (end < catalog.len) end + 1 else catalog.len;
-        if (line_text.len == 0 or line_text[0] == '#') continue;
-        var parts = std.mem.splitScalar(u8, line_text, '|');
-        const name = parts.next() orelse continue;
-        const url = parts.next() orelse continue;
-        if (std.mem.startsWith(u8, url, "builtin:")) continue;
+    var lines = std.mem.splitScalar(u8, catalog, '\n');
+    while (lines.next()) |catalog_line| {
+        const entry = (parseCatalogLine(catalog_line) catch unreachable) orelse continue;
+        if (entry.builtin) continue;
+        const url = entry.source;
+        const slug = entry.slug;
         logUpdate("Demo", url);
-        const slug = githubRepositorySlug(url) orelse continue;
-        if (slug.len > 80) continue;
         var target: [2048]u8 = undefined;
         const target_path = std.fmt.bufPrint(&target, "demos/{s}", .{slug}) catch {
             failed = true;
@@ -605,7 +630,6 @@ fn nativeUpdateCatalog(replace_existing: bool) bool {
                 failed = true;
             }
         }
-        _ = name;
     }
     if (failed) {
         if (browser_notice == .searching) browser_notice = .update_failed;
@@ -687,6 +711,7 @@ fn clearDemos() void {
 fn closeGameLua() void {
     c.lua_close(L);
     std.debug.assert(lua_heap.used_bytes == 0);
+    bitmap_cache.clear();
 }
 
 fn unloadGame(loaded: *bool, active_archive: *?[]u8) void {
@@ -727,23 +752,14 @@ fn scanDemoDirectoryDepth(base: []const u8, depth: usize, official: bool) void {
 fn addCatalogDemos() void {
     const catalog = assetAll("demos/catalog.txt") orelse return;
     defer A.free(catalog);
-    var cursor: usize = 0;
-    while (cursor < catalog.len) {
-        const end = std.mem.indexOfScalarPos(u8, catalog, cursor, '\n') orelse catalog.len;
-        const line_text = std.mem.trim(u8, catalog[cursor..end], " \t\r");
-        cursor = if (end < catalog.len) end + 1 else catalog.len;
-        if (line_text.len == 0 or line_text[0] == '#') continue;
-        var fields = std.mem.splitScalar(u8, line_text, '|');
-        const display_name = fields.next() orelse continue;
-        const source = fields.next() orelse continue;
-        const slug = if (std.mem.startsWith(u8, source, "builtin:")) blk: {
-            const builtin_path = source["builtin:".len..];
-            if (archivePathUnsafe(builtin_path)) continue;
-            break :blk builtin_path;
-        } else githubRepositorySlug(source) orelse continue;
+    validateCatalog(catalog) catch return;
+    var lines = std.mem.splitScalar(u8, catalog, '\n');
+    while (lines.next()) |catalog_line| {
+        const entry = (parseCatalogLine(catalog_line) catch unreachable) orelse continue;
+        const slug = entry.slug;
         var path_buffer: [256]u8 = undefined;
         const path = std.fmt.bufPrint(&path_buffer, "demos/{s}", .{slug}) catch continue;
-        addDemo(display_name, path, true);
+        addDemo(entry.name, path, true);
     }
 }
 fn discoverDemos() void {
@@ -1685,12 +1701,147 @@ fn bitmapData(
         }
     }
 }
+const bitmap_cache_entries_max = 32;
+const bitmap_cache_bytes_max = 256 * 1024;
+
+const BitmapIdentity = struct {
+    device: u64,
+    inode: u64,
+    size: u64,
+    modified: i128,
+    changed: i128,
+    reusable: bool = true,
+
+    fn read(path: [:0]const u8) ?BitmapIdentity {
+        if (native.windows) {
+            // Windows may defer last-write timestamps until writable handles close.
+            // Probe without write sharing: an active writer forces fresh pixel reads.
+            var reusable = true;
+            var handle = c.CreateFileA(path.ptr, c.FILE_READ_ATTRIBUTES, c.FILE_SHARE_READ | c.FILE_SHARE_DELETE, null, c.OPEN_EXISTING, c.FILE_ATTRIBUTE_NORMAL, null);
+            if (handle == c.INVALID_HANDLE_VALUE) {
+                if (c.GetLastError() != c.ERROR_SHARING_VIOLATION) return null;
+                reusable = false;
+                handle = c.CreateFileA(path.ptr, c.FILE_READ_ATTRIBUTES, c.FILE_SHARE_READ | c.FILE_SHARE_WRITE | c.FILE_SHARE_DELETE, null, c.OPEN_EXISTING, c.FILE_ATTRIBUTE_NORMAL, null);
+                if (handle == c.INVALID_HANDLE_VALUE) return null;
+            }
+            defer _ = c.CloseHandle(handle);
+            var info: c.BY_HANDLE_FILE_INFORMATION = undefined;
+            if (c.GetFileInformationByHandle(handle, &info) == 0 or
+                info.dwFileAttributes & c.FILE_ATTRIBUTE_DIRECTORY != 0) return null;
+            return .{
+                .device = info.dwVolumeSerialNumber,
+                .inode = (@as(u64, info.nFileIndexHigh) << 32) | info.nFileIndexLow,
+                .size = (@as(u64, info.nFileSizeHigh) << 32) | info.nFileSizeLow,
+                .modified = (@as(i128, info.ftLastWriteTime.dwHighDateTime) << 32) | info.ftLastWriteTime.dwLowDateTime,
+                .changed = (@as(i128, info.ftCreationTime.dwHighDateTime) << 32) | info.ftCreationTime.dwLowDateTime,
+                .reusable = reusable,
+            };
+        }
+        var info: c.struct_stat = undefined;
+        if (c.stat(path.ptr, &info) != 0 or info.st_mode & c.S_IFMT != c.S_IFREG or info.st_size < 0)
+            return null;
+        const modified = if (builtin.os.tag == .macos) info.st_mtimespec else info.st_mtim;
+        const changed = if (builtin.os.tag == .macos) info.st_ctimespec else info.st_ctim;
+        return .{
+            .device = @intCast(info.st_dev),
+            .inode = @intCast(info.st_ino),
+            .size = @intCast(info.st_size),
+            .modified = @as(i128, modified.tv_sec) * std.time.ns_per_s + modified.tv_nsec,
+            .changed = @as(i128, changed.tv_sec) * std.time.ns_per_s + changed.tv_nsec,
+        };
+    }
+};
+
+const BitmapCache = struct {
+    const Entry = struct {
+        path: [2048]u8 = undefined,
+        path_len: usize = 0,
+        identity: BitmapIdentity = undefined,
+        bytes: ?[]u8 = null,
+    };
+    entries: [bitmap_cache_entries_max]Entry = .{Entry{}} ** bitmap_cache_entries_max,
+    retained_bytes: usize = 0,
+    next_victim: usize = 0,
+
+    fn remove(self: *BitmapCache, index: usize) void {
+        const entry = &self.entries[index];
+        if (entry.bytes) |bytes| {
+            self.retained_bytes -= bytes.len;
+            A.free(bytes);
+        }
+        entry.* = .{};
+    }
+
+    fn clear(self: *BitmapCache) void {
+        for (0..self.entries.len) |index| self.remove(index);
+        self.next_victim = 0;
+    }
+
+    /// Borrowed until the next cache request or clear; never held across Lua calls.
+    /// Re-stat every request, including cache hits, so cartridge writes/replacements
+    /// are visible. Only the addressable tileset prefix is read and retained.
+    fn get(self: *BitmapCache, path: []const u8, range: BitmapRange) ?[]const u8 {
+        if (range.offset > lupi_tileset_pixels_max or
+            range.length > lupi_tileset_pixels_max - range.offset) return null;
+        var path_buffer: [2048]u8 = undefined;
+        const path_z = std.fmt.bufPrintZ(&path_buffer, "{s}", .{path}) catch return null;
+        var found: ?usize = null;
+        for (&self.entries, 0..) |*entry, index| {
+            if (entry.bytes != null and std.mem.eql(u8, entry.path[0..entry.path_len], path)) {
+                found = index;
+                break;
+            }
+        }
+        const identity = BitmapIdentity.read(path_z) orelse {
+            if (found) |index| self.remove(index);
+            return null;
+        };
+        if (found) |index| {
+            if (identity.reusable and std.meta.eql(self.entries[index].identity, identity)) {
+                const bytes = self.entries[index].bytes.?;
+                if (range.offset > bytes.len or range.length > bytes.len - range.offset) return null;
+                return bytes[range.offset..][0..range.length];
+            }
+            self.remove(index);
+        }
+        if (identity.size == 0 or identity.size > lupi_flash_bytes) return null;
+        const length: usize = @intCast(@min(identity.size, lupi_tileset_pixels_max));
+        if (range.offset > length or range.length > length - range.offset) return null;
+        // Round-robin eviction bounds data and entry count without a heap-backed index.
+        while (self.retained_bytes + length > bitmap_cache_bytes_max) {
+            self.remove(self.next_victim);
+            self.next_victim = (self.next_victim + 1) % self.entries.len;
+        }
+        const slot = found orelse blk: {
+            for (&self.entries, 0..) |*entry, index| {
+                if (entry.bytes == null) break :blk index;
+            }
+            const index = self.next_victim;
+            self.next_victim = (index + 1) % self.entries.len;
+            self.remove(index);
+            break :blk index;
+        };
+        const bytes = asset(path, 0, length) orelse return null;
+        var retained = false;
+        defer if (!retained) A.free(bytes);
+        const after_read = BitmapIdentity.read(path_z) orelse return null;
+        if (!std.meta.eql(identity, after_read)) return null;
+        const entry = &self.entries[slot];
+        @memcpy(entry.path[0..path.len], path);
+        entry.path_len = path.len;
+        entry.identity = identity;
+        entry.bytes = bytes;
+        self.retained_bytes += bytes.len;
+        retained = true;
+        return bytes[range.offset..][0..range.length];
+    }
+};
+var bitmap_cache = BitmapCache{};
+
 fn bitmap(path: []const u8, w: i32, h: i32, tile_id: i32, x: i32, y: i32, flip_x: bool, flip_y: bool) void {
     const range = bitmapRange(w, h, tile_id, lupi_tileset_pixels_max) orelse return;
-    const bytes = asset(path, range.offset, range.length) orelse return;
-    defer A.free(bytes);
-    // `asset` already returned exactly the requested tile. Applying tile_id
-    // again here made every ui.tile call except tile 0 address past the slice.
+    const bytes = bitmap_cache.get(path, range) orelse return;
+    // The cache returns the requested tile, not the entire tileset.
     bitmapData(bytes, w, h, 0, x, y, flip_x, flip_y);
 }
 fn ts(L_: *c.lua_State, idx: c_int, name: [:0]const u8) ?[]const u8 {
@@ -1961,44 +2112,6 @@ fn tile(L_: *c.lua_State) callconv(.c) c_int {
     }
     return 0;
 }
-fn manifestStringEquals(json: []const u8, field: []const u8, expected: []const u8) bool {
-    var needle: [64]u8 = undefined;
-    const key = std.fmt.bufPrint(&needle, "\"{s}\"", .{field}) catch return false;
-    var at: usize = 0;
-    while (std.mem.indexOfPos(u8, json, at, key)) |found| {
-        var cursor = found + key.len;
-        while (cursor < json.len and std.ascii.isWhitespace(json[cursor])) : (cursor += 1) {}
-        if (cursor >= json.len or json[cursor] != ':') {
-            at = found + key.len;
-            continue;
-        }
-        cursor += 1;
-        while (cursor < json.len and std.ascii.isWhitespace(json[cursor])) : (cursor += 1) {}
-        if (cursor >= json.len or json[cursor] != '"') return false;
-        cursor += 1;
-        if (cursor + expected.len >= json.len or
-            !std.mem.eql(u8, json[cursor .. cursor + expected.len], expected) or
-            json[cursor + expected.len] != '"')
-        {
-            return false;
-        }
-        return true;
-    }
-    return false;
-}
-fn manifestNumber(json: []const u8, field: []const u8, d: i32) i32 {
-    var needle: [64]u8 = undefined;
-    const key = std.fmt.bufPrint(&needle, "\"{s}\"", .{field}) catch return d;
-    const at = std.mem.indexOf(u8, json, key) orelse return d;
-    var end = at + key.len;
-    while (end < json.len and std.ascii.isWhitespace(json[end])) : (end += 1) {}
-    if (end >= json.len or json[end] != ':') return d;
-    end += 1;
-    while (end < json.len and std.ascii.isWhitespace(json[end])) : (end += 1) {}
-    var stop = end;
-    while (stop < json.len and json[stop] >= '0' and json[stop] <= '9') : (stop += 1) {}
-    return std.fmt.parseInt(i32, json[end..stop], 10) catch d;
-}
 fn injectSprites() !void {
     var root_file: [1024]u8 = undefined;
     const path = std.fmt.bufPrint(&root_file, "{s}/lupi_manifest.txt", .{game_root}) catch return;
@@ -2022,11 +2135,10 @@ fn injectSpritesProtected(state: *c.lua_State) callconv(.c) c_int {
         const encoded_bytes = std.fmt.parseUnsigned(usize, encoded_bytes_text, 10) catch continue;
         const rel = tok.next() orelse continue;
         const json = tok.rest();
-        if (!manifestStringEquals(json, "type", "bitmap")) continue;
-        const w = manifestNumber(json, "width", 0);
-        const h = manifestNumber(json, "height", 0);
-        if (w <= 0 or h <= 0) continue;
-        const pixels_per_tile = @as(usize, @intCast(w)) * @as(usize, @intCast(h));
+        const metadata = studio_assets.parseBitmapMetadata(json) orelse continue;
+        const w = metadata.width;
+        const h = metadata.height;
+        const pixels_per_tile = @as(usize, w) * @as(usize, h);
         if (encoded_bytes > lupi_tileset_pixels_max or encoded_bytes % pixels_per_tile != 0) {
             continue;
         }
@@ -2609,25 +2721,30 @@ fn luaCompileFile(L_: *c.lua_State) callconv(.c) c_int {
     var path_length: usize = 0;
     const path_pointer = c.luaL_checklstring(L_, 1, &path_length);
     const path = path_pointer[0..path_length];
+    c.luaL_checkstack(L_, 2, "loading Lua source");
+    var chunk_buffer: [2050]u8 = undefined;
+    const chunk_name = std.fmt.bufPrintZ(&chunk_buffer, "@{s}", .{path}) catch {
+        c.lua_pushnil(L_);
+        _ = c.lua_pushstring(L_, "Lua source path too long");
+        return 2;
+    };
     const source = assetAll(path) orelse {
         c.lua_pushnil(L_);
         _ = c.lua_pushstring(L_, "cannot open Lua source file");
         return 2;
     };
-    defer A.free(source);
-    const translated = translateBinaryLiterals(source) orelse {
+    const translated = translateBinaryLiterals(source);
+    A.free(source);
+    const prepared = translated orelse {
         c.lua_pushnil(L_);
         _ = c.lua_pushstring(L_, "out of memory while loading Lua source");
         return 2;
     };
-    defer A.free(translated.allocation);
-    const chunk_name = std.fmt.allocPrintSentinel(A, "@{s}", .{path}, 0) catch {
-        c.lua_pushnil(L_);
-        _ = c.lua_pushstring(L_, "out of memory while naming Lua source");
-        return 2;
-    };
-    defer A.free(chunk_name);
-    if (c.luaL_loadbufferx(L_, translated.text.ptr, translated.text.len, chunk_name.ptr, "t") == c.LUA_OK) return 1;
+    // lua_load protects parser errors, including OOM. Free host storage before
+    // any subsequent Lua operation that could longjmp out of this callback.
+    const status = c.luaL_loadbufferx(L_, prepared.text.ptr, prepared.text.len, chunk_name.ptr, "t");
+    A.free(prepared.allocation);
+    if (status == c.LUA_OK) return 1;
     c.lua_pushnil(L_);
     c.lua_insert(L_, -2);
     return 2;
@@ -2686,6 +2803,7 @@ fn resetGameState() void {
     legacy_sprite_ref = c.LUA_NOREF;
 }
 fn load(path: []const u8) !void {
+    bitmap_cache.clear();
     if (!gameFitsFlash(path)) return error.GameExceedsLupiFlash;
     resetGameState();
     game_root = path;
@@ -2700,8 +2818,7 @@ fn load(path: []const u8) !void {
     c.lua_setglobal(L, "__lupi_compile_file");
     const helper =
         \\local __lupi_require = require
-        \\require = function(name, ...)
-        \\  local result = __lupi_require(name, ...)
+        \\local function __lupi_finish_require(name, ...)
         \\  if name == 'palette' and type(Palette) == 'table' then
         \\    -- Convert RGB888 to the closest zero-based RGB555 palette index.
         \\    Palette.hex = function(rgb)
@@ -2724,15 +2841,18 @@ fn load(path: []const u8) !void {
         \\      return best_index
         \\    end
         \\  end
-        \\  return result
+        \\  return ...
         \\end
-        \\local __lupi_old_searcher = package.searchers[2]
+        \\require = function(name, ...)
+        \\  if name ~= 'palette' then return __lupi_require(name, ...) end
+        \\  return __lupi_finish_require(name, __lupi_require(name, ...))
+        \\end
         \\package.searchers[2] = function(name)
-        \\  local path = package.searchpath(name, package.path)
-        \\  if not path then return '\n\tno file: '..name end
+        \\  local path, missing = package.searchpath(name, package.path)
+        \\  if not path then return missing end
         \\  local chunk, err = __lupi_compile_file(path)
-        \\  if not chunk then return err end
-        \\  return chunk
+        \\  if not chunk then error(err, 0) end
+        \\  return chunk, path
         \\end
         \\local __lupi_sprite_indexes = setmetatable({}, { __mode = 'k' })
         \\local function __lupi_sprite_index(root)
@@ -2781,27 +2901,23 @@ fn load(path: []const u8) !void {
     try injectSprites();
     _ = c.lua_getglobal(L, "package");
     _ = c.lua_getfield(L, -1, "path");
-    var current_len: usize = 0;
-    const current_path = c.lua_tolstring(L, -1, &current_len);
-    if (current_path != null) {
-        const package_path = std.fmt.allocPrint(A, "{s};{s}/?.lua", .{ current_path[0..current_len], path }) catch return error.LuaLoad;
-        defer A.free(package_path);
-        _ = c.lua_pushlstring(L, package_path.ptr, package_path.len);
-        c.lua_setfield(L, -3, "path");
-    }
+    _ = c.lua_pushlstring(L, path.ptr, path.len);
+    _ = c.lua_pushstring(L, "/?.lua;");
+    _ = c.lua_pushlstring(L, path.ptr, path.len);
+    _ = c.lua_pushstring(L, "/?/init.lua;");
+    c.lua_pushvalue(L, -5);
+    c.lua_concat(L, 5);
+    c.lua_setfield(L, -3, "path");
     _ = c.lua_pop(L, 2);
     _ = c.lua_getglobal(L, "package");
     _ = c.lua_getfield(L, -1, "preload");
     c.lua_pushcclosure(L, @as(c.lua_CFunction, @ptrCast(&spritesLoader)), 0);
     c.lua_setfield(L, -2, "sprites");
     _ = c.lua_pop(L, 2);
-    const f = try std.fmt.allocPrint(A, "{s}/game.lua", .{path});
-    defer A.free(f);
-    const z = try A.allocSentinel(u8, f.len, 0);
-    defer A.free(z);
-    @memcpy(z, f);
+    var game_path_buffer: [2048]u8 = undefined;
+    const game_path = std.fmt.bufPrint(&game_path_buffer, "{s}/game.lua", .{path}) catch return error.LuaLoad;
     _ = c.lua_getglobal(L, "__lupi_compile_file");
-    _ = c.lua_pushlstring(L, z.ptr, f.len);
+    _ = c.lua_pushlstring(L, game_path.ptr, game_path.len);
     if (c.lua_pcallk(L, 1, 2, 0, 0, null) != c.LUA_OK) return luaLoadError("game compile");
     if (!c.lua_isfunction(L, -2)) {
         c.lua_remove(L, -2);
@@ -3726,4 +3842,141 @@ pub fn main(init: std.process.Init) !void {
         if (sampled and loaded) updateLuaMemoryStats();
         @memset(&fb, [_]u8{0} ** W);
     }
+}
+
+test "catalog rejects malformed entries before processing any repository" {
+    const good = "Demo|https://github.com/lupi-org-br/demo\n";
+    try validateCatalog("# name|source\n" ++ good ++ "Built in|builtin:mr-rescue/current\n");
+    const builtin_entry = (try parseCatalogLine("Built in|builtin:mr-rescue/current")).?;
+    try std.testing.expect(builtin_entry.builtin);
+    try std.testing.expectEqualStrings("mr-rescue/current", builtin_entry.slug);
+    for ([_][]const u8{
+        "missing separator",
+        "|https://github.com/owner/repo",
+        "Demo|",
+        "Demo|https://example.com/owner/repo",
+        "Demo|https://github.com/owner/repo|extra",
+        "Demo|builtin:../escape",
+        "Demo|https://github.com/owner/" ++ ("a" ** 81),
+    }) |invalid| {
+        try std.testing.expectError(error.InvalidCatalog, parseCatalogLine(invalid));
+        var catalog_buffer: [512]u8 = undefined;
+        const catalog = try std.fmt.bufPrint(&catalog_buffer, "{s}{s}\n", .{ good, invalid });
+        try std.testing.expectError(error.InvalidCatalog, validateCatalog(catalog));
+    }
+}
+
+fn writeRuntimeTestFile(path: []const u8, bytes: []const u8) !void {
+    var buffer: [2048]u8 = undefined;
+    const path_z = try std.fmt.bufPrintZ(&buffer, "{s}", .{path});
+    makeParentDirs(path_z);
+    const file = c.fopen(path_z.ptr, "wb") orelse return error.TestFileOpen;
+    const written = c.fwrite(bytes.ptr, 1, bytes.len, file);
+    const closed = c.fclose(file);
+    if (written != bytes.len or closed != 0) return error.TestFileWrite;
+}
+
+test "bitmap cache observes replacement truncation deletion and range limits" {
+    var root_buffer: [2048]u8 = undefined;
+    const root = native.temporaryDirectory(&root_buffer, "elis-bitmap-test") orelse return error.TestDirectory;
+    defer removeTree(root);
+    var path_buffer: [2048]u8 = undefined;
+    const path = try std.fmt.bufPrintZ(&path_buffer, "{s}/sprite", .{root});
+    var replacement_buffer: [2048]u8 = undefined;
+    const replacement = try std.fmt.bufPrintZ(&replacement_buffer, "{s}/replacement", .{root});
+    var cache = BitmapCache{};
+    defer cache.clear();
+    const range = BitmapRange{ .offset = 2, .length = 2 };
+    try writeRuntimeTestFile(path, "abcd");
+    try std.testing.expectEqualStrings("cd", cache.get(path, range).?);
+    try std.testing.expectEqualStrings("ab", cache.get(path, .{ .offset = 0, .length = 2 }).?);
+    try std.testing.expect(cache.get(path, .{ .offset = 3, .length = 2 }) == null);
+    try std.testing.expect(cache.get(path, .{ .offset = lupi_tileset_pixels_max, .length = 1 }) == null);
+    {
+        // A flushed write must be visible even while the writer stays open;
+        // Windows need not have updated its last-write FILETIME yet.
+        const writer = c.fopen(path.ptr, "r+b") orelse return error.TestFileOpen;
+        defer _ = c.fclose(writer);
+        for ([_][]const u8{ "12", "34" }) |pixels| {
+            try std.testing.expect(c.fseek(writer, 2, c.SEEK_SET) == 0);
+            try std.testing.expect(c.fwrite(pixels.ptr, 1, pixels.len, writer) == pixels.len);
+            try std.testing.expect(c.fflush(writer) == 0);
+            try std.testing.expectEqualStrings(pixels, cache.get(path, range).?);
+        }
+    }
+    // Create the replacement while the old inode still exists: size and coarse
+    // timestamps may match, but identity must invalidate the cached pixels.
+    try writeRuntimeTestFile(replacement, "wxyz");
+    try std.testing.expect(native.remove(path.ptr) == 0);
+    try std.testing.expect(c.rename(replacement.ptr, path.ptr) == 0);
+    try std.testing.expectEqualStrings("yz", cache.get(path, range).?);
+    try writeRuntimeTestFile(path, "q");
+    try std.testing.expect(cache.get(path, range) == null);
+    try std.testing.expectEqualStrings("q", cache.get(path, .{ .offset = 0, .length = 1 }).?);
+    try std.testing.expect(native.remove(path.ptr) == 0);
+    try std.testing.expect(cache.get(path, .{ .offset = 0, .length = 1 }) == null);
+}
+
+test "Lua require propagates syntax errors without falling through to other searchers" {
+    var root_buffer: [2048]u8 = undefined;
+    const root = native.temporaryDirectory(&root_buffer, "elis-module-test") orelse return error.TestDirectory;
+    defer removeTree(root);
+    var path_buffer: [2048]u8 = undefined;
+    try writeRuntimeTestFile(try std.fmt.bufPrint(&path_buffer, "{s}/broken.lua", .{root}), "return )");
+    try writeRuntimeTestFile(try std.fmt.bufPrint(&path_buffer, "{s}/palette.lua", .{root}), "Palette = { 0, 31744 }");
+    try writeRuntimeTestFile(try std.fmt.bufPrint(&path_buffer, "{s}/game.lua", .{root}),
+        \\local fallback = false
+        \\package.searchers[3] = function(name)
+        \\  if name == 'broken' then fallback = true; return function() return 42 end end
+        \\  return '\n\tno test fallback'
+        \\end
+        \\local ok, err = pcall(require, 'broken')
+        \\assert(not ok and err:find('broken.lua', 1, true) and not fallback)
+        \\assert(not pcall(require, {}))
+        \\ok, err = pcall(require, 'elis_definitely_missing_module')
+        \\assert(not ok and err:find('elis_definitely_missing_module', 1, true))
+        \\local function check_palette(...)
+        \\  assert(select('#', ...) == 2)
+        \\  local value, filename = ...
+        \\  assert(value == true and filename:match('/palette%.lua$'))
+        \\end
+        \\check_palette(require('palette'))
+        \\assert(select('#', require('palette')) == 1)
+        \\assert(Palette.hex(0xff0000) == 1)
+    );
+    const previous_root = game_root;
+    defer game_root = previous_root;
+    try load(root);
+    defer closeGameLua();
+}
+
+test "bitmap cache releases per-game storage on unload and failed load" {
+    var root_buffer: [2048]u8 = undefined;
+    const root = native.temporaryDirectory(&root_buffer, "elis-cache-lifecycle") orelse return error.TestDirectory;
+    defer removeTree(root);
+    var path_buffer: [2048]u8 = undefined;
+    const draw =
+        \\local path = debug.getinfo(1, 'S').source:sub(2):gsub('game%.lua$', 'sprite')
+        \\ui.spr({path = path, width = 1, height = 1}, 0, 0)
+        \\
+    ;
+    try writeRuntimeTestFile(try std.fmt.bufPrint(&path_buffer, "{s}/sprite", .{root}), "a");
+    try writeRuntimeTestFile(try std.fmt.bufPrint(&path_buffer, "{s}/game.lua", .{root}), draw);
+    const previous_root = game_root;
+    defer game_root = previous_root;
+    {
+        try load(root);
+        defer closeGameLua();
+        try std.testing.expectEqual(@as(u8, 'a'), fb[0][0]);
+    }
+    try std.testing.expectEqual(@as(usize, 0), bitmap_cache.retained_bytes);
+    try writeRuntimeTestFile(try std.fmt.bufPrint(&path_buffer, "{s}/sprite", .{root}), "b");
+    {
+        try load(root);
+        defer closeGameLua();
+        try std.testing.expectEqual(@as(u8, 'b'), fb[0][0]);
+    }
+    try writeRuntimeTestFile(try std.fmt.bufPrint(&path_buffer, "{s}/game.lua", .{root}), draw ++ "error('stop loading')");
+    try std.testing.expectError(error.LuaLoad, load(root));
+    try std.testing.expectEqual(@as(usize, 0), bitmap_cache.retained_bytes);
 }

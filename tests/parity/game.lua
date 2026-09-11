@@ -1,4 +1,8 @@
-local helper = require("helper")
+local loaded = table.pack(require("helper"))
+assert(loaded.n == 2 and type(loaded[2]) == "string")
+local helper = loaded[1]
+assert(select("#", require("helper")) == 1)
+assert(require("helper") == helper)
 
 local upstream_api = {
   "btn", "btnp", "camera", "circfill", "clip", "cls", "draw_circle",

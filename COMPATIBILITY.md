@@ -19,6 +19,9 @@ or implement upstream placeholders; they are not accidental renderer drift:
 - Cartridge source loading translates the reference's `0b`/`0B` integer
   literals into Lua 5.4 hexadecimal tokens, preserving integer wraparound
   and operator precedence without rewriting strings or comments.
+- Cartridge `?.lua` and `?/init.lua` paths precede host search paths.
+  `require` preserves Lua 5.4 loader filenames and cached/uncached return arity;
+  a found module's compilation failure does not fall through to another loader.
 - `ui.cls` resets clipping; `ui.spr` and `ui.tile` accept explicit horizontal
   and vertical flips as documented by the console API.
 - `ui.map.layers` provides strict bottom-to-top ordering. Legacy multi-layer
@@ -42,6 +45,7 @@ or implement upstream placeholders; they are not accidental renderer drift:
 - Host music accepts libsndfile streams at the 44.1 kHz mixer rate with one to
   eight channels; unsupported streams fail visibly instead of playing at the
   wrong speed or reading beyond the bounded decode buffer.
+  `sfx.music(-1)` stops playback; the no-argument form does not stop music.
 
 ## Workshop Lupi-safe export profile
 

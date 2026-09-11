@@ -109,7 +109,7 @@ local function enterDead(self, world)
   self.death_smoke_frames = 1
   self.just_died = true
   world.clearFireAndEnemies()
-  sfx.music()
+  sfx.music(-1)
 end
 
 local function updateMagma(self, world, player)
