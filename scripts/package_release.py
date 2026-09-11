@@ -729,7 +729,7 @@ def main():
         # https://github.com/autotools-mirror/gettext/blob/v1.0/gettext-runtime/intl/libintl.rc
         # https://github.com/msys2/MINGW-packages/blob/master/mingw-w64-libiconv/PKGBUILD
         # https://github.com/gnutls/libtasn1/blob/master/README.md
-        # https://github.com/tukaani-project/xz/blob/master/COPYING
+        # https://github.com/tukaani-project/xz/blob/v5.8.4/COPYING
         # https://gmplib.org/manual/Copying
         # https://github.com/libidn/libidn2/blob/v2.3.8/README.md
         component_licenses = {
@@ -742,7 +742,7 @@ def main():
             "mingw-w64-ucrt-x86_64-libtasn1": (
                 "4.21.0-1", {"libtasn1-6.dll"}, "LGPL-2.1-or-later"),
             "mingw-w64-ucrt-x86_64-xz": (
-                "5.8.3-1", {"liblzma-5.dll"}, "0BSD"),
+                "5.8.4-1", {"liblzma-5.dll"}, "0BSD"),
             "mingw-w64-ucrt-x86_64-gmp": (
                 "6.3.0-2", {"libgmp-10.dll", "libgmpxx-4.dll"}, "LGPL-3.0-or-later"),
             "mingw-w64-ucrt-x86_64-libidn2": (

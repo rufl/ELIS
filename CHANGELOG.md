@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reviewed MSYS2 xz 5.8.4-1 for Windows packaging, retaining the exact-version
+  and `liblzma-5.dll`-only 0BSD license gate.
 - Kept Workshop resize revisions monotonic so resize/save/resize cannot hide
   unsaved changes; rejected imported/exported entity values outside their schema
   while preserving legacy untyped decoration values during migration.
