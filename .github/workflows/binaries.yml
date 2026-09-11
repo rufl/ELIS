@@ -1,6 +1,8 @@
 name: Binaries
 
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -36,7 +38,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
@@ -96,7 +98,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -115,9 +117,23 @@ jobs:
           EXTENSION: ${{ matrix.extension }}
         run: python scripts/smoke_release.py "dist/elis-$RELEASE_VERSION-$PLATFORM.$EXTENSION"
 
+  binaries:
+    if: always()
+    needs: [build, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every platform build and extracted-package smoke
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          SMOKE_RESULT: ${{ needs.smoke.result }}
+        run: |
+          test "$BUILD_RESULT" = success
+          test "$SMOKE_RESULT" = success
+
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
-    needs: [build, smoke]
+    needs: binaries
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
