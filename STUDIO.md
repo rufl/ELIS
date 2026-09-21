@@ -93,6 +93,9 @@ editor map preview, not a claim that game-specific mechanics are running.
   adds or removes trailing fields, cycles field kinds, and edits defaults/ranges
   through the shared undo/redo history. Non-decoration entities on collision
   produce a warning.
+  Removing or reenabling a trailing field initializes instances from its validated
+  default; undo restores their previous schema and distinct values. Failed entity
+  placement leaves the project and pending undo gesture unchanged.
 - `.elisworld` v4 is a versioned checksummed binary source artifact containing
   per-layer assets, semantic terrain, and typed entities. Saves write a sibling
   temporary file, sync it, and atomically rename it into place. Version-one

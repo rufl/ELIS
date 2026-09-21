@@ -984,22 +984,37 @@ pub const CommandBuilder = struct {
     ) !void {
         if (index >= project.cellCount()) return error.InvalidEditorChange;
         if (kind != .none) try validateEntityFieldValue(project.*, kind, 0, value);
-        try self.record(project, .{
+        var changes: [1 + max_entity_fields]Change = undefined;
+        changes[0] = .{
             .kind = .entity_kind,
             .index = @intCast(index),
             .before = project.entities[index],
             .after = @intFromEnum(kind),
-        });
+        };
         for (0..max_entity_fields) |field| {
             const field_value = if (kind == .none) 0 else if (field == 0) value else project.entityFieldDefault(kind, field);
-            try self.record(project, .{
+            changes[1 + field] = .{
                 .kind = .entity_field,
                 .layer = @intCast(field),
                 .index = @intCast(index),
                 .before = project.entityFieldAt(index, field),
                 .after = field_value,
-            });
+            };
         }
+        // Reserve the whole compound edit before record can mutate either the
+        // project or an already coalesced command. No-op/coalesced targets need
+        // no additional storage.
+        var additional: usize = 0;
+        for (changes) |change| {
+            if (change.before == change.after) continue;
+            for (self.changes.items) |existing| {
+                if (existing.sameTarget(change)) break;
+            } else {
+                additional += 1;
+            }
+        }
+        try self.changes.ensureUnusedCapacity(self.allocator, additional);
+        for (changes) |change| try self.record(project, change);
     }
 
     pub fn setEntityField(self: *CommandBuilder, project: *Project, index: usize, field: usize, value: u16) !void {
@@ -1262,9 +1277,7 @@ pub const History = struct {
         for (changed.entities, 0..) |raw_kind, index| {
             if (raw_kind != @intFromEnum(kind)) continue;
             const value = &changed.entity_fields[index * max_entity_fields + field];
-            if (name.len == 0) {
-                value.* = 0;
-            } else if (!was_enabled) {
+            if (name.len == 0 or !was_enabled) {
                 value.* = default_value;
             } else {
                 value.* = std.math.clamp(value.*, minimum, maximum);
@@ -2259,6 +2272,52 @@ test "gesture returning to its source value leaves no command or dirty revision"
     try std.testing.expectEqual(@as(?Command, null), try builder.finish());
 }
 
+test "compound entity allocation failure preserves the project and pending undo command" {
+    for ([_]bool{ false, true }) |coalesced| {
+        var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "tiles/world");
+        defer project.deinit();
+        try project.setEntityFieldSchema(.enemy, 1, "patrol", .toggle, 1, 0, 1);
+        try project.setEntityFieldSchema(.enemy, 2, "sprite", .tile, 2, 2, 9);
+        try project.setEntityFieldSchema(.enemy, 3, "alert", .unsigned, 3, 1, 9);
+        var failing_allocator = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var builder = CommandBuilder.init(failing_allocator.allocator());
+        defer builder.deinit();
+        // Leave room for the kind but not all fields, or fill the command with
+        // existing entity targets that record would otherwise overwrite first.
+        try builder.changes.ensureTotalCapacityPrecise(builder.allocator, 2);
+        const index = project.cellIndex(3, 2);
+        if (coalesced) {
+            try builder.setEntity(&project, index, .pickup, 3);
+        } else {
+            try builder.setTile(&project, 1, index, 7);
+        }
+        const before = try encode(std.testing.allocator, project);
+        defer std.testing.allocator.free(before);
+        failing_allocator.fail_index = failing_allocator.alloc_index;
+        failing_allocator.resize_fail_index = failing_allocator.resize_index;
+        try std.testing.expectError(error.OutOfMemory, builder.setEntity(&project, index, .enemy, 4));
+        try std.testing.expect(failing_allocator.has_induced_failure);
+        const after = try encode(std.testing.allocator, project);
+        defer std.testing.allocator.free(after);
+        try std.testing.expectEqualSlices(u8, before, after);
+
+        failing_allocator.fail_index = std.math.maxInt(usize);
+        failing_allocator.resize_fail_index = std.math.maxInt(usize);
+        var history = History.init(std.testing.allocator);
+        defer history.deinit();
+        try history.commit((try builder.finish()).?);
+        try std.testing.expect(try history.undo(&project));
+        try std.testing.expectEqual(EntityKind.none, project.entityKindAt(index));
+        try std.testing.expectEqualSlices(u16, &.{ 0, 0, 0, 0 }, project.entity_fields[index * max_entity_fields ..][0..max_entity_fields]);
+        try std.testing.expectEqual(empty_tile, project.layerCells(1)[index]);
+        try std.testing.expect(try history.redo(&project));
+        try std.testing.expectEqual(if (coalesced) EntityKind.pickup else EntityKind.none, project.entityKindAt(index));
+        try std.testing.expectEqual(@as(u16, if (coalesced) 3 else 0), project.entityFieldAt(index, 0));
+        try std.testing.expectEqualSlices(u16, &.{ 0, 0, 0 }, project.entity_fields[index * max_entity_fields + 1 ..][0 .. max_entity_fields - 1]);
+        try std.testing.expectEqual(if (coalesced) empty_tile else @as(u16, 7), project.layerCells(1)[index]);
+    }
+}
+
 test "failed applied-command commit restores project and revision" {
     // Force the history-stack allocation to fail after a live paint mutation;
     // commitApplied must roll back data and dirty-state identity without leaks.
@@ -2656,6 +2715,71 @@ test "entity schema definitions participate in unified history" {
     try std.testing.expectEqualStrings("Enemy", project.entitySchemaName(.enemy));
     try std.testing.expect(try history.redo(&project));
     try std.testing.expectEqualStrings("Sentinel", project.entitySchemaName(.enemy));
+}
+
+test "entity schema removal and reenabling preserve valid snapshots through undo and redo" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "tiles/world");
+    defer project.deinit();
+    try project.setEntityFieldSchema(.enemy, 2, "sprite", .tile, 4, 2, 10);
+    var builder = CommandBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+    const first = project.cellIndex(3, 2);
+    const second = project.cellIndex(4, 2);
+    try builder.setEntity(&project, first, .enemy, 4);
+    try builder.setEntityField(&project, first, 2, 9);
+    try builder.setEntity(&project, second, .enemy, 5);
+    try builder.setEntityField(&project, second, 2, 6);
+    var history = History.init(std.testing.allocator);
+    defer history.deinit();
+
+    const Action = enum { remove, reenable, undo, redo };
+    const states = [_]struct {
+        action: Action,
+        name: []const u8,
+        kind: EntityFieldKind,
+        default: u16,
+        minimum: u16,
+        maximum: u16,
+        values: [2]u16,
+    }{
+        .{ .action = .remove, .name = "", .kind = .tile, .default = 4, .minimum = 2, .maximum = 10, .values = .{ 4, 4 } },
+        .{ .action = .reenable, .name = "alert", .kind = .toggle, .default = 1, .minimum = 0, .maximum = 1, .values = .{ 1, 1 } },
+        .{ .action = .undo, .name = "", .kind = .tile, .default = 4, .minimum = 2, .maximum = 10, .values = .{ 4, 4 } },
+        .{ .action = .undo, .name = "sprite", .kind = .tile, .default = 4, .minimum = 2, .maximum = 10, .values = .{ 9, 6 } },
+        .{ .action = .redo, .name = "", .kind = .tile, .default = 4, .minimum = 2, .maximum = 10, .values = .{ 4, 4 } },
+        .{ .action = .redo, .name = "alert", .kind = .toggle, .default = 1, .minimum = 0, .maximum = 1, .values = .{ 1, 1 } },
+    };
+    for (states) |state| {
+        switch (state.action) {
+            .remove, .reenable => try std.testing.expect(try history.setEntityFieldSchema(
+                &project,
+                .enemy,
+                2,
+                state.name,
+                state.kind,
+                state.default,
+                state.minimum,
+                state.maximum,
+            )),
+            .undo => try std.testing.expect(try history.undo(&project)),
+            .redo => try std.testing.expect(try history.redo(&project)),
+        }
+        try std.testing.expect(validate(project).valid());
+        const bytes = try encode(std.testing.allocator, project);
+        defer std.testing.allocator.free(bytes);
+        var decoded = try decode(std.testing.allocator, bytes);
+        defer decoded.deinit();
+        try std.testing.expectEqualStrings(state.name, decoded.entityFieldName(.enemy, 2));
+        try std.testing.expectEqual(@as(u8, if (state.name.len == 0) 2 else 3), decoded.entityFieldCount(.enemy));
+        try std.testing.expectEqual(state.kind, decoded.entityFieldKind(.enemy, 2));
+        try std.testing.expectEqual(state.default, decoded.entityFieldDefault(.enemy, 2));
+        try std.testing.expectEqual(state.minimum, decoded.entityFieldMinimum(.enemy, 2));
+        try std.testing.expectEqual(state.maximum, decoded.entityFieldMaximum(.enemy, 2));
+        try std.testing.expectEqual(state.values[0], decoded.entityFieldAt(first, 2));
+        try std.testing.expectEqual(state.values[1], decoded.entityFieldAt(second, 2));
+        const output = try exportLua(std.testing.allocator, decoded);
+        defer std.testing.allocator.free(output);
+    }
 }
 
 test "entity schema names remain representable in Workshop" {

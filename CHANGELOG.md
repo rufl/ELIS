@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Unified Lua filename loading across entry scripts, modules, `loadfile`, and
+  `dofile`: preserved BOM/shebang diagnostics, modes, environments, stdin, and
+  multiple results while translating binary integers in place.
+- Kept Workshop field removal/reenabling valid through save, export, undo, and
+  redo; made compound entity placement atomic when command allocation fails.
 - Required aggregate Linux/Windows build and extracted-package smoke success
   before merge or publication, including failure/cancellation/skip rejection;
   added binary checks on `main` pushes and aligned pinned checkout actions.

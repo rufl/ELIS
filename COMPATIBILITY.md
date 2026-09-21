@@ -19,6 +19,14 @@ or implement upstream placeholders; they are not accidental renderer drift:
 - Cartridge source loading translates the reference's `0b`/`0B` integer
   literals into Lua 5.4 hexadecimal tokens, preserving integer wraparound
   and operator precedence without rewriting strings or comments.
+  Entry scripts, required modules, and filename-based `loadfile`/`dofile` share
+  this translation and accept UTF-8 BOMs and initial `#` lines without shifting
+  diagnostics. Translation compacts the owned source buffer in place.
+- Relative `loadfile`/`dofile` filenames resolve from the cartridge root.
+  Lua 5.4 load modes, omitted versus explicit-nil environments, error returns,
+  and `dofile` multiple results are preserved. Omitted/nil filenames retain
+  native stdin behavior. Explicit file loads accept bytecode when their mode
+  permits it; entry scripts and `require` remain text-only.
 - Cartridge `?.lua` and `?/init.lua` paths precede host search paths.
   `require` preserves Lua 5.4 loader filenames and cached/uncached return arity;
   a found module's compilation failure does not fall through to another loader.
