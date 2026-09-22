@@ -101,6 +101,141 @@ printf '%s\n' \
 (cd "$tmp" && "$root/zig-out/bin/elis" --screenshot \
   "$tmp/module-root" 1 "$tmp/module-root.ppm") >/dev/null
 
+# All filename loaders share Lua's BOM/shebang handling and Lupi binary
+# integers, while loadfile/dofile keep their Lua 5.4 return and mode contracts.
+python3 - "$tmp/file-loaders" <<'PY'
+import pathlib
+import sys
+
+base = pathlib.Path(sys.argv[1])
+game = r'''
+assert(0b101 == 5)
+-- Replacing the former helper global must not replace the captured compiler.
+__lupi_compile_file = function() error("compiler replaced") end
+__lupi_load_file = __lupi_compile_file
+assert(require("helper") == 5)
+assert(require("helper_plain") == 7)
+local root = debug.getinfo(1, "S").source:match("^@(.*)/game.lua$")
+local function values(...)
+  local result = table.pack(...)
+  assert(result.n == 4 and result[1] == 5 and result[2] == nil)
+  assert(result[3] == "0b101" and result[4] == nil)
+end
+values(assert(loadfile("returns.lua"))())
+values(dofile("returns.lua"))
+values(dofile(root .. "/returns.lua"))
+assert(assert(loadfile("empty.lua"))() == nil)
+assert(assert(loadfile("lexical.lua"))() == 9)
+for _, filename in ipairs({"env.lua", "env_binary.lua"}) do
+  assert(assert(loadfile(filename))() == _G)
+  assert(assert(loadfile(filename, nil))() == _G)
+  assert(assert(loadfile(filename, nil, nil))() == nil)
+  local environment = { marker = 23 }
+  assert(assert(loadfile(filename, "t", environment))() == environment)
+  assert(assert(loadfile(filename, "bt"))() == _G)
+  assert(assert(loadfile(filename, "t"))() == _G)
+  for _, mode in ipairs({"b", ""}) do
+    local result = table.pack(loadfile(filename, mode))
+    assert(result.n == 2 and result[1] == nil and type(result[2]) == "string")
+  end
+end
+local dumped = string.dump(function() return 31, "0b101" end)
+local function write(name, content)
+  local file = assert(io.open(root .. "/" .. name, "wb"))
+  assert(file:write(content))
+  assert(file:close())
+end
+write("compiled.lua", dumped)
+write("prefixed.lua", "\239\187\191#!/usr/bin/lua\n" .. dumped)
+for _, filename in ipairs({"compiled.lua", "prefixed.lua"}) do
+  for _, mode in ipairs({"b", "bt"}) do
+    local first, second = assert(loadfile(filename, mode, {}))()
+    assert(first == 31 and second == "0b101")
+  end
+  assert(assert(loadfile(filename))() == 31)
+  assert(dofile(filename) == 31)
+  local chunk, err = loadfile(filename, "t")
+  assert(chunk == nil and type(err) == "string")
+end
+assert(not pcall(require, "compiled")) -- Cartridge modules remain text-only.
+for _, filename in ipairs({"missing.lua", "syntax.lua", "malformed.lua"}) do
+  local result = table.pack(loadfile(filename))
+  assert(result.n == 2 and result[1] == nil and type(result[2]) == "string")
+  assert(not pcall(dofile, filename))
+end
+local _, syntax_error = loadfile("syntax.lua")
+assert(syntax_error:find("syntax.lua:3:", 1, true), syntax_error)
+local ok, module_error = pcall(require, "syntax")
+assert(not ok and module_error:find("syntax.lua:3:", 1, true), module_error)
+local ok, runtime_error = pcall(dofile, "runtime.lua")
+assert(not ok and runtime_error:find("runtime.lua:3:", 1, true), runtime_error)
+assert(not pcall(loadfile, {}))
+assert(not pcall(loadfile, "env.lua", {}))
+assert(not pcall(dofile, {}))
+write("entry-bytecode/game.lua", dumped)
+function update() end
+'''
+for name, prefix in (("bom", b"\xef\xbb\xbf"),
+                     ("shebang", b"#!/usr/bin/lua 0b111\n"),
+                     ("both", b"\xef\xbb\xbf#!/usr/bin/lua\n")):
+    root = base / name
+    (root / "entry-bytecode").mkdir(parents=True)
+    (root / "game.lua").write_bytes(prefix + game.encode())
+    for filename, source in {
+        "helper.lua": "return 0b101\n",
+        "helper_plain.lua": "return 7\n",
+        "returns.lua": 'return 0b101, nil, "0b101", nil\n',
+        "env.lua": "return _ENV\n",
+        "env_binary.lua": "local number = 0b101; return _ENV, number\n",
+        "malformed.lua": "return 0b102\n",
+        "lexical.lua": '''-- 0b110
+local quoted = "escaped \\" 0b111"
+local long = [==[0b101]==]
+--[=[0b111]=]
+assert(quoted == 'escaped " 0b111' and long == "0b101")
+return 0b100 + 0B101
+''',
+    }.items():
+        (root / filename).write_bytes(prefix + source.encode())
+    (root / "empty.lua").write_bytes(b"")
+    diagnostic_prefix = b"\xef\xbb\xbf#!/usr/bin/lua\n\n"
+    (root / "syntax.lua").write_bytes(diagnostic_prefix + b"local = 0b1\n")
+    (root / "runtime.lua").write_bytes(diagnostic_prefix + b'error("loader failure")\n')
+
+for name, expression in {
+    "loadfile-omitted": "assert(loadfile())()",
+    "loadfile-nil": "assert(loadfile(nil))()",
+    "loadfile-env": 'assert(loadfile(nil, "t", { marker = 37 }))()',
+    "dofile-omitted": "dofile()",
+    "dofile-nil": "dofile(nil)",
+}.items():
+    root = base / name
+    root.mkdir()
+    (root / "game.lua").write_text(
+        f"local result = table.pack({expression})\n"
+        'assert(result.n == 3 and result[1] == 37 and result[2] == nil and result[3] == "stdin")\n'
+        "function update() end\n"
+    )
+PY
+for loader_case in bom shebang both; do
+  ./zig-out/bin/elis --screenshot "$tmp/file-loaders/$loader_case" 1 \
+    "$tmp/file-loaders/$loader_case.ppm" >/dev/null
+  set +e
+  bytecode_output="$(./zig-out/bin/elis --screenshot \
+    "$tmp/file-loaders/$loader_case/entry-bytecode" 1 "$tmp/bytecode.ppm" 2>&1)"
+  bytecode_rc=$?
+  set -e
+  test "$bytecode_rc" -eq 1
+  grep -q "attempt to load a binary chunk" <<<"$bytecode_output"
+  test ! -e "$tmp/bytecode.ppm"
+done
+for stdin_case in loadfile-omitted loadfile-nil dofile-omitted dofile-nil; do
+  printf 'return 37, nil, "stdin"\n' | ./zig-out/bin/elis --screenshot \
+    "$tmp/file-loaders/$stdin_case" 1 "$tmp/file-loaders/$stdin_case.ppm" >/dev/null
+done
+printf 'return marker, nil, "stdin"\n' | ./zig-out/bin/elis --screenshot \
+  "$tmp/file-loaders/loadfile-env" 1 "$tmp/file-loaders/loadfile-env.ppm" >/dev/null
+
 mkdir -p "$tmp/frame-error"
 printf 'function update() error("frame failure") end\n' > "$tmp/frame-error/game.lua"
 set +e

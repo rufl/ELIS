@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Unified Lua filename loading across entry scripts, modules, `loadfile`, and
+  `dofile`: preserved BOM/shebang diagnostics, modes, environments, stdin, and
+  multiple results while translating binary integers in place.
+- Kept Workshop field removal/reenabling valid through save, export, undo, and
+  redo; made compound entity placement atomic when command allocation fails.
 - Required aggregate Linux/Windows build and extracted-package smoke success
   before merge or publication, including failure/cancellation/skip rejection;
   added binary checks on `main` pushes and aligned pinned checkout actions.
@@ -97,3 +102,42 @@
 ## History
 
 - The initial native simulator implementation was followed by native map authoring and the ELIS Workshop presentation.
+
+<!-- OVERZEER:DOCS_CHANGELOG_BEGIN -->
+## Unreleased (ELIS)
+- Merge pull request #5 from rufl/fix/ci-release-gates (2026-09-11; commit `a7effee96442`)
+- Require complete binary CI gates before merge and publication (2026-09-11; commit `2299b9f84da9`)
+- Merge pull request #4 from rufl/feat/binary-prereleases (2026-09-11; commit `7ee8feb01eff`)
+- Review xz 5.8.4 Windows runtime license scope (2026-09-11; commit `3baec8555f5f`)
+- docs: add bilingual ELIS project guidance (2026-09-11; commit `d4c23c1525b4`)
+- Add bounded bitmap caching and fix runtime and Workshop correctness (2026-09-11; commit `25b37c038210`)
+- Preserve Lua 5.4 binary integer semantics (2026-09-10; commit `06406ce2ce1b`)
+- Refresh Mr Rescue stress render goldens (2026-09-09; commit `88b57b2252d2`)
+- Merge tested mainline pull requests (2026-09-09; commit `1fe6e148f223`)
+- Bump actions/checkout from 4.2.2 to 7.0.1 (#1) (2026-09-09; commit `1df3b5870c4c`)
+- Keep Mr Rescue failure dialogs readable (2026-09-08; commit `c51de61af1b4`)
+- Keep Mr Rescue floors visible above the HUD (2026-09-08; commit `916861b548d2`)
+- Automate audited Mr Rescue playtest delivery (2026-09-08; commit `27af22316ec8`)
+- Preserve custom controls when upgrading legacy keyboard defaults (2026-09-08; commit `c99953f99e4d`)
+- Fix Mr Rescue game-over contrast and pause edges (2026-09-08; commit `1f174f0af01d`)
+- Fix demo updater diagnostics and rescue binding (2026-09-08; commit `b7669506d34b`)
+- Build and verify Linux and Windows binary prereleases (#3) (2026-09-06; commit `6d3b4f98266e`)
+- Document solo-maintainer review and publication policy (2026-09-06; commit `c921d3d74eb5`)
+- Release Windows smoke DLL handles before package cleanup (2026-09-06; commit `38f16ffeff4a`)
+- Build portable baseline CPU binaries and fix Windows smoke environment (2026-09-06; commit `1321e9b2430b`)
+- Preserve empty optional source metadata fields (2026-09-06; commit `73b5d5b95c22`)
+- Verify pinned Git corresponding-source archives (2026-09-06; commit `8841175d2873`)
+- Record reviewed libidn2 library license alternative (2026-09-06; commit `904e043821c5`)
+- Complete reviewed Windows dependency license scopes (2026-09-06; commit `433ec4b38516`)
+- Separate library and documentation licensing in Windows bundles (2026-09-06; commit `d1a22ead9f8f`)
+- Recognize verified legacy LAME and Vorbis license metadata (2026-09-06; commit `10f32252f58b`)
+- Attribute gettext runtime DLL separately from GPL tools (2026-09-06; commit `c8a77bedc681`)
+- Scope FLAC license attribution to bundled codec DLLs (2026-09-06; commit `80935b624ad8`)
+- Use Windows certificate store and verify packaged HTTPS (2026-09-06; commit `08d898d95eaf`)
+- Recognize reviewed bzip2 redistribution license metadata (2026-09-06; commit `8cfbe4fff140`)
+- Recover missing DLL license texts from verified corresponding sources (2026-09-06; commit `ce298eafd0b8`)
+- Fix standalone asset module and MinGW header translation (2026-09-06; commit `1b0548a4c214`)
+- Build and verify Linux and Windows binary prereleases (2026-09-06; commit `a0d490dc8c38`)
+- Support software SDL renderers and disable executable stacks (2026-09-06; commit `56c1fea16f93`)
+- Harden ELIS runtime and CI for public source publication (2026-09-06; commit `f9b5c9ced7b2`)
+<!-- OVERZEER:DOCS_CHANGELOG_END -->

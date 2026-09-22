@@ -2610,18 +2610,12 @@ fn identifierByte(value: u8) bool {
     return std.ascii.isAlphanumeric(value) or value == '_';
 }
 
-/// Lupi's bundled runtime accepts binary integer literals. Distribution Lua
-/// 5.4 builds generally do not, so translate only lexer-visible numeric
-/// tokens. Quoted strings, escaped bytes, line comments, long strings, and long
-/// comments are copied verbatim.
-const TranslatedSource = struct {
-    allocation: []u8,
-    text: []u8,
-};
-
-fn translateBinaryLiterals(source: []const u8) ?TranslatedSource {
-    const output = A.alloc(u8, source.len) catch return null;
+/// Translate lexer-visible binary integers in place; every replacement is no
+/// longer than its original token. Unchanged source is neither allocated nor
+/// copied, and strings and comments remain verbatim.
+fn translateBinaryLiterals(source: []u8) []u8 {
     var input: usize = 0;
+    var copied: usize = 0;
     var written: usize = 0;
     var quote: u8 = 0;
     var line_comment = false;
@@ -2630,33 +2624,23 @@ fn translateBinaryLiterals(source: []const u8) ?TranslatedSource {
     while (input < source.len) {
         if (quote != 0) {
             const value = source[input];
-            output[written] = value;
-            written += 1;
             input += 1;
             if (value == '\\' and input < source.len) {
-                output[written] = source[input];
-                written += 1;
                 input += 1;
             } else if (value == quote) quote = 0;
             continue;
         }
         if (line_comment) {
             const value = source[input];
-            output[written] = value;
-            written += 1;
             input += 1;
             if (value == '\n' or value == '\r') line_comment = false;
             continue;
         }
         if (long_equals) |equals| {
             if (longBracketClosing(source, input, equals)) |length| {
-                @memcpy(output[written..][0..length], source[input..][0..length]);
-                written += length;
                 input += length;
                 long_equals = null;
             } else {
-                output[written] = source[input];
-                written += 1;
                 input += 1;
             }
             continue;
@@ -2664,28 +2648,19 @@ fn translateBinaryLiterals(source: []const u8) ?TranslatedSource {
 
         if (source[input] == '\'' or source[input] == '"') {
             quote = source[input];
-            output[written] = source[input];
-            written += 1;
             input += 1;
             continue;
         }
         if (input + 1 < source.len and source[input] == '-' and source[input + 1] == '-') {
-            output[written] = '-';
-            output[written + 1] = '-';
-            written += 2;
             input += 2;
             if (longBracketOpening(source, input)) |length| {
-                @memcpy(output[written..][0..length], source[input..][0..length]);
                 long_equals = length - 2;
-                written += length;
                 input += length;
             } else line_comment = true;
             continue;
         }
         if (longBracketOpening(source, input)) |length| {
-            @memcpy(output[written..][0..length], source[input..][0..length]);
             long_equals = length - 2;
-            written += length;
             input += length;
             continue;
         }
@@ -2704,50 +2679,91 @@ fn translateBinaryLiterals(source: []const u8) ?TranslatedSource {
                 // Signed decimal would inject unary minus (or even a "--" comment).
                 var number_buffer: [18]u8 = undefined;
                 const numeral = std.fmt.bufPrint(&number_buffer, "0x{x}", .{value}) catch unreachable;
-                @memcpy(output[written..][0..numeral.len], numeral);
+                const unchanged = source[copied..input];
+                std.mem.copyForwards(u8, source[written..][0..unchanged.len], unchanged);
+                written += unchanged.len;
+                @memcpy(source[written..][0..numeral.len], numeral);
                 written += numeral.len;
                 input = end;
+                copied = input;
                 continue;
             }
         }
-        output[written] = source[input];
-        written += 1;
         input += 1;
     }
-    return .{ .allocation = output, .text = output[0..written] };
+    if (copied == 0) return source;
+    const remainder = source[copied..];
+    std.mem.copyForwards(u8, source[written..][0..remainder.len], remainder);
+    return source[0 .. written + remainder.len];
 }
 
-fn luaCompileFile(L_: *c.lua_State) callconv(.c) c_int {
-    var path_length: usize = 0;
-    const path_pointer = c.luaL_checklstring(L_, 1, &path_length);
-    const path = path_pointer[0..path_length];
+fn readLuaFile(path: [:0]const u8) ![]u8 {
+    const file = c.fopen(path.ptr, "rb") orelse return error.CannotOpen;
+    defer _ = c.fclose(file);
+    if (c.fseek(file, 0, c.SEEK_END) != 0) return error.CannotRead;
+    const end = c.ftell(file);
+    if (end < 0) return error.CannotRead;
+    if (@as(u64, @intCast(end)) > lupi_flash_bytes) return error.FileTooLarge;
+    if (c.fseek(file, 0, c.SEEK_SET) != 0) return error.CannotRead;
+    const source = try A.alloc(u8, @intCast(end));
+    errdefer A.free(source);
+    if (c.fread(source.ptr, 1, source.len, file) != source.len) return error.CannotRead;
+    return source;
+}
+
+fn compileLuaFile(L_: *c.lua_State, rooted: bool) c_int {
+    const path = std.mem.span(c.luaL_checklstring(L_, 1, null));
+    const mode = c.luaL_optlstring(L_, 2, if (rooted) "bt" else "t", null);
+    const has_environment = c.lua_gettop(L_) >= 3;
     c.luaL_checkstack(L_, 2, "loading Lua source");
     var chunk_buffer: [2050]u8 = undefined;
-    const chunk_name = std.fmt.bufPrintZ(&chunk_buffer, "@{s}", .{path}) catch {
+    const chunk_name = if (rooted and !std.fs.path.isAbsolute(path))
+        std.fmt.bufPrintZ(&chunk_buffer, "@{s}/{s}", .{ game_root, path })
+    else
+        std.fmt.bufPrintZ(&chunk_buffer, "@{s}", .{path});
+    const name = chunk_name catch {
         c.lua_pushnil(L_);
         _ = c.lua_pushstring(L_, "Lua source path too long");
         return 2;
     };
-    const source = assetAll(path) orelse {
+    const source = readLuaFile(name[1.. :0]) catch |err| {
         c.lua_pushnil(L_);
-        _ = c.lua_pushstring(L_, "cannot open Lua source file");
+        _ = c.lua_pushfstring(L_, "cannot load %s: %s", name.ptr + 1, @errorName(err).ptr);
         return 2;
     };
-    const translated = translateBinaryLiterals(source);
+    // Match luaL_loadfilex: strip a BOM and the initial '#' line, retaining
+    // its newline for text diagnostics but not before a bytecode signature.
+    var chunk_source = source;
+    if (std.mem.startsWith(u8, chunk_source, "\xef\xbb\xbf")) chunk_source = chunk_source[3..];
+    if (chunk_source.len > 0 and chunk_source[0] == '#') {
+        if (std.mem.indexOfScalar(u8, chunk_source, '\n')) |newline| {
+            chunk_source = chunk_source[newline..];
+            if (chunk_source.len > 1 and chunk_source[1] == 0x1b) chunk_source = chunk_source[1..];
+        } else chunk_source = chunk_source[chunk_source.len..];
+    }
+    if (chunk_source.len == 0 or chunk_source[0] != 0x1b) chunk_source = translateBinaryLiterals(chunk_source);
+    // lua_load protects parser errors, including OOM. Release host storage
+    // before environment setup or any other Lua operation that can longjmp.
+    const status = c.luaL_loadbufferx(L_, chunk_source.ptr, chunk_source.len, name.ptr, mode);
     A.free(source);
-    const prepared = translated orelse {
-        c.lua_pushnil(L_);
-        _ = c.lua_pushstring(L_, "out of memory while loading Lua source");
-        return 2;
-    };
-    // lua_load protects parser errors, including OOM. Free host storage before
-    // any subsequent Lua operation that could longjmp out of this callback.
-    const status = c.luaL_loadbufferx(L_, prepared.text.ptr, prepared.text.len, chunk_name.ptr, "t");
-    A.free(prepared.allocation);
-    if (status == c.LUA_OK) return 1;
+    if (status == c.LUA_OK) {
+        if (has_environment) {
+            c.lua_pushvalue(L_, 3);
+            if (c.lua_setupvalue(L_, -2, 1) == null) c.lua_pop(L_, 1);
+        }
+        return 1;
+    }
     c.lua_pushnil(L_);
     c.lua_insert(L_, -2);
     return 2;
+}
+
+fn luaCompileFile(L_: *c.lua_State) callconv(.c) c_int {
+    return compileLuaFile(L_, false);
+}
+
+fn luaLoadFile(L_: *c.lua_State) callconv(.c) c_int {
+    return compileLuaFile(L_, true);
 }
 
 fn bind() void {
@@ -2816,7 +2832,22 @@ fn load(path: []const u8) !void {
     registerConstants();
     c.lua_pushcclosure(L, @as(c.lua_CFunction, @ptrCast(&luaCompileFile)), 0);
     c.lua_setglobal(L, "__lupi_compile_file");
+    c.lua_pushcclosure(L, @as(c.lua_CFunction, @ptrCast(&luaLoadFile)), 0);
+    c.lua_setglobal(L, "__lupi_load_file");
     const helper =
+        \\local compile, filecompile = __lupi_compile_file, __lupi_load_file
+        \\__lupi_compile_file, __lupi_load_file = nil, nil
+        \\local native_loadfile, native_dofile = loadfile, dofile
+        \\loadfile = function(filename, ...)
+        \\  if filename == nil then return native_loadfile(filename, ...) end
+        \\  return filecompile(filename, ...)
+        \\end
+        \\dofile = function(filename)
+        \\  if filename == nil then return native_dofile() end
+        \\  local chunk, err = filecompile(filename)
+        \\  if not chunk then error(err, 2) end
+        \\  return chunk()
+        \\end
         \\local __lupi_require = require
         \\local function __lupi_finish_require(name, ...)
         \\  if name == 'palette' and type(Palette) == 'table' then
@@ -2850,7 +2881,7 @@ fn load(path: []const u8) !void {
         \\package.searchers[2] = function(name)
         \\  local path, missing = package.searchpath(name, package.path)
         \\  if not path then return missing end
-        \\  local chunk, err = __lupi_compile_file(path)
+        \\  local chunk, err = compile(path)
         \\  if not chunk then error(err, 0) end
         \\  return chunk, path
         \\end
@@ -2916,7 +2947,7 @@ fn load(path: []const u8) !void {
     _ = c.lua_pop(L, 2);
     var game_path_buffer: [2048]u8 = undefined;
     const game_path = std.fmt.bufPrint(&game_path_buffer, "{s}/game.lua", .{path}) catch return error.LuaLoad;
-    _ = c.lua_getglobal(L, "__lupi_compile_file");
+    c.lua_pushcclosure(L, @as(c.lua_CFunction, @ptrCast(&luaCompileFile)), 0);
     _ = c.lua_pushlstring(L, game_path.ptr, game_path.len);
     if (c.lua_pcallk(L, 1, 2, 0, 0, null) != c.LUA_OK) return luaLoadError("game compile");
     if (!c.lua_isfunction(L, -2)) {
