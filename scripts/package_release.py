@@ -15,6 +15,7 @@ for the libraries it ships; no other downloads or uploads are performed.
 """
 
 import argparse
+from contextlib import contextmanager
 import datetime
 import gzip
 import hashlib
@@ -26,6 +27,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -92,6 +94,127 @@ def safe_file(path):
     if path.is_symlink() or not path.is_file():
         raise RuntimeError(f"Required regular, non-symlink file missing: {path}")
     return path.read_bytes()
+
+
+@contextmanager
+def artifact_output_lock(output: Path):
+    """Exclude cooperating packagers; stale locks require manual recovery."""
+    lock = output / ".elis-artifacts.lock"
+    try:
+        lock.mkdir(mode=0o700)
+    except FileExistsError as error:
+        raise RuntimeError(
+            f"Artifact output is locked: {lock}; another packager may be running. "
+            "Remove a stale lock only after confirming no packager is active."
+        ) from error
+    owned = lock.lstat()
+    try:
+        yield
+    finally:
+        current = lock.lstat()
+        if (current.st_dev, current.st_ino) != (owned.st_dev, owned.st_ino):
+            raise RuntimeError(f"Artifact lock changed ownership; leaving it untouched: {lock}")
+        lock.rmdir()
+
+
+def publish_artifacts(staging: Path, output: Path, names, *, replace=()):
+    """Publish under artifact_output_lock, rolling back handled filesystem errors.
+
+    Files become visible individually, not as an atomic set. Backups are outside
+    caller staging so a failed rollback cannot erase the previous delivery.
+    This does not provide recovery from process termination or power loss.
+    """
+    names = tuple(names)
+    replace = tuple(replace)
+    for group in (names, replace):
+        if any(not isinstance(name, str)
+               or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", name)
+               or name.endswith(".")
+               or re.fullmatch(r"CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]",
+                               name.split(".")[0], re.IGNORECASE)
+               for name in group):
+            raise ValueError("Artifact names must be safe, plain filenames")
+        if len(set(group)) != len(group):
+            raise ValueError("Duplicate artifact names")
+    replace = set(replace)
+    if not replace <= set(names):
+        raise ValueError("Replace permission names must be published artifacts")
+    existing = set()
+    for name in names:
+        source = staging / name
+        if not stat.S_ISREG(source.lstat().st_mode):
+            raise RuntimeError(f"Required regular, non-symlink staged file: {source}")
+        destination = output / name
+        try:
+            mode = destination.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISREG(mode):
+            raise RuntimeError(f"Artifact destination must be a regular, non-symlink file: {destination}")
+        if name not in replace:
+            raise RuntimeError(f"Refusing to replace release artifact: {destination}")
+        existing.add(name)
+    if not names:
+        return
+    recovery = Path(tempfile.mkdtemp(prefix=".elis-artifacts-backup-", dir=output))
+    previous = recovery / "previous"
+    restoring = recovery / "restoring"
+    published = []
+    try:
+        previous.mkdir()
+        restoring.mkdir()
+        # Finish every backup before changing any public artifact.
+        for name in names:
+            if name in existing:
+                shutil.copy2(output / name, previous / name, follow_symlinks=False)
+        for name in names:
+            destination = output / name
+            if name in existing:
+                if not stat.S_ISREG(destination.lstat().st_mode):
+                    raise RuntimeError(
+                        f"Artifact destination must be a regular, non-symlink file: {destination}"
+                    )
+                os.replace(staging / name, destination)
+            else:
+                # Atomic no-clobber installation also rejects a dangling symlink
+                # or a destination created after preflight. Fail closed if the
+                # filesystem cannot hard-link these same-filesystem staged files.
+                os.link(staging / name, destination)
+            published.append(name)
+    except BaseException as error:
+        failures = []
+        for name in reversed(published):
+            try:
+                if name in existing:
+                    # Retain all originals if a later rollback operation fails.
+                    restore = restoring / name
+                    shutil.copy2(previous / name, restore)
+                    os.replace(restore, output / name)
+                else:
+                    (output / name).unlink()
+            except BaseException as rollback_error:
+                failures.append(f"{name}: {rollback_error}")
+        if failures:
+            raise RuntimeError(
+                f"Artifact publication failed ({error}); rollback also failed: "
+                f"{'; '.join(failures)}. Recovery files retained at {recovery}; "
+                "restore the saved originals and remove any partial new artifacts "
+                "before retrying."
+            ) from error
+        try:
+            shutil.rmtree(recovery)
+        except OSError as cleanup_error:
+            raise RuntimeError(
+                f"Artifact publication failed ({error}); rollback completed, but "
+                f"recovery directory cleanup failed: {recovery}: {cleanup_error}"
+            ) from error
+        raise
+    try:
+        shutil.rmtree(recovery)
+    except OSError as error:
+        raise RuntimeError(
+            f"Artifacts published, but recovery directory cleanup failed: {recovery}: {error}"
+        ) from error
 
 
 def verify_binary(data, windows, name):
@@ -793,30 +916,33 @@ def main():
     archive_name = root_name + (".zip" if windows else ".tar.gz")
     manifest_name = root_name + ".manifest.json"
     output.mkdir(parents=True, exist_ok=True)
-    for name in (archive_name, manifest_name):
-        if (output / name).exists():
-            raise RuntimeError(f"Refusing to replace release artifact: {output / name}")
-    if (output / "SHA256SUMS").is_symlink():
-        raise RuntimeError("SHA256SUMS must not be a symlink")
-    with tempfile.TemporaryDirectory(prefix=".elis-package-", dir=output) as temp:
-        staging = Path(temp)
-        archive_payload(staging / archive_name, root_name, files, windows, epoch)
-        (staging / manifest_name).write_bytes(manifest_bytes)
-        sums = {}
-        checksums = output / "SHA256SUMS"
-        if checksums.exists():
-            for line in checksums.read_text().splitlines():
-                match = re.fullmatch(r"([0-9a-f]{64})  (elis-[A-Za-z0-9.+-]+\.(?:tar\.gz|zip|manifest\.json))", line)
-                if not match or match[2] in sums:
-                    raise RuntimeError("Invalid existing SHA256SUMS")
-                if sha256(safe_file(output / match[2])) != match[1]:
-                    raise RuntimeError(f"Existing artifact checksum mismatch: {match[2]}")
-                sums[match[2]] = match[1]
+    with artifact_output_lock(output):
         for name in (archive_name, manifest_name):
-            sums[name] = sha256((staging / name).read_bytes())
-        (staging / "SHA256SUMS").write_text("".join(f"{sums[name]}  {name}\n" for name in sorted(sums)), encoding="utf-8", newline="\n")
-        for name in (archive_name, manifest_name, "SHA256SUMS"):
-            os.replace(staging / name, output / name)
+            if (output / name).exists() or (output / name).is_symlink():
+                raise RuntimeError(f"Refusing to replace release artifact: {output / name}")
+        if (output / "SHA256SUMS").is_symlink():
+            raise RuntimeError("SHA256SUMS must not be a symlink")
+        with tempfile.TemporaryDirectory(prefix=".elis-package-", dir=output) as temp:
+            staging = Path(temp)
+            archive_payload(staging / archive_name, root_name, files, windows, epoch)
+            (staging / manifest_name).write_bytes(manifest_bytes)
+            sums = {}
+            checksums = output / "SHA256SUMS"
+            if checksums.exists():
+                for line in safe_file(checksums).decode("utf-8").splitlines():
+                    match = re.fullmatch(r"([0-9a-f]{64})  (elis-[A-Za-z0-9.+_-]+\.(?:tar\.gz|zip|manifest\.json))", line)
+                    if not match or match[2] in sums:
+                        raise RuntimeError("Invalid existing SHA256SUMS")
+                    if sha256(safe_file(output / match[2])) != match[1]:
+                        raise RuntimeError(f"Existing artifact checksum mismatch: {match[2]}")
+                    sums[match[2]] = match[1]
+            for name in (archive_name, manifest_name):
+                sums[name] = sha256((staging / name).read_bytes())
+            (staging / "SHA256SUMS").write_text("".join(f"{sums[name]}  {name}\n" for name in sorted(sums)), encoding="utf-8", newline="\n")
+            publish_artifacts(
+                staging, output, (archive_name, manifest_name, "SHA256SUMS"),
+                replace=("SHA256SUMS",),
+            )
     print(output / archive_name)
     print(output / manifest_name)
     print(output / "SHA256SUMS")

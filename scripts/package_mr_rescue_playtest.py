@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 
-from package_release import ROOT, archive_payload, safe_file, sha256
+from package_release import ROOT, archive_payload, artifact_output_lock, publish_artifacts, safe_file, sha256
 
 PORT = ROOT / "demos/mr-rescue"
 OUTPUTS = ("mr-rescue.lupi", "mr-rescue-playtest.zip", "mr-rescue-playtest.SHA256SUMS")
@@ -89,10 +89,6 @@ def main():
         for name in ("src", "scripts", "example", "mazestein3d", "demos", "LICENSES", ".git", "zig-out")
     ):
         parser.error("--output must not overwrite source or build input directories")
-    for name in OUTPUTS:
-        target = output / name
-        if target.is_symlink() or (target.exists() and (not args.replace or not target.is_file())):
-            parser.error(f"Refusing to replace {target}; use --replace for regular playtest artifacts")
     try:
         epoch = int(os.environ.get("SOURCE_DATE_EPOCH", "0"))
     except ValueError:
@@ -100,31 +96,36 @@ def main():
     if not 0 <= epoch <= 0xFFFFFFFF:
         parser.error("SOURCE_DATE_EPOCH must be in [0, 4294967295]")
 
-    subprocess.run([sys.executable, str(PORT / "tools/audit_release.py")], check=True)
-    game = PORT / "current"
-    files = {}
-    for path in game.rglob("*"):
-        if path.is_symlink():
-            raise RuntimeError(f"Cartridge inputs must not be symlinks: {path}")
-        if path.is_file():
-            files[path.relative_to(game).as_posix()] = (safe_file(path), 0o644)
-    if sum(len(data) for data, _ in files.values()) > 16 * 1024 * 1024:
-        raise RuntimeError("Cartridge exceeds the 16 MiB release limit")
-    bundle = {name: (safe_file(PORT / name), 0o644) for name in ATTRIBUTION}
-    bundle["play-mr-rescue.sh"] = (LINUX_LAUNCHER.encode(), 0o755)
-    bundle["play-mr-rescue.ps1"] = (WINDOWS_LAUNCHER.replace("\n", "\r\n").encode(), 0o644)
-    bundle["play-mr-rescue.cmd"] = (WINDOWS_SHORTCUT.replace("\n", "\r\n").encode(), 0o644)
-
     output.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".mr-rescue-stage-", dir=output) as temporary:
-        staging = Path(temporary)
-        archive_payload(staging / OUTPUTS[0], "", files, True, epoch)
-        bundle[OUTPUTS[0]] = (safe_file(staging / OUTPUTS[0]), 0o644)
-        archive_payload(staging / OUTPUTS[1], "mr-rescue-playtest", bundle, True, epoch)
-        checksums = "".join(f"{sha256(safe_file(staging / name))}  {name}\n" for name in OUTPUTS[:2])
-        (staging / OUTPUTS[2]).write_text(checksums, encoding="utf-8", newline="\n")
+    with artifact_output_lock(output):
         for name in OUTPUTS:
-            os.replace(staging / name, output / name)
+            target = output / name
+            if target.is_symlink() or (target.exists() and (not args.replace or not target.is_file())):
+                parser.error(f"Refusing to replace {target}; use --replace for regular playtest artifacts")
+
+        subprocess.run([sys.executable, str(PORT / "tools/audit_release.py")], check=True)
+        game = PORT / "current"
+        files = {}
+        for path in game.rglob("*"):
+            if path.is_symlink():
+                raise RuntimeError(f"Cartridge inputs must not be symlinks: {path}")
+            if path.is_file():
+                files[path.relative_to(game).as_posix()] = (safe_file(path), 0o644)
+        if sum(len(data) for data, _ in files.values()) > 16 * 1024 * 1024:
+            raise RuntimeError("Cartridge exceeds the 16 MiB release limit")
+        bundle = {name: (safe_file(PORT / name), 0o644) for name in ATTRIBUTION}
+        bundle["play-mr-rescue.sh"] = (LINUX_LAUNCHER.encode(), 0o755)
+        bundle["play-mr-rescue.ps1"] = (WINDOWS_LAUNCHER.replace("\n", "\r\n").encode(), 0o644)
+        bundle["play-mr-rescue.cmd"] = (WINDOWS_SHORTCUT.replace("\n", "\r\n").encode(), 0o644)
+
+        with tempfile.TemporaryDirectory(prefix=".mr-rescue-stage-", dir=output) as temporary:
+            staging = Path(temporary)
+            archive_payload(staging / OUTPUTS[0], "", files, True, epoch)
+            bundle[OUTPUTS[0]] = (safe_file(staging / OUTPUTS[0]), 0o644)
+            archive_payload(staging / OUTPUTS[1], "mr-rescue-playtest", bundle, True, epoch)
+            checksums = "".join(f"{sha256(safe_file(staging / name))}  {name}\n" for name in OUTPUTS[:2])
+            (staging / OUTPUTS[2]).write_text(checksums, encoding="utf-8", newline="\n")
+            publish_artifacts(staging, output, OUTPUTS, replace=OUTPUTS if args.replace else ())
     print(checksums, end="")
     print(output / OUTPUTS[1])
 
