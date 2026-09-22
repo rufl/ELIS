@@ -89,6 +89,36 @@ at the exact workflow commit with archives, dependency manifests, and SHA256SUMS
 Existing releases must not be overwritten. Binaries are unsigned; checksums
 detect corruption but are not a substitute for code-signing identity.
 
+## Local artifact publication
+
+Both packagers exclusively lock their output directory with `.elis-artifacts.lock`
+while checking existing deliveries, staging, and publishing. A concurrent packager
+fails without changing the delivery. Remove a stale lock only after confirming
+that no packager is running; interrupted processes do not automatically release it.
+
+Archive and manifest names remain immutable. New files use same-filesystem
+hard links for atomic no-overwrite installation; unsupported filesystems fail
+closed. Binary releases may update `SHA256SUMS` after verifying every existing
+entry, including the generated `linux-x86_64` and `windows-x86_64` filenames.
+Playtest replacement still requires explicit `--replace`.
+
+Handled publication failures restore replaced files, including their modes, and
+remove newly installed files. Checksums are published last. If rollback also
+fails, the error identifies a retained `.elis-artifacts-backup-*` directory:
+stop packaging, restore saved originals from its `previous/` subdirectory, and
+remove only partial new artifacts from the failed invocation before retrying.
+Do not delete recovery files until the previous delivery's checksums verify.
+
+This is exception rollback, **not** atomic visibility of the complete file set
+or recovery from power loss/SIGKILL. Publish or copy a delivery only after its
+packaging command succeeds and checksums verify.
+
+Focused, display-free publication regressions:
+
+```sh
+python3 scripts/test_package_mr_rescue_playtest.py -v
+```
+
 ## Cartridge certification
 
 Simulator tests prove bounded software behavior, not a physical Lupi release. Hardware approval requires a named board and firmware revision plus retained worst-case frame-time, Lua-memory, and sustained-soak evidence. Third-party cartridge licenses and attribution travel with every distributed cartridge.

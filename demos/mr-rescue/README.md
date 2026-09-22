@@ -34,6 +34,16 @@ it does not compile ELIS, download assets, or approve physical hardware. Without
 are normalized to 1980 by default; `SOURCE_DATE_EPOCH` can supply another epoch.
 Identical inputs and packaging tooling produce identical archives.
 
+Packaging excludes concurrent writers to the same output directory. A handled
+publication failure restores the previous delivery instead of leaving a new
+cartridge with an old bundle/checksum file. If rollback fails, retain the recovery
+directory named in the error and restore originals from its `previous/` folder;
+verify their checksums before deleting recovery files. Remove a stale
+`.elis-artifacts.lock` only after confirming no packager is running. Output
+filesystems must support hard links. Files appear individually; recovery from
+power loss or forced process termination is not guaranteed.
+Transfer the bundle only after packaging succeeds and checksums verify.
+
 The transferable bundle is `dist/mr-rescue-playtest.zip`. It contains a
 `mr-rescue-playtest/` folder with `mr-rescue.lupi`, this README, `PARITY.md`,
 `SOURCE.md`, `LICENSE.upstream`, `CC-BY-SA-3.0.txt`, and Linux/Windows play

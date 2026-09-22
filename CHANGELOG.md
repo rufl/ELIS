@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Made binary-release and playtest publication failure-safe: exclude concurrent
+  writers, enforce no-overwrite at installation, restore prior artifacts on
+  handled errors, and retain recovery files when rollback itself fails.
+- Fixed binary packaging rejecting its own `x86_64` filenames in existing
+  `SHA256SUMS`; subsequent releases preserve and verify earlier artifacts.
 - Unified Lua filename loading across entry scripts, modules, `loadfile`, and
   `dofile`: preserved BOM/shebang diagnostics, modes, environments, stdin, and
   multiple results while translating binary integers in place.
