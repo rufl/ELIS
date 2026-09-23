@@ -55,7 +55,8 @@ final gate makes it a hardware-approved release.
 - [x] Complete software cartridge is at most 16 MiB and every manifest size is exact.
 - [x] Lua startup and sustained simulator worst-case use remain below 4 MiB.
 - [x] Every update/render/generation loop and collection has an enforced bound.
-- [x] A 32-seed × 26-section sweep and deterministic screenshot matrix pass.
+- [x] A 256-seed × 26-section (6,656-generation) sweep and deterministic
+  screenshot matrix pass.
 - [x] License, attribution, exact-manifest, and release-use audit passes for every shipped file.
 - [ ] Named physical Lupi worst cases meet the accepted frame and memory budgets.
 - [x] Move the cartridge to `demos/mr-rescue/` and update the catalog as an explicitly unapproved physical-validation candidate.

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Extended the maintained Mr. Rescue deterministic generation gate from 832 to
+  6,656 simulator generations, with exact peak-capacity assertions; physical
+  board soak and named-device timing/memory proof remain separate.
 - Made binary-release and playtest publication failure-safe: exclude concurrent
   writers, enforce no-overwrite at installation, restore prior artifacts on
   handled errors, and retain recovery files when rollback itself fails.

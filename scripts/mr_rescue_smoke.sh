@@ -167,12 +167,12 @@ grep -q 'MR_RESCUE_MENU HIGHSCORES PAGE=2' <<<"$menu_output"
 test "$(grep -c 'MR_RESCUE_FLOW STATE=2 ' <<<"$menu_output")" -eq 4
 
 cp -R "$game" "$tmp/seed-sweep"
-printf 'return { auto_start = true, seed_sweep = 32, capacity_probe = true }\n' \
+printf 'return { auto_start = true, seed_sweep = 256, capacity_probe = true }\n' \
   > "$tmp/seed-sweep/port_mode.lua"
 refresh_port_mode_manifest "$tmp/seed-sweep"
 sweep_output="$(env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$tmp/seed-sweep" 1 "$tmp/sweep.ppm" 2>&1)"
-grep -q 'MR_RESCUE_SEED_SWEEP=32' <<<"$sweep_output"
+grep -q 'MR_RESCUE_SEED_SWEEP=256 PEAK_FIRE=7 PEAK_HUMANS=7 PEAK_ENEMIES=10' <<<"$sweep_output"
 grep -q 'MR_RESCUE_CAPACITY_BOUNDARIES=PASS' <<<"$sweep_output"
 
 cp -R "$game" "$tmp/player-trace"
