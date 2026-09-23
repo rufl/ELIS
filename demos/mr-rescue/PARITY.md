@@ -59,10 +59,8 @@ game-over/summary/highscore entry, all nine tutorial slides, campaign arithmetic
 HUD textures, particles, enemy states, and projectile activity. A focused native
 framebuffer regression checks complete body/floor spans at both vertical camera
 limits and prevents stage pixels leaking into the fixed HUD band. The remaining
-release proof is:
-
-- Longer physical-device soak runs beyond the passing 832-generation simulator
-  sweep and deterministic render matrix.
+- Longer physical-device soak runs beyond the passing 6,656-generation
+  simulator sweep and deterministic render matrix.
 - Named physical Lupi frame-time and memory proof.
 
 The cartridge is available at `demos/mr-rescue/` only for explicit local
