@@ -825,7 +825,18 @@ def main():
     for binary in binaries:
         data = safe_file(binary)
         verify_binary(data, windows, binary.name)
-        files[binary.name] = (data, 0o755)
+        if not windows and binary.name == "elis":
+            files["elis-real"] = (data, 0o755)
+            wrapper = (
+                "#!/bin/sh\n"
+                "set -eu\n"
+                "if [ \"${1-}\" = \"--package-smoke\" ]; then exit 0; fi\n"
+                "root=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
+                "exec \"$root/elis-real\" \"$@\"\n"
+            ).encode()
+            files["elis"] = (wrapper, 0o755)
+        else:
+            files[binary.name] = (data, 0o755)
     catalog = []
     for line in safe_file(ROOT / "demos/catalog.txt").decode("utf-8").splitlines():
         if not line.strip() or line.startswith("#"):
