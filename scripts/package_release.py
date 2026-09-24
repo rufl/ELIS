@@ -895,7 +895,9 @@ def main():
                 destination = f"LICENSES/msys2/{package['name']}/sources/{name}"
                 files[destination] = (data, 0o644)
                 package["license_files"].append(destination)
-    files["RUNNING.txt"] = (run_instructions(args.version, windows).encode(), 0o644)
+    running = run_instructions(args.version, windows).encode()
+    files["RUNNING.txt"] = (running, 0o644)
+    files["README.txt" if windows else "README.md"] = (running, 0o644)
     for name, executable in (("elis", "elis"), ("workshop", "elis-studio")):
         if windows:
             launcher = f'@echo off\r\nsetlocal\r\ncd /d "%~dp0"\r\n"%~dp0{executable}.exe" %*\r\nexit /b %errorlevel%\r\n'
