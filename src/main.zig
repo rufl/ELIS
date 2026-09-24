@@ -3563,6 +3563,9 @@ pub fn main(init: std.process.Init) !void {
         };
         return runBenchmark(std.mem.span(args[2]), frame_count);
     }
+    if (args.len == 2 and std.mem.eql(u8, std.mem.span(args[1]), "--package-smoke")) {
+        return;
+    }
     if (args.len > 2) {
         printUsage();
         return;
