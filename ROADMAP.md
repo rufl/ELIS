@@ -4,6 +4,10 @@
 
 Keep ELIS a faithful, testable native Lupi simulator while making Cria a reliable authoring path for layered maps, palettes, exported `ui.map` data, RPG-style rooms, and platformer levels.
 
+All roadmap and backlog work closes through the finite gates in
+[DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md); new scope becomes a new row
+instead of extending an item indefinitely.
+
 ## Now
 
 - Collect named-board frame-time, memory, and soak proof for the explicitly unapproved `demos/mr-rescue/` physical-validation candidate.

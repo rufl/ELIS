@@ -13,6 +13,7 @@
 - [ ] `zig fmt` was run on changed Zig files.
 - [ ] The smallest relevant unit or smoke gate passes.
 - [ ] `bash scripts/verify.sh` passes before review, or the missing proof is explained.
+- [ ] Applicable [Definition of Done](../DEFINITION_OF_DONE.md) gates are complete, or each missing gate is explicitly recorded as blocked.
 
 ## Review boundaries
 
