@@ -261,10 +261,17 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        record = json.loads(args.record.read_text(encoding="utf-8"))
+        record_path = _regular_file(args.record, "--record")
+        raw_record = record_path.read_bytes()
+        record = json.loads(raw_record)
         record = _mapping(record, "record")
         cartridge = _regular_file(args.cartridge, "--cartridge")
         proof = validate_record(record, cartridge)
+        proof["record"] = {
+            "path": str(record_path),
+            "sha256": hashlib.sha256(raw_record).hexdigest(),
+            "size_bytes": len(raw_record),
+        }
         write_json(args.output, proof, args.replace)
     except (OSError, json.JSONDecodeError, ProofError) as error:
         parser.error(str(error))

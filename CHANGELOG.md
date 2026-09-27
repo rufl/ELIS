@@ -7,11 +7,11 @@
   exposed `zig build cria` plus `run-cria` package launchers while retaining
   compatibility aliases for existing Workshop-facing tooling.
 
-- Added a fail-closed named-board Mr. Rescue proof validator that binds raw
-  frame-time, Lua-memory, asset, manifest, and 30-minute soak evidence to the
-  exact cartridge hash, records hashes and sizes for raw logs, requires
-  unambiguous timezone-aware timestamps, and rejects simulator evidence as
-  hardware proof.
+- Added a fail-closed named-board Mr. Rescue proof validator that binds the
+  raw record, cartridge hash, and raw frame-time, Lua-memory, asset, manifest,
+  and 30-minute soak evidence; records hashes and sizes for all inputs,
+  requires unambiguous timezone-aware timestamps, and rejects simulator
+  evidence as hardware proof.
 
 - Extended the maintained Mr. Rescue deterministic generation gate from 832 to
   6,656 simulator generations, with exact peak-capacity assertions; physical
