@@ -110,6 +110,16 @@ class HardwareGateTests(unittest.TestCase):
             validate_record(record, self.cartridge)
 
 
+    def test_timestamps_require_timezone_offsets(self):
+        record = copy.deepcopy(self.record)
+        record["started_at"] = "2026-09-27T12:00:00"
+        with self.assertRaisesRegex(ProofError, "timezone offset"):
+            validate_record(record, self.cartridge)
+        record = copy.deepcopy(self.record)
+        record["ended_at"] = "2026-09-27"
+        with self.assertRaisesRegex(ProofError, "timezone offset"):
+            validate_record(record, self.cartridge)
+
     def test_cli_writes_immutable_proof(self):
         root = Path(self.temporary.name)
         record_path = root / "raw.json"

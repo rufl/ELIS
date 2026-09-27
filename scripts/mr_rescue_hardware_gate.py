@@ -74,9 +74,11 @@ def _samples(value: Any, name: str) -> list[float]:
 def _timestamp(value: Any, name: str) -> str:
     text = _text(value, name)
     try:
-        datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as error:
         raise ProofError(f"{name} must be an ISO-8601 timestamp") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ProofError(f"{name} must include a timezone offset")
     return text
 
 

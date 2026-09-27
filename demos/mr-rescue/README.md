@@ -150,9 +150,10 @@ python3 scripts/mr_rescue_hardware_gate.py \
 ```
 
 The validator binds the record to the exact cartridge SHA-256 and rejects
-missing board/firmware identity, missing raw evidence logs, frame time above
-the 60 Hz budget, Lua memory above 4 MiB, oversized assets, failed soak flags,
-or a soak shorter than 30 minutes. Its boundary tests run with:
+missing board/firmware identity, timezone-ambiguous timestamps, missing raw
+evidence logs, frame time above the 60 Hz budget, Lua memory above 4 MiB,
+oversized assets, failed soak flags, or a soak shorter than 30 minutes. Its
+boundary tests run with:
 
 ```sh
 python3 scripts/test_mr_rescue_hardware_gate.py
