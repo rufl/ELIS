@@ -11,7 +11,7 @@ permanecem em inglês para evitar traduções divergentes.
 ## Entradas principais / Main entry points
 
 - [Homepage / Página inicial](../README.md): project truth, setup, build, and runtime path.
-- [Workshop guide / Guia do Workshop](../STUDIO.md): authoring model, controls, export, and limits.
+- [Cria guide / Guia do Cria](../STUDIO.md): authoring model, controls, export, and limits.
 - [Architecture / Arquitetura](../ARCHITECTURE.md): ownership and runtime boundaries.
 - [Contributing / Contribuindo](../CONTRIBUTING.md): development setup and focused checks.
 - [Compatibility / Compatibilidade](../COMPATIBILITY.md): audited baseline and deliberate extensions.

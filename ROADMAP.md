@@ -2,20 +2,20 @@
 
 ## Direction
 
-Keep ELIS a faithful, testable native Lupi simulator while making Workshop a reliable authoring path for layered maps, palettes, and exported `ui.map` data.
+Keep ELIS a faithful, testable native Lupi simulator while making Cria a reliable authoring path for layered maps, palettes, exported `ui.map` data, RPG-style rooms, and platformer levels.
 
 ## Now
 
 - Collect named-board frame-time, memory, and soak proof for the explicitly unapproved `demos/mr-rescue/` physical-validation candidate.
 - Preserve the documented compatibility baseline and deterministic renderer parity.
-- Keep the simulator and Workshop verification matrix runnable on a clean Linux environment.
+- Keep the simulator and Cria verification matrix runnable on a clean Linux environment.
 - Maintain project controls, proof records, and release notes alongside behavior changes.
 
 ## Next
 
 - Port and certify all 100 Hex-a-Hop levels after Mr. Rescue receives named-board approval.
-- Prioritize defects or gaps demonstrated by a reproducible game, parity fixture, or Workshop project.
-- Extend Workshop only where exported data remains valid under the simulator's strict map contract.
+- Prioritize defects or gaps demonstrated by a reproducible game, parity fixture, or Cria project.
+- Extend Cria only where exported data remains valid under the simulator's strict map contract.
 
 ## Later
 

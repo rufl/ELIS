@@ -55,9 +55,9 @@ or implement upstream placeholders; they are not accidental renderer drift:
   wrong speed or reading beyond the bounded decode buffer.
   `sfx.music(-1)` stops playback; the no-argument form does not stop music.
 
-## Workshop Lupi-safe export profile
+## Cria Lupi-safe export profile
 
-Workshop saves remain editable even when incomplete, but Lua export fails closed
+Cria saves remain editable even when incomplete, but Lua export fails closed
 unless the spatial checks pass and every visual layer resolves through the Lupi
 manifest to a square, exact-length bitmap. Referenced tile IDs must exist. Each
 selected tileset is capped at 49,152 encoded pixels, matching the official

@@ -1,11 +1,11 @@
 # Contributing to ELIS
 
-ELIS welcomes focused bug fixes, compatibility fixtures, documentation improvements, Workshop refinements, and licensed cartridge work.
+ELIS welcomes focused bug fixes, compatibility fixtures, documentation improvements, Cria refinements, and licensed cartridge work.
 
 ## Resumo em português (Brasil)
 
 Contribuições bem-vindas incluem correções focadas, fixtures de
-compatibilidade, melhorias de documentação, refinamentos do Workshop e
+compatibilidade, melhorias de documentação, refinamentos do Cria e
 cartuchos licenciados. O ambiente mantido é Linux com Zig 0.16.0; Windows é
 alvo de empacotamento experimental, não a referência principal de
 desenvolvimento.
@@ -42,7 +42,7 @@ Build both executables:
 zig build native -Doptimize=ReleaseSafe
 ```
 
-Read [ARCHITECTURE.md](ARCHITECTURE.md), [COMPATIBILITY.md](COMPATIBILITY.md), and the subsystem guide you intend to change. Workshop contributors should also read [STUDIO.md](STUDIO.md).
+Read [ARCHITECTURE.md](ARCHITECTURE.md), [COMPATIBILITY.md](COMPATIBILITY.md), and the subsystem guide you intend to change. Cria contributors should also read [STUDIO.md](STUDIO.md).
 
 ## Change discipline
 
@@ -66,7 +66,7 @@ Unlisted game-visible differences from the pinned Lupinho baseline are bugs. Int
 
 Provisional APIs remain blocked until executable firmware semantics exist. Do not infer behavior from documentation alone.
 
-### Workshop changes
+### Cria changes
 
 Authoritative mutation belongs in `src/studio/model.zig`; `src/studio_app.zig` owns presentation and transient interaction state. One user gesture must create at most one history entry. Mouse, keyboard, and controller paths must retain equivalent task coverage, safe focus behavior, and explicit save/discard ownership.
 
@@ -79,7 +79,7 @@ Do not relicense imported code, data, graphics, music, or text as MIT. Preserve 
 Run the smallest relevant gate while developing:
 
 ```sh
-bash scripts/test_studio.sh       # Workshop model/assets/input/debug
+bash scripts/test_studio.sh       # Cria model/assets/input/debug
 bash scripts/parity_smoke.sh      # renderer and API compatibility
 bash scripts/runtime_smoke.sh     # runtime/package hostile input
 bash scripts/studio_smoke.sh      # editor save/export/reload

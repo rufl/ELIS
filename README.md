@@ -28,12 +28,12 @@ Prereleases are unsigned and do not include the Mr. Rescue validation cartridge.
 
 ELIS é um projeto-fonte para colaboração, não um jogo pronto e ainda não é
 um produto com release estável. Ele combina um simulador nativo compatível com
-Lupi e um editor nativo de mapas chamado Workshop.
+Lupi e o Cria, seu editor nativo de mapas e níveis.
 
 Antes de começar, espere:
 
-- não há instalador, binário estável publicado, configuração pronta de
-  Workshop ou certificado de hardware;
+- não há instalador, binário estável publicado, configuração pronta do Cria ou
+  certificado de hardware;
 - a configuração mantida é Linux com Zig 0.16.0, SDL2, Lua 5.4, libzip,
   libcurl, libsndfile, compilador C e `pkg-config`;
 - Windows tem empacotamento experimental, mas exige MSYS2 UCRT64 e não é a
@@ -58,7 +58,7 @@ com exportação determinística, esse é o objetivo do projeto.
 1. Instale os requisitos de [Build and run](#build-and-run).
 2. Execute `zig build native`.
 3. Rode `zig-out/bin/elis example` para abrir o exemplo.
-4. Execute `zig build studio` para abrir o Workshop.
+4. Execute `zig build cria` para abrir o Cria.
 5. Leia [COMPATIBILITY.md](COMPATIBILITY.md), [STUDIO.md](STUDIO.md) e
    [docs/LUPI_CONSTRAINTS.md](docs/LUPI_CONSTRAINTS.md) antes de tratar uma
    capacidade como compatibilidade garantida.
@@ -72,7 +72,7 @@ Contributor entry points:
 - [Architecture and ownership](ARCHITECTURE.md)
 - [Contributing and focused tests](CONTRIBUTING.md)
 - [Compatibility contract](COMPATIBILITY.md)
-- [Workshop authoring guide](STUDIO.md)
+- [Cria authoring guide](STUDIO.md)
 - [Security policy](SECURITY.md)
 - [Accessibility support and limitations](docs/ACCESSIBILITY.md)
 - [Third-party licenses and attribution](THIRD_PARTY_NOTICES.md)
@@ -154,10 +154,10 @@ cartridges admit only normalized unique paths, valid metadata, exact files, and
 complete packages within 16 MiB; undeclared executable files and malformed
 archives fail closed.
 
-## ELIS Workshop
+## Cria
 
-`zig build studio` opens a separate native SDL2 authoring application. Workshop
-offers a friendly, explanatory presentation and a compact Studio presentation
+`zig build cria` opens a separate native SDL2 authoring application. Cria
+offers a guided, explanatory presentation and a compact Precision presentation
 over the same authoritative project and command history:
 
 - four strict bottom-to-top visual layers: background, terrain, objects, and
@@ -187,16 +187,16 @@ over the same authoritative project and command history:
 Open a project using the game manifest and palette source as its asset workspace:
 
 ```sh
-zig build studio -- \
+zig build cria -- \
   --game-root=game \
   --project=projects/forest.elisworld \
   --export=projects/forest.lua
 ```
 
-For a new path, add `--template=blank|platformer|arena|puzzle`; existing project
-files always load unchanged. `--tileset-file` remains available for a single
-raw legacy preview. Without a
-valid `palette.lua`, Workshop labels its fallback colors as diagnostic rather
+For a new path, add `--template=blank|platformer|arena|puzzle` (the Cria panel
+labels `arena` as `RPG ROOM`); existing project files always load unchanged.
+`--tileset-file` remains available for a single raw legacy preview. Without a
+valid `palette.lua`, Cria labels its fallback colors as diagnostic rather
 than implying palette fidelity. See [STUDIO.md](STUDIO.md) for smart-terrain
 layout, controls, formats, responsive presentations, and the runtime boundary.
 

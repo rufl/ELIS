@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible simulator, Workshop, package, or compatibility defect
+description: Report a reproducible simulator, Cria, package, or compatibility defect
 title: "[Bug]: "
 labels: [bug]
 body:
@@ -13,7 +13,7 @@ body:
       label: Area
       options:
         - Simulator runtime
-        - Workshop
+        - Cria
         - Lua API compatibility
         - Rendering or scaling
         - Input or controllers

@@ -37,7 +37,7 @@ test -s "$work/starter.elisworld"
 test -s "$work/starter.lua"
 test -s "$work/studio.bmp"
 grep -q 'layers = { "background", "terrain", "objects", "foreground" }' "$work/starter.lua"
-grep -q 'lupi_metadata = { editor = "ELIS Workshop", schema = 4' "$work/starter.lua"
+grep -q 'lupi_metadata = { editor = "Cria", schema = 4' "$work/starter.lua"
 grep -q 'entities = {' "$work/starter.lua"
 grep -q 'entity_schemas = {' "$work/starter.lua"
 grep -q 'smart_terrain = {' "$work/starter.lua"
@@ -163,4 +163,4 @@ env SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
   ./zig-out/bin/elis --screenshot "$work/game" 1 "$work/exported-combined.ppm" >/dev/null
 cmp "$work/exported-map.ppm" "$work/exported-combined.ppm"
 
-echo "ELIS Workshop asset/palette/responsive/save/export/reload/simulator smoke: pass"
+echo "Cria asset/palette/responsive/save/export/reload/simulator smoke: pass"
