@@ -88,6 +88,7 @@ bash scripts/parity_smoke.sh      # renderer and API compatibility
 bash scripts/runtime_smoke.sh     # runtime/package hostile input
 bash scripts/studio_smoke.sh      # editor save/export/reload
 bash scripts/mr_rescue_smoke.sh   # Mr. Rescue cartridge
+python3 scripts/test_mr_rescue_hardware_gate.py  # proof-record boundaries
 ```
 
 Before requesting review, run:

@@ -21,6 +21,15 @@ until its linked item checklist and every applicable universal gate in
 [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) pass. The generated OVERZEER
 summary below mirrors these rows and is not an independent completion signal.
 
+### Current evidence
+
+- **2026-09-27 — Mr. Rescue software slice:** `bash
+  scripts/mr_rescue_smoke.sh`, `python3 scripts/test_package_mr_rescue_playtest.py`,
+  and `python3 scripts/test_mr_rescue_hardware_gate.py` passed. This proves the
+  bounded desktop/package and proof-record paths; it does **not** close the
+  named-board frame-time, memory, or soak gate.
+
+
 <!-- OVERZEER:DOCS_BACKLOG_BEGIN -->
 ## OVERZEER project summary
 - Git evidence in selected window: `35` commit(s).

@@ -139,6 +139,25 @@ defaults; custom keyboard profiles are preserved.
   hash, representative worst-case frame time and memory, and sustained-device
   soak results required by `PARITY.md`.
 
+The raw hardware record is validated without claiming hardware from simulator
+data:
+
+```sh
+python3 scripts/mr_rescue_hardware_gate.py \
+  --record /path/to/raw-mr-rescue-hardware.json \
+  --cartridge /path/to/mr-rescue.lupi \
+  --output /path/to/mr-rescue-hardware-proof.json
+```
+
+The validator binds the record to the exact cartridge SHA-256 and rejects
+missing board/firmware identity, missing raw evidence logs, frame time above
+the 60 Hz budget, Lua memory above 4 MiB, oversized assets, failed soak flags,
+or a soak shorter than 30 minutes. Its boundary tests run with:
+
+```sh
+python3 scripts/test_mr_rescue_hardware_gate.py
+```
+
 Passing the desktop checklist means **desktop demo acceptance only**. It does
 not approve any physical Lupi board, prove all upstream parity, or authorize a
 finished release. Named physical-board approval remains a separate release
