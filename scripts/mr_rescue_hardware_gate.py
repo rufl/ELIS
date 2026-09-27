@@ -182,6 +182,14 @@ def validate_record(record: dict[str, Any], cartridge_path: Path) -> dict[str, A
         name: _regular_file(evidence.get(name), f"evidence.{name}")
         for name in REQUIRED_EVIDENCE
     }
+    evidence_details = {
+        name: {
+            "path": str(path),
+            "sha256": sha256(path),
+            "size_bytes": path.stat().st_size,
+        }
+        for name, path in evidence_paths.items()
+    }
 
     return {
         "schema": SCHEMA,
@@ -219,7 +227,7 @@ def validate_record(record: dict[str, Any], cartridge_path: Path) -> dict[str, A
             "duration_seconds": soak_seconds,
             **{flag: False for flag in REQUIRED_SOAK_FLAGS},
         },
-        "evidence": {name: str(path) for name, path in evidence_paths.items()},
+        "evidence": evidence_details,
     }
 
 

@@ -9,8 +9,9 @@
 
 - Added a fail-closed named-board Mr. Rescue proof validator that binds raw
   frame-time, Lua-memory, asset, manifest, and 30-minute soak evidence to the
-  exact cartridge hash, requires unambiguous timezone-aware timestamps, and
-  rejects simulator evidence as hardware proof.
+  exact cartridge hash, records hashes and sizes for raw logs, requires
+  unambiguous timezone-aware timestamps, and rejects simulator evidence as
+  hardware proof.
 
 - Extended the maintained Mr. Rescue deterministic generation gate from 832 to
   6,656 simulator generations, with exact peak-capacity assertions; physical
