@@ -1,4 +1,4 @@
-//! Host-native build graph for the simulator, Workshop, and maintained gates.
+//! Host-native build graph for the simulator, Cria, and maintained gates.
 //!
 //! Dependency discovery and linking remain in host-specific build scripts.
 //! Cross-compilation is deliberately not offered without the native libraries.
@@ -28,7 +28,9 @@ pub fn build(b: *std.Build) void {
     const studio_run = b.addSystemCommand(&.{if (windows) "zig-out/bin/elis-studio.exe" else "zig-out/bin/elis-studio"});
     studio_run.step.dependOn(&native_cmd.step);
     if (b.args) |args| studio_run.addArgs(args);
-    const studio = b.step("studio", "Open the playful native ELIS Workshop map and level editor");
+    const cria = b.step("cria", "Open the playful native Cria world editor");
+    cria.dependOn(&studio_run.step);
+    const studio = b.step("studio", "Compatibility alias for `zig build cria`");
     studio.dependOn(&studio_run.step);
 
     const tests_cmd = b.addSystemCommand(&.{ "bash", "scripts/test_studio.sh" });
@@ -40,6 +42,6 @@ pub fn build(b: *std.Build) void {
     studio_smoke.dependOn(&studio_smoke_cmd.step);
 
     const verify_cmd = b.addSystemCommand(&.{ "bash", "scripts/verify.sh" });
-    const verify = b.step("verify", "Run ELIS simulator and Workshop verification matrix");
+    const verify = b.step("verify", "Run ELIS simulator and Cria verification matrix");
     verify.dependOn(&verify_cmd.step);
 }

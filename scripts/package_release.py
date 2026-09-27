@@ -687,7 +687,7 @@ def linux_libraries(binaries):
 
 
 def run_instructions(version, windows):
-    common = f"""ELIS {version} — simulator and Workshop prerelease
+    common = f"""ELIS {version} — Cria world editor prerelease
 
 Extract the entire archive into a writable folder. Keep both executables,
 cartridges and (on Windows) DLLs together. Use the run launchers from any
@@ -717,7 +717,7 @@ No MSYS2 installation or compiler is needed to run it. Non-system imported
 DLLs are bundled recursively; Windows supplies OS/API-set DLLs. A working
 display/audio driver is needed for interactive use.
 
-Double-click run-elis.cmd or run-workshop.cmd. PowerShell alternatives:
+Double-click run-elis.cmd or run-cria.cmd. PowerShell alternatives:
   .\\elis.exe example
   .\\elis.exe mazestein3d
   .\\elis-studio.exe
@@ -757,7 +757,7 @@ needed for interactive use. Run:
   ./run-elis.sh
   ./elis example
   ./elis mazestein3d
-  ./run-workshop.sh
+  ./run-cria.sh
 
 Optional source-demo conversion also needs POSIX shell/coreutils and ImageMagick
 7 with magick on PATH. These are not bundled or supplied by the runtime list
@@ -909,7 +909,7 @@ def main():
     running = run_instructions(args.version, windows).encode()
     files["RUNNING.txt"] = (running, 0o644)
     files["README.txt" if windows else "README.md"] = (running, 0o644)
-    for name, executable in (("elis", "elis"), ("workshop", "elis-studio")):
+    for name, executable in (("elis", "elis"), ("cria", "elis-studio")):
         if windows:
             launcher = f'@echo off\r\nsetlocal\r\ncd /d "%~dp0"\r\n"%~dp0{executable}.exe" %*\r\nexit /b %errorlevel%\r\n'
             files[f"run-{name}.cmd"] = (launcher.encode(), 0o644)

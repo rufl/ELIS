@@ -1,4 +1,4 @@
-//! Native SDL Workshop application.
+//! Native SDL Cria authoring application.
 //!
 //! `Studio` owns transient interaction state and delegates authoritative map,
 //! persistence, validation, and undo behavior to `studio/model.zig`. Rendering
@@ -120,7 +120,7 @@ const WorkspaceAssets = struct {
 // -----------------------------------------------------------------------------
 // Authoring session state
 
-/// Session controller for one Workshop window.
+/// Session controller for one Cria window.
 ///
 /// The project and history are authoritative. Selection, visibility, locks,
 /// notices, previews, and presentation choices are deliberately session-only.
@@ -767,7 +767,7 @@ const Studio = struct {
 // -----------------------------------------------------------------------------
 // SDL application lifecycle
 
-fn workshopEventRequiresFocus(event_type: u32) bool {
+fn criaEventRequiresFocus(event_type: u32) bool {
     return event_type == c.SDL_KEYDOWN or
         event_type == c.SDL_TEXTINPUT or
         event_type == c.SDL_MOUSEBUTTONDOWN or
@@ -789,7 +789,7 @@ fn verifyAtlasIdentity(allocator: std.mem.Allocator) !void {
     if (!atlasesNeedReload(project, atlases)) return error.AtlasIdentityMismatch;
     atlases[1].setAssetName(project.layerTilesetName(1));
     if (atlasesNeedReload(project, atlases)) return error.AtlasIdentityMismatch;
-    std.debug.print("Workshop atlas identity: pass\n", .{});
+    std.debug.print("Cria atlas identity: pass\n", .{});
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -914,7 +914,7 @@ pub fn main(init: std.process.Init) !void {
 
     _ = c.SDL_SetHint(c.SDL_HINT_RENDER_SCALE_QUALITY, "0");
     const window = c.SDL_CreateWindow(
-        "ELIS Workshop  |  Learn, Paint, Build",
+        "Cria  |  Learn, Paint, Build",
         c.SDL_WINDOWPOS_CENTERED,
         c.SDL_WINDOWPOS_CENTERED,
         window_width,
@@ -951,7 +951,7 @@ pub fn main(init: std.process.Init) !void {
         while (c.SDL_PollEvent(&event) != 0) {
             // SDL can retain input events queued immediately before focus loss.
             // Device lifecycle, quit, and focus events still run while suspended.
-            if (!window_focused and workshopEventRequiresFocus(event.type)) continue;
+            if (!window_focused and criaEventRequiresFocus(event.type)) continue;
             switch (event.type) {
                 c.SDL_QUIT => studio.requestQuit(&running),
                 c.SDL_CONTROLLERDEVICEADDED => {
@@ -1713,7 +1713,7 @@ fn nextTile(studio: *Studio, available: u16) void {
 }
 
 // -----------------------------------------------------------------------------
-// Workshop rendering
+// Cria rendering
 
 fn render(
     renderer: *c.SDL_Renderer,
@@ -1723,7 +1723,7 @@ fn render(
     width: i32,
     height: i32,
 ) !void {
-    setColor(renderer, 18, 22, 31, 255);
+    setColor(renderer, 15, 23, 42, 255);
     _ = c.SDL_RenderClear(renderer);
     if (studio.mode == .preview) {
         drawPreview(renderer, studio, atlases, width, height);
@@ -1732,24 +1732,25 @@ fn render(
     }
     const layout = layoutFor(width, height, studio.presentation);
     const playful = studio.presentation == .playful;
-    fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = bar_top }, 29, 35, 48, 255);
-    fill(renderer, .{ .x = 0, .y = bar_top, .w = layout.left, .h = height - bar_top }, 23, 28, 39, 255);
-    fill(renderer, .{ .x = width - layout.right, .y = bar_top, .w = layout.right, .h = height - bar_top }, 23, 28, 39, 255);
-    fill(renderer, .{ .x = 0, .y = height - bar_bottom, .w = width, .h = bar_bottom }, 12, 16, 24, 255);
-    drawText(renderer, 18, 13, 2, if (playful) "ELIS WORKSHOP" else "ELIS STUDIO", 236, 199, 110);
-    drawText(renderer, 18, 38, 1, if (playful) "LEARN  PAINT  BUILD" else "PRECISE AUTHORING", 125, 145, 173);
-    drawText(renderer, 180, 24, 1, if (studio.dirty()) "UNSAVED" else "SAVED", if (studio.dirty()) 244 else 120, if (studio.dirty()) 124 else 210, 104);
+    fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = bar_top }, 23, 20, 48, 255);
+    fill(renderer, .{ .x = 0, .y = bar_top, .w = layout.left, .h = height - bar_top }, 15, 23, 42, 255);
+    fill(renderer, .{ .x = width - layout.right, .y = bar_top, .w = layout.right, .h = height - bar_top }, 23, 25, 57, 255);
+    fill(renderer, .{ .x = 0, .y = height - bar_bottom, .w = width, .h = bar_bottom }, 8, 12, 24, 255);
+    fill(renderer, .{ .x = 0, .y = bar_top - 4, .w = width, .h = 4 }, 124, 58, 237, 255);
+    drawText(renderer, 18, 13, 2, "CRIA", 255, 255, 255);
+    drawText(renderer, 18, 38, 1, if (playful) "WORLD MAKER  /  PLATFORM READY" else "PRECISION BUILD MODE", 165, 180, 210);
+    drawText(renderer, 206, 24, 1, if (studio.dirty()) "DRAFT" else "READY", if (studio.dirty()) 251 else 110, if (studio.dirty()) 191 else 231, if (studio.dirty()) 36 else 183);
     button(renderer, .{ .x = 270, .y = 12, .w = 100, .h = 34 }, "SAVE", false);
     button(renderer, .{ .x = 380, .y = 12, .w = 110, .h = 34 }, "EXPORT", false);
-    button(renderer, .{ .x = 500, .y = 12, .w = 120, .h = 34 }, "PREVIEW", false);
-    button(renderer, .{ .x = 630, .y = 12, .w = 140, .h = 34 }, if (playful) "STUDIO VIEW" else "PLAYFUL VIEW", true);
-    button(renderer, .{ .x = 780, .y = 12, .w = 140, .h = 34 }, "TEMPLATES", studio.template_panel);
+    button(renderer, .{ .x = 500, .y = 12, .w = 120, .h = 34 }, "PLAYTEST", false);
+    button(renderer, .{ .x = 630, .y = 12, .w = 140, .h = 34 }, if (playful) "PRECISION MODE" else "GUIDED MODE", true);
+    button(renderer, .{ .x = 780, .y = 12, .w = 140, .h = 34 }, "NEW WORLD", studio.template_panel);
 
-    drawText(renderer, 18, 70, 1, if (playful) "CHOOSE A TOOL" else "TOOLS", 154, 184, 222);
+    drawText(renderer, 18, 70, 1, if (playful) "BUILD TOOLS" else "TOOLS", 165, 180, 210);
     for (tools, 0..) |tool, index| {
         button(renderer, toolRect(layout, index), tool_labels[index], studio.tool == tool);
     }
-    drawText(renderer, 18, layout.layer_y - 22, 1, if (playful) "BUILDING LAYERS" else "LAYERS  BOTTOM -> TOP", 154, 184, 222);
+    drawText(renderer, 18, layout.layer_y - 22, 1, if (playful) "WORLD LAYERS" else "LAYERS  BOTTOM -> TOP", 165, 180, 210);
     for (model.layer_names, 0..) |name, index| {
         const layer_y = layout.layer_y + @as(i32, @intCast(index)) * layout.tool_step;
         button(renderer, .{ .x = 14, .y = layer_y, .w = layout.left - 84, .h = layout.tool_step - 5 }, name, studio.active_layer == index);
@@ -1764,8 +1765,8 @@ fn render(
     const right_x = width - layout.right;
     var buffer: [128]u8 = undefined;
     const validation_y: i32 = if (studio.template_panel) blk: {
-        drawText(renderer, right_x + 18, 70, 1, "PROJECT TEMPLATES", 154, 184, 222);
-        drawText(renderer, right_x + 18, 86, 1, "REPLACES MAP AND ENTITY SCHEMA", 236, 199, 110);
+        drawText(renderer, right_x + 18, 70, 1, "START A WORLD", 165, 180, 210);
+        drawText(renderer, right_x + 18, 86, 1, "CHOOSE A GENRE TO GET MOVING", 251, 191, 36);
         for (model.project_templates, model.project_template_labels, 0..) |template, label, index| {
             button(renderer, .{
                 .x = right_x + 14,
@@ -1786,9 +1787,8 @@ fn render(
             184,
             222,
         );
-        button(renderer, .{ .x = right_x + 14, .y = 284, .w = layout.right - 28, .h = 36 }, "APPLY TEMPLATE", true);
-        drawText(renderer, right_x + 18, 334, 1, "UNDO RESTORES THE CURRENT PROJECT", 125, 145, 173);
-        drawText(renderer, right_x + 18, 352, 1, "UP/DOWN SELECT  ENTER APPLY", 125, 145, 173);
+        drawText(renderer, right_x + 18, 334, 1, "UNDO RESTORES YOUR CURRENT WORLD", 130, 150, 180);
+        drawText(renderer, right_x + 18, 352, 1, "UP/DOWN SELECT  ENTER APPLY", 130, 150, 180);
         break :blk 402;
     } else if (studio.tool == .resize) blk: {
         drawText(renderer, right_x + 18, 70, 1, "MAP RESIZE", 154, 184, 222);
@@ -2038,9 +2038,8 @@ fn render(
         }
         break :blk asset_y + 5 * 25 + 12;
     };
-
     const report = model.validate(studio.project);
-    drawText(renderer, right_x + 18, validation_y, 1, "LEVEL CHECK", 154, 184, 222);
+    drawText(renderer, right_x + 18, validation_y, 1, "WORLD CHECK", 165, 180, 210);
     const summary = std.fmt.bufPrint(&buffer, "{d} ERRORS  {d} WARNINGS", .{ report.error_count, report.warning_count }) catch "VALIDATION";
     drawText(renderer, right_x + 18, validation_y + 18, 1, summary, if (report.error_count > 0) 246 else 111, if (report.error_count > 0) 112 else 214, 112);
     const reachable = std.fmt.bufPrint(&buffer, "{d} REACHABLE CELLS", .{report.reachable_cells}) catch "";
@@ -2080,7 +2079,7 @@ fn drawQuitDialog(renderer: *c.SDL_Renderer, studio: *const Studio, width: i32, 
         panel.x + 30,
         panel.y + 54,
         1,
-        "SAVE BEFORE CLOSING THE WORKSHOP?",
+        "SAVE BEFORE CLOSING CRIA?",
         218,
         225,
         236,
@@ -2117,8 +2116,8 @@ fn drawPreview(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer
     fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = height }, 7, 9, 14, 255);
     const canvas = canvasLayout(studio.project, width, height, .preview, layoutFor(width, height, studio.presentation));
     drawMap(renderer, studio, atlases, canvas, false);
-    fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = 38 }, 12, 16, 24, 230);
-    drawText(renderer, 18, 13, 1, "MAP PREVIEW  -  F7 / ESC RETURN TO EDIT", 218, 225, 236);
+    fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = 38 }, 12, 16, 30, 230);
+    drawText(renderer, 18, 13, 1, "PLAYTEST VIEW  -  F7 / ESC RETURN TO CRIA", 218, 225, 236);
 }
 
 fn drawMap(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer_count]Atlas, canvas: Canvas, editor_overlay: bool) void {
@@ -2639,7 +2638,7 @@ fn drawGuide(renderer: *c.SDL_Renderer, studio: *const Studio, layout: Layout, h
     fill(renderer, .{ .x = face.x + 22, .y = face.y + 8, .w = 3, .h = 4 }, 29, 35, 48, 255);
     setColor(renderer, 29, 35, 48, 255);
     _ = c.SDL_RenderDrawLine(renderer, face.x + 9, face.y + 21, face.x + 23, face.y + 21);
-    drawText(renderer, 66, y + 13, 1, "PIP'S PAINT TIP", 236, 199, 110);
+    drawText(renderer, 66, y + 13, 1, "CRIA COACH", 236, 199, 110);
     if (card_h >= 70) {
         drawTextClipped(renderer, 24, y + 52, 1, guideLine(studio.tool), @intCast(@max(@divTrunc(layout.left - 48, font.advance), 1)), 202, 215, 232);
     }
@@ -2668,7 +2667,7 @@ fn guideLine(tool: Tool) []const u8 {
 
 fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32) void {
     const label: []const u8 = switch (notice) {
-        .none => "LMB DRAW  RMB ERASE  WHEEL TILE",
+        .none => "LMB BUILD  RMB ERASE  WHEEL TILE",
         .saved => "PROJECT SAVED ATOMICALLY",
         .exported => "LUA MAP EXPORTED",
         .asset_selected => "LAYER TILESET CHANGED",
@@ -2724,9 +2723,9 @@ fn issueLabel(kind: model.IssueKind) []const u8 {
 }
 
 fn button(renderer: *c.SDL_Renderer, rect: Rect, label: []const u8, selected: bool) void {
-    fill(renderer, rect, if (selected) 72 else 38, if (selected) 92 else 47, if (selected) 124 else 64, 255);
-    outline(renderer, rect, if (selected) 249 else 72, if (selected) 211 else 84, if (selected) 112 else 106, 255);
-    drawText(renderer, rect.x + 9, rect.y + @divTrunc(rect.h - 8, 2), 1, label, if (selected) 255 else 210, if (selected) 231 else 218, if (selected) 166 else 230);
+    fill(renderer, rect, if (selected) 124 else 30, if (selected) 58 else 41, if (selected) 237 else 59, 255);
+    outline(renderer, rect, if (selected) 196 else 71, if (selected) 125 else 85, if (selected) 255 else 105, 255);
+    drawText(renderer, rect.x + 9, rect.y + @divTrunc(rect.h - 8, 2), 1, label, if (selected) 255 else 203, if (selected) 255 else 213, if (selected) 255 else 225);
 }
 
 fn drawText(renderer: *c.SDL_Renderer, x: i32, y: i32, scale: i32, text: []const u8, r: u8, g: u8, b: u8) void {

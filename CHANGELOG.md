@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Renamed the native authoring experience to Cria, refreshed the dark violet
+  world-builder interface, added the `RPG ROOM` starter presentation, and
+  exposed `zig build cria` plus `run-cria` package launchers while retaining
+  compatibility aliases for existing Workshop-facing tooling.
+
 - Extended the maintained Mr. Rescue deterministic generation gate from 832 to
   6,656 simulator generations, with exact peak-capacity assertions; physical
   board soak and named-device timing/memory proof remain separate.

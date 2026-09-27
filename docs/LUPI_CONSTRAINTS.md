@@ -76,7 +76,7 @@ RGB555; ELIS follows the explicit `0RRRRRGGGGGBBBBB` contract.
   retains legacy bits 10 and 11 for encoded map compatibility.
 - The official codec accepts finite, orthogonal, right-down, uncompressed Tiled
   maps whose tile layers start at `(0,0)`. Tiles are square; spacing is zero.
-- The official codec emits sparse numeric tile tables. ELIS Workshop does the
+- The official codec emits sparse numeric tile tables. Cria does the
   same to avoid allocating empty Lua entries. Manifest `tiles` counts can include
   source-sheet margins, so ELIS derives available runtime tiles from exact
   encoded bytes divided by tile area.
@@ -84,9 +84,9 @@ RGB555; ELIS follows the explicit `0RRRRRGGGGGBBBBB` contract.
   authored Tiled layer its own table, and official games call `ui.map` in the
   desired bottom-to-top order. A map table may contain multiple string-keyed
   tileset tables. ELIS's explicit `layers` array is a deterministic compatible
-  extension; the runtime admits at most 256 drawable keys per map call, and
-  Workshop is conservatively fixed to four visual layers.
-- Workshop export requires exact manifest-backed files, existing tile IDs, the
+  extension; the runtime admits at most 256 drawable keys per map call.
+- Cria is conservatively fixed to four visual layers.
+- Cria export requires exact manifest-backed files, existing tile IDs, the
   official 49,152-pixel tileset ceiling, at most 518,400 sampled tile pixels per
   `ui.map` call, at most 4,096 weighted generated-data entries, and at most
   128 KiB of generated Lua source. Visual and semantic tables are sparse.
@@ -116,6 +116,5 @@ cycle budgets. Therefore:
 - final performance approval requires a release game running on a named Lupi
   board, with `ui.stat` memory/CPU/FPS captures from representative worst cases.
 
-The runtime, asset intake, and Workshop exporter share the executable constants
-in `src/studio/lupi_profile.zig`. Run `elis --lupi-constraints` to inspect the
+The runtime, asset intake, and Cria exporter share the executable constants
 machine-readable profile enforced by the current binary.

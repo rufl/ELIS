@@ -102,11 +102,11 @@ def main():
         capture = root / "studio.bmp"
         run([str(studio), f"--game-root={game}", f"--project={project}", f"--export={exported}",
              "--template=platformer", "--save-export", "--smoke", f"--capture={capture}"], package, env)
-        check(project.is_file() and exported.is_file(), "Workshop did not save and export")
-        check(capture.read_bytes().startswith(b"BM"), "Workshop produced an invalid capture")
+        check(project.is_file() and exported.is_file(), "Cria did not save and export")
+        check(capture.read_bytes().startswith(b"BM"), "Cria produced an invalid capture")
         original = project.read_bytes()
         run([str(studio), f"--game-root={game}", f"--project={project}", "--smoke"], package, env)
-        check(project.read_bytes() == original, "Workshop changed the saved project on reload")
+        check(project.read_bytes() == original, "Cria changed the saved project on reload")
         (game / "map.lua").write_bytes(exported.read_bytes())
         (game / "game.lua").write_text(
             'assert(_VERSION == "Lua 5.4", "Packaged runtime must execute Lua 5.4")\n'
@@ -120,7 +120,7 @@ def main():
         run([str(runtime), "--screenshot", str(game), "1", str(exported_frame)], package, env)
         check(exported_frame.read_bytes().startswith(b"P6\n480 270\n255\n"),
               "Exported map produced an invalid screenshot")
-        print("Extracted runtime screenshot, Workshop save/export/reload, and exported map rendering: pass")
+        print("Extracted runtime screenshot, Cria save/export/reload, and exported map rendering: pass")
 
 
 if __name__ == "__main__":

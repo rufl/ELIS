@@ -1,4 +1,4 @@
-//! Bounded Workshop readers for Lupi manifests, palettes, and bitmap metadata.
+//! Bounded Cria readers for Lupi manifests, palettes, and bitmap metadata.
 //!
 //! Parsing is intentionally tolerant for editor discovery; export performs the
 //! stricter identity, byte-length, geometry, and tile-bound checks.

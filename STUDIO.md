@@ -1,13 +1,13 @@
-# ELIS Workshop
+# Cria
 
-ELIS Workshop is the native map and level authoring half of ELIS. The executable
+Cria is the native map and level authoring half of ELIS. The executable
 remains `zig-out/bin/elis-studio`, separate from the Lupinho-compatible
-`zig-out/bin/elis` simulator. Its Playful and Studio presentations are two views
-of the same project—not separate beginner and expert file formats.
+`zig-out/bin/elis` simulator. Its Guided and Precision presentations are two
+views of the same project—not separate beginner and expert file formats.
 
 ## Resumo em português (Brasil)
 
-O Workshop é o editor nativo de mapas e níveis do ELIS. Ele é separado do
+O Cria é o editor nativo de mapas e níveis do ELIS. Ele é separado do
 simulador `elis`: editar um mapa não altera o framebuffer, o estado Lua, a
 paleta, a entrada ou o relógio do simulador. A exportação é uma operação
 explícita, e a prévia mostra o mapa do editor; ela não prova que mecânicas
@@ -16,8 +16,8 @@ específicas do jogo, áudio ou desempenho em hardware funcionarão.
 O caminho mais curto:
 
 ```sh
-zig build studio
-zig build studio -- --game-root=game \
+zig build cria
+zig build cria -- --game-root=game \
   --project=projects/world.elisworld \
   --export=projects/world.lua
 ```
@@ -80,8 +80,9 @@ editor map preview, not a claim that game-specific mechanics are running.
   bottom-right. The inspector reports clipped content and spawn/goal markers
   before apply. Resizing preserves all in-bounds authored grids, refreshes smart
   terrain at new edges, and is one operation in the shared undo/redo history.
-- Blank, Platformer, Arena, and Puzzle templates preserve project dimensions and
-  layer tileset assignments while replacing authored map and schema content.
+- Blank, Platformer, RPG Room (`--template=arena`), and Puzzle templates
+  preserve project dimensions and layer tileset assignments while replacing
+  authored map and schema content.
   Applying from the top-level panel is undoable; `--template=` selects a preset
   only when creating a project at a path that does not yet exist.
 - Collision is an editor/runtime metadata mask rather than a visible layer.
@@ -131,7 +132,7 @@ V4 project import also rejects entity fields outside their schema. V3 stored
 an untyped integer: legacy decoration values above the tile-ID range migrate
 to an unsigned field rather than being discarded or clamped.
 
-A successful `LUPI-SAFE EXPORT: PASS` therefore guarantees that Workshop's
+A successful `LUPI-SAFE EXPORT: PASS` therefore guarantees that Cria's
 unchanged generated module satisfies ELIS's fail-closed console admission
 profile. It does not cover arbitrary hand-written Lua, extra/repeated map calls,
 animation, audio, or physical-device frame rate; adding those changes the
@@ -178,7 +179,7 @@ proof.
 Discrete controller operations fire on button edges. Holding A does not repaint
 or fill every frame. Pointer gestures finish before focus, tool, presentation,
 or structural changes can transfer ownership, and undocumented mouse buttons
-never modify project data. Workshop ignores controller commands while its
+never modify project data. Cria ignores controller commands while its
 window is unfocused and snapshots held buttons on focus return or hotplug, so a
 held control cannot become a new edit. Physical-controller approval remains
 separate from the automated source and dummy-video proof. Accessibility support
@@ -187,10 +188,9 @@ and known SDL limitations are documented in
 
 ## Commands
 
-```sh
-zig build studio
-zig build studio -- --game-root=game --project=projects/world.elisworld --export=projects/world.lua
-zig build studio -- --project=projects/puzzle.elisworld --template=puzzle
+zig build cria
+zig build cria -- --game-root=game --project=projects/world.elisworld --export=projects/world.lua
+zig build cria -- --project=projects/puzzle.elisworld --template=puzzle
 zig build test
 zig build studio-smoke
 zig build verify
@@ -207,12 +207,12 @@ remain visibly diagnostic. `--tileset-file` remains as a shared-atlas
 compatibility path. `--presentation=studio`, `--reduce-motion`, and bounded
 window-size flags support deterministic UI proof.
 
-## Responsive and playful behavior
+## Responsive and guided behavior
 
-- 1280×760 and larger use the roomy Workshop composition. The 960×600 minimum
+- 1280×760 and larger use the roomy Cria composition. The 960×600 minimum
   uses compact panels and smaller—but still explicit—controls.
-- Playful view adds tool explanations and the optional animated Pip guide.
-  Studio view replaces that space with dense shortcut help. `--reduce-motion`
+- Guided view adds tool explanations and the optional animated Pip guide.
+  Precision view replaces that space with dense shortcut help. `--reduce-motion`
   stops the guide movement without removing information.
 - Keyboard and mouse can paint, erase, draw shapes, choose tiles, select layers,
   switch presentations, change compatible layer assets, and open templates.

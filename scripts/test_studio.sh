@@ -36,4 +36,4 @@ zig test-obj --test-no-exec -fPIC -fno-stack-check -lc \
   -o "$work/input-test" $(pkg-config --libs sdl2) -lm -lpthread -ldl -lc
 "$work/input-test"
 
-echo "ELIS Workshop, input, and instrumentation tests: pass"
+echo "Cria, input, and instrumentation tests: pass"

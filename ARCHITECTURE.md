@@ -1,12 +1,14 @@
 # ELIS Architecture
 
-This document is the entry point for contributors changing the simulator or Workshop. The compatibility contract is in [COMPATIBILITY.md](COMPATIBILITY.md); enforced hardware and package ceilings are in [docs/LUPI_CONSTRAINTS.md](docs/LUPI_CONSTRAINTS.md).
+This document is the entry point for contributors changing the simulator or
+Cria. The compatibility contract is in [COMPATIBILITY.md](COMPATIBILITY.md);
+enforced hardware and package ceilings are in [docs/LUPI_CONSTRAINTS.md](docs/LUPI_CONSTRAINTS.md).
 
 ## Resumo em português (Brasil)
 
 O ELIS tem dois executáveis nativos separados: `elis`, o simulador compatível
-com Lupi, e `elis-studio`, o editor de mapas. Eles compartilham tipos e
-limites, mas não estado mutável. O Workshop exporta um módulo Lua e ativos
+com Lupi, e `elis-studio`, o editor de mapas Cria. Eles compartilham tipos e
+limites, mas não estado mutável. O Cria exporta um módulo Lua e ativos
 validados; ele não injeta estado no simulador.
 
 As fronteiras de prova são deliberadas: paridade automatizada não é
@@ -20,9 +22,9 @@ comandos abaixo permanecem em inglês para corresponder ao código.
 ELIS builds two native Linux executables:
 
 - `elis`: Lupi-compatible simulator, cartridge browser, package loader, indexed renderer, Lua host, input, audio, and debugging chrome.
-- `elis-studio`: Workshop map editor, project persistence, deterministic Lua export, and preview UI.
+- `elis-studio`: Cria map editor, project persistence, deterministic Lua export, and preview UI.
 
-The executables share types and constraints, not mutable runtime state. Workshop never injects editor state into a running simulator. Its only runtime boundary is an explicitly exported Lua module and its manifest-backed assets.
+The executables share types and constraints, not mutable runtime state. Cria never injects editor state into a running simulator. Its only runtime boundary is an explicitly exported Lua module and its manifest-backed assets.
 
 ## Source ownership
 
@@ -36,7 +38,7 @@ The executables share types and constraints, not mutable runtime state. Workshop
 | `src/localization.zig` | Host chrome translations; cartridges own their text |
 | `src/font.zig` | Canonical deterministic Lupi 5×8 font |
 | `src/native.zig` | Single C-import boundary for SDL2, Lua, libzip, libcurl, and libsndfile |
-| `src/studio_app.zig` | Workshop SDL lifecycle, transient interaction state, responsive layout, and rendering |
+| `src/studio_app.zig` | Cria SDL lifecycle, transient interaction state, responsive layout, and rendering |
 | `src/studio/model.zig` | Authoritative project data, commands, migration, validation, export, and atomic save/load |
 | `src/studio/assets.zig` | Bounded manifest, palette, and bitmap metadata parsing |
 | `src/studio/lupi_profile.zig` | Shared executable resource ceilings |
@@ -75,17 +77,17 @@ A new intentional difference from the pinned Lupinho baseline belongs in `COMPAT
   with fixed-size path storage. Every request checks file identity, length, and
   timestamps; Windows requests with active writers reread rather than reuse.
   Cache storage is cleared before game admission and after Lua finalizers run.
-- Runtime and Workshop share structured top-level bitmap metadata parsing with
+- Runtime and Cria share structured top-level bitmap metadata parsing with
   64 KiB of temporary scratch storage; no parser allocation crosses a Lua call.
 - SDL windows, renderers, textures, controllers, and audio devices are paired with immediate `defer` cleanup.
 - `Audio` state is read by SDL's callback thread. Public mutations lock the device; helpers ending in `Unlocked` require the caller to hold that lock.
-- Workshop `Project`, `History`, `Command`, and `Stamp` values have explicit ownership. Project snapshots are encoded byte slices owned by their history command.
-- Focus loss clears queued input edges and text. Analog state is sampled without an edge when focus returns, and Workshop ignores queued pointer/keyboard events while suspended.
+- Cria `Project`, `History`, `Command`, and `Stamp` values have explicit ownership. Project snapshots are encoded byte slices owned by their history command.
+- Focus loss clears queued input edges and text. Analog state is sampled without an edge when focus returns, and Cria ignores queued pointer/keyboard events while suspended.
 - Project and settings replacement use Zig's atomic-file API after syncing the new file.
 
 Expected runtime failures reject input or show a user-facing notice. Assertions are reserved for violated internal ownership or range invariants.
 
-## Workshop model
+## Cria model
 
 `Project` is the only saved authoring truth. Its visual and smart-terrain arrays are layer-major; collision, entity kinds, and entity fields are cell-major. Visibility, painting locks, selection, notices, preview mode, and presentation are session-only.
 
@@ -103,13 +105,13 @@ One gesture uses `CommandBuilder` to coalesce repeated writes to each target. Re
 4. Update `COMPATIBILITY.md` if behavior differs intentionally.
 5. Run `scripts/parity_smoke.sh` and `scripts/runtime_smoke.sh`.
 
-### Add a Workshop operation
+### Add a Cria operation
 
 1. Put authoritative mutation in `studio/model.zig`.
 2. Represent it as one command or one snapshot operation.
 3. Add model tests for apply, undo, redo, bounds, and encode/decode where relevant.
 4. Keep pointer, keyboard, and controller ownership equivalent in `studio_app.zig`.
-5. Update `STUDIO.md` and run the Workshop tests and smoke gate.
+5. Update `STUDIO.md` and run the Cria tests and smoke gate.
 
 ### Add a cartridge
 
@@ -120,7 +122,7 @@ Follow [demos/README.md](demos/README.md) and [ports/README.md](ports/README.md)
 - `scripts/test_studio.sh`: model, assets, instrumentation, and native input unit tests.
 - `scripts/parity_smoke.sh`: pinned renderer/API and SDL compositor parity.
 - `scripts/runtime_smoke.sh`: package, archive, Lua, resource-limit, and hostile-input behavior.
-- `scripts/studio_smoke.sh`: Workshop manifest/palette intake, persistence, export, reload, and simulator loading.
+- `scripts/studio_smoke.sh`: Cria manifest/palette intake, persistence, export, reload, and simulator loading.
 - `scripts/mr_rescue_smoke.sh`: separately licensed cartridge audit and deterministic behavior stress.
 - `scripts/verify.sh`: formatting, shell syntax, and all maintained gates.
 

@@ -41,7 +41,7 @@ para corresponder à configuração do repositório.
 
 ## GitHub settings after the first push
 
-- Set the description to “Native Lupi simulator and deterministic Workshop editor in Zig.”
+- Set the description to “Native Lupi simulator and deterministic Cria editor in Zig.”
 - Add topics such as `zig`, `lua`, `sdl2`, `fantasy-console`, `game-development`, and `level-editor`.
 - Keep `main` as the default branch and require both `Verify / verify` and
   `Binaries / binaries` status checks before merge, with the branch up to date.
@@ -76,7 +76,7 @@ x86-64 using MSYS2 UCRT64. Linux archives require the documented system
 libraries; Windows archives include their recursively resolved DLL dependencies
 and license notices. Neither package includes Mr. Rescue.
 
-Pull requests and pushes to `main` build packages and exercise extracted runtime and Workshop binaries
+Pull requests and pushes to `main` build packages and exercise extracted runtime and Cria binaries
 on fresh runners. The Windows smoke process removes MSYS2 and other development
 directories from `PATH`. Both use SDL dummy video/audio rather than
 an interactive desktop. Artifacts expire after 14 days and are not releases.
