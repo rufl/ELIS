@@ -71,6 +71,15 @@ class HardwareGateTests(unittest.TestCase):
         self.assertEqual(proof["measurements"]["frame_time_ms"]["worst"], 16.2)
         self.assertEqual(proof["measurements"]["lua_memory_bytes"]["peak"], 1_100_000)
 
+    def test_proof_records_raw_evidence_digests(self):
+        proof = validate_record(self.record, self.cartridge)
+        for name, raw_path in self.evidence.items():
+            path = Path(raw_path)
+            details = proof["evidence"][name]
+            self.assertEqual(details["path"], str(path.resolve()))
+            self.assertEqual(details["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+            self.assertEqual(details["size_bytes"], path.stat().st_size)
+
     def test_hash_mismatch_is_rejected(self):
         record = copy.deepcopy(self.record)
         record["cartridge"]["sha256"] = "0" * 64
