@@ -58,6 +58,6 @@ final gate makes it a hardware-approved release.
 - [x] A 256-seed × 26-section (6,656-generation) sweep and deterministic
   screenshot matrix pass.
 - [x] License, attribution, exact-manifest, and release-use audit passes for every shipped file.
-- [ ] Named physical Lupi worst cases meet the accepted frame and memory budgets.
+- [ ] Named physical Lupi worst cases meet the accepted frame and memory budgets; validate the retained record with `python3 scripts/mr_rescue_hardware_gate.py`.
 - [x] Move the cartridge to `demos/mr-rescue/` and update the catalog as an explicitly unapproved physical-validation candidate.
 - [ ] Begin Hex-a-Hop only after every item above is checked.

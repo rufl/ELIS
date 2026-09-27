@@ -7,6 +7,10 @@
   exposed `zig build cria` plus `run-cria` package launchers while retaining
   compatibility aliases for existing Workshop-facing tooling.
 
+- Added a fail-closed named-board Mr. Rescue proof validator that binds raw
+  frame-time, Lua-memory, asset, manifest, and 30-minute soak evidence to the
+  exact cartridge hash; simulator evidence cannot manufacture hardware proof.
+
 - Extended the maintained Mr. Rescue deterministic generation gate from 832 to
   6,656 simulator generations, with exact peak-capacity assertions; physical
   board soak and named-device timing/memory proof remain separate.

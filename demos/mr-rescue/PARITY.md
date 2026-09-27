@@ -59,6 +59,11 @@ game-over/summary/highscore entry, all nine tutorial slides, campaign arithmetic
 HUD textures, particles, enemy states, and projectile activity. A focused native
 framebuffer regression checks complete body/floor spans at both vertical camera
 limits and prevents stage pixels leaking into the fixed HUD band. The remaining
+requirements are operationalized by
+`scripts/mr_rescue_hardware_gate.py`, which refuses to write a passing proof
+unless the exact cartridge hash, named board/firmware, raw logs, 60 Hz frame
+budget, 4 MiB Lua budget, asset ceiling, and 30-minute soak are all present.
+The remaining physical work is:
 - Longer physical-device soak runs beyond the passing 6,656-generation
   simulator sweep and deterministic render matrix.
 - Named physical Lupi frame-time and memory proof.

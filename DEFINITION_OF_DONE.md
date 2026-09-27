@@ -101,6 +101,11 @@ The board, firmware, build configuration, test route, measurement tool, and
 start/end timestamps must be named. Simulator evidence cannot satisfy this
 section.
 
+For Mr. Rescue, validate the retained raw record and exact cartridge with
+`python3 scripts/mr_rescue_hardware_gate.py`; its boundary contract is covered
+by `python3 scripts/test_mr_rescue_hardware_gate.py`. These tools validate
+evidence; they do not manufacture board measurements.
+
 ## Backlog lifecycle
 
 - **Open**: acceptance criteria or proof are incomplete.
