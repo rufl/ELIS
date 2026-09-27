@@ -146,7 +146,14 @@ class HardwareGateTests(unittest.TestCase):
         ]
         first = subprocess.run(command, capture_output=True, text=True, check=False)
         self.assertEqual(first.returncode, 0, first.stderr)
-        self.assertEqual(json.loads(output_path.read_text())["status"], "passed")
+        generated = json.loads(output_path.read_text())
+        self.assertEqual(generated["status"], "passed")
+        self.assertEqual(generated["record"]["path"], str(record_path.resolve()))
+        self.assertEqual(
+            generated["record"]["sha256"],
+            hashlib.sha256(record_path.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(generated["record"]["size_bytes"], record_path.stat().st_size)
         original = output_path.read_bytes()
         second = subprocess.run(command, capture_output=True, text=True, check=False)
         self.assertNotEqual(second.returncode, 0)
