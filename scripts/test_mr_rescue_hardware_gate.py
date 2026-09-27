@@ -86,6 +86,19 @@ class HardwareGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ProofError, "hash mismatch"):
             validate_record(record, self.cartridge)
 
+    def test_exact_hardware_limits_are_accepted(self):
+        record = copy.deepcopy(self.record)
+        record["measurements"]["frame_time_ms"] = [1000 / 60, 1000 / 60]
+        record["measurements"]["lua_memory_bytes"] = [
+            4 * 1024 * 1024,
+            4 * 1024 * 1024,
+        ]
+        record["measurements"]["max_bitmap_pixels"] = 49_152
+        proof = validate_record(record, self.cartridge)
+        self.assertEqual(proof["status"], "passed")
+        self.assertEqual(proof["measurements"]["frame_time_ms"]["worst"], 16.666667)
+        self.assertEqual(proof["measurements"]["lua_memory_bytes"]["peak"], 4 * 1024 * 1024)
+
     def test_frame_time_boundary_is_rejected(self):
         record = copy.deepcopy(self.record)
         record["measurements"]["frame_time_ms"] = [16.667, 16.668]

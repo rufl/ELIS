@@ -89,7 +89,8 @@ Every item must have:
 Hardware approval requires one named board and firmware revision, the exact
 cartridge/package hash, and raw measurements attached to the proof record:
 
-- sustained 60 Hz operation with worst-case frame time `<= 16.667 ms`;
+- sustained 60 Hz operation with worst-case frame time `<= 16.666667 ms`
+  (`1000 / 60`, exact validator threshold);
 - peak game Lua memory `<= 4 MiB`, with no allocation failure or unbounded
   growth;
 - cartridge/package and asset limits remain within the applicable 16 MiB,
