@@ -93,12 +93,22 @@ def _regular_file(value: Any, name: str) -> Path:
     return path.resolve()
 
 
-def sha256(path: Path) -> str:
+def file_digest(path: Path) -> tuple[str, int]:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
+        before = os.fstat(stream.fileno())
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
-    return digest.hexdigest()
+        after = os.fstat(stream.fileno())
+    if (before.st_size, before.st_mtime_ns, before.st_ino) != (
+        after.st_size,
+        after.st_mtime_ns,
+        after.st_ino,
+    ):
+        raise ProofError(f"input changed while being hashed: {path}")
+    return digest.hexdigest(), after.st_size
+
+
 def _aliases(left: Path, right: Path) -> bool:
     if left.resolve(strict=False) == right.resolve(strict=False):
         return True
@@ -135,8 +145,7 @@ def validate_record(record: dict[str, Any], cartridge_path: Path) -> dict[str, A
     expected_size = _integer(cartridge.get("size_bytes"), "cartridge.size_bytes", 1)
     if expected_size > CARTRIDGE_LIMIT_BYTES:
         raise ProofError("cartridge.size_bytes exceeds the 16 MiB release limit")
-    actual_size = cartridge_path.stat().st_size
-    actual_hash = sha256(cartridge_path)
+    actual_hash, actual_size = file_digest(cartridge_path)
     if actual_size != expected_size:
         raise ProofError(
             f"cartridge size mismatch: record={expected_size}, actual={actual_size}"
@@ -192,14 +201,14 @@ def validate_record(record: dict[str, Any], cartridge_path: Path) -> dict[str, A
         name: _regular_file(evidence.get(name), f"evidence.{name}")
         for name in REQUIRED_EVIDENCE
     }
-    evidence_details = {
-        name: {
+    evidence_details = {}
+    for name, path in evidence_paths.items():
+        digest, size = file_digest(path)
+        evidence_details[name] = {
             "path": str(path),
-            "sha256": sha256(path),
-            "size_bytes": path.stat().st_size,
+            "sha256": digest,
+            "size_bytes": size,
         }
-        for name, path in evidence_paths.items()
-    }
 
     return {
         "schema": SCHEMA,
