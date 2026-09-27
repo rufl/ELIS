@@ -6,16 +6,18 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from mr_rescue_hardware_gate import ProofError, validate_record  # noqa: E402
+from mr_rescue_hardware_gate import ProofError, file_digest, validate_record  # noqa: E402
 
 
 class HardwareGateTests(unittest.TestCase):
@@ -79,6 +81,25 @@ class HardwareGateTests(unittest.TestCase):
             self.assertEqual(details["path"], str(path.resolve()))
             self.assertEqual(details["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
             self.assertEqual(details["size_bytes"], path.stat().st_size)
+    def test_changed_input_is_rejected_during_digest(self):
+        path = Path(self.temporary.name) / "mutable.log"
+        path.write_text("before\n", encoding="utf-8")
+        original_fstat = os.fstat
+        calls = 0
+
+        def changing_fstat(file_descriptor):
+            nonlocal calls
+            calls += 1
+            result = original_fstat(file_descriptor)
+            if calls == 2:
+                path.write_text("after\n", encoding="utf-8")
+                return original_fstat(file_descriptor)
+            return result
+
+        with patch("mr_rescue_hardware_gate.os.fstat", side_effect=changing_fstat):
+            with self.assertRaisesRegex(ProofError, "input changed"):
+                file_digest(path)
+
 
     def test_hash_mismatch_is_rejected(self):
         record = copy.deepcopy(self.record)
