@@ -30,6 +30,9 @@
 - Required aggregate Linux/Windows build and extracted-package smoke success
   before merge or publication, including failure/cancellation/skip rejection;
   added binary checks on `main` pushes and aligned pinned checkout actions.
+- Added the deployment-facing `--package-smoke` invocation to extracted
+  package smoke, so CI exercises the exact no-display command used by ZTASH
+  deployment receivers.
 - Reviewed MSYS2 xz 5.8.4-1 for Windows packaging, retaining the exact-version
   and `liblzma-5.dll`-only 0BSD license gate.
 - Kept Workshop resize revisions monotonic so resize/save/resize cannot hide

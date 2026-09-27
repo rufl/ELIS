@@ -86,6 +86,7 @@ def main():
         env["XDG_DATA_HOME"] = str(root / "profile")
         check("Usage:" in run([str(runtime), "--help"], package, env),
               "Packaged runtime did not print usage")
+        run([str(runtime), "--package-smoke"], package, env)
         check("lua=5.4" in run([str(runtime), "--lupi-constraints"], package, env),
               "Packaged runtime did not report Lua 5.4")
         frame = root / "example.ppm"
@@ -120,7 +121,7 @@ def main():
         run([str(runtime), "--screenshot", str(game), "1", str(exported_frame)], package, env)
         check(exported_frame.read_bytes().startswith(b"P6\n480 270\n255\n"),
               "Exported map produced an invalid screenshot")
-        print("Extracted runtime screenshot, Cria save/export/reload, and exported map rendering: pass")
+        print("Extracted package smoke, runtime screenshot, Cria save/export/reload, and exported map rendering: pass")
 
 
 if __name__ == "__main__":
