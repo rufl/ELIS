@@ -44,6 +44,10 @@ zig build native -Doptimize=ReleaseSafe
 
 Read [ARCHITECTURE.md](ARCHITECTURE.md), [COMPATIBILITY.md](COMPATIBILITY.md), and the subsystem guide you intend to change. Cria contributors should also read [STUDIO.md](STUDIO.md).
 
+Use [DEFINITION_OF_DONE.md](DEFINITION_OF_DONE.md) for the finite acceptance,
+proof, release, deployment, and named-device gates. A pull request may not
+close a backlog row with an informal “mostly done” claim.
+
 ## Change discipline
 
 - Keep each pull request focused on one behavior or one coherent documentation slice.
@@ -103,6 +107,7 @@ A reviewable PR includes:
 - the chosen ownership boundary;
 - focused test commands and results;
 - compatibility, persistence, resource, UI, and licensing impact;
+- the applicable [Definition of Done](DEFINITION_OF_DONE.md) checklist is complete;
 - updated user or contributor documentation when behavior changes.
 
 Unless a pull request explicitly targets a separately licensed directory, you

@@ -17,6 +17,7 @@ permanecem em inglês para evitar traduções divergentes.
 - [Compatibility / Compatibilidade](../COMPATIBILITY.md): audited baseline and deliberate extensions.
 - [Roadmap / Roteiro](../ROADMAP.md): current direction and unfinished proof.
 - [Active backlog / Backlog ativo](../BACKLOG.md): known work, not a promise of delivery.
+- [Definition of Done / Definição de pronto](../DEFINITION_OF_DONE.md): finite completion and proof gates.
 - [Lupi console constraints / Limites do console Lupi](LUPI_CONSTRAINTS.md): enforced profile and unknowns.
 - [Accessibility / Acessibilidade](ACCESSIBILITY.md): support and SDL limitations.
 - [Release checklist / Checklist de release](RELEASING.md): source and binary gates.

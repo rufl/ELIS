@@ -73,6 +73,7 @@ Contributor entry points:
 - [Contributing and focused tests](CONTRIBUTING.md)
 - [Compatibility contract](COMPATIBILITY.md)
 - [Cria authoring guide](STUDIO.md)
+- [Definition of Done and backlog gates](DEFINITION_OF_DONE.md)
 - [Security policy](SECURITY.md)
 - [Accessibility support and limitations](docs/ACCESSIBILITY.md)
 - [Third-party licenses and attribution](THIRD_PARTY_NOTICES.md)
