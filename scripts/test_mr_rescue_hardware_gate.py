@@ -159,6 +159,34 @@ class HardwareGateTests(unittest.TestCase):
         self.assertNotEqual(second.returncode, 0)
         self.assertEqual(output_path.read_bytes(), original)
 
+    def test_cli_rejects_output_input_collision(self):
+        root = Path(self.temporary.name)
+        record_path = root / "raw.json"
+        record_path.write_text(json.dumps(self.record), encoding="utf-8")
+        input_paths = (
+            record_path,
+            self.cartridge,
+            Path(self.evidence["frame_time"]),
+        )
+        originals = {path: path.read_bytes() for path in input_paths}
+        for output_path in input_paths:
+            command = [
+                sys.executable,
+                str(ROOT / "scripts/mr_rescue_hardware_gate.py"),
+                "--record",
+                str(record_path),
+                "--cartridge",
+                str(self.cartridge),
+                "--output",
+                str(output_path),
+                "--replace",
+            ]
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must be distinct", result.stderr)
+        for path, original in originals.items():
+            self.assertEqual(path.read_bytes(), original)
+
     def test_missing_raw_evidence_is_rejected(self):
         record = copy.deepcopy(self.record)
         record["evidence"]["memory"] = str(Path(self.temporary.name) / "missing.log")

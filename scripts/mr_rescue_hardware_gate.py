@@ -99,6 +99,16 @@ def sha256(path: Path) -> str:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+def _aliases(left: Path, right: Path) -> bool:
+    if left.resolve(strict=False) == right.resolve(strict=False):
+        return True
+    if not left.exists() or not right.exists():
+        return False
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        return False
+
 
 
 def validate_record(record: dict[str, Any], cartridge_path: Path) -> dict[str, Any]:
@@ -272,7 +282,14 @@ def main() -> int:
             "sha256": hashlib.sha256(raw_record).hexdigest(),
             "size_bytes": len(raw_record),
         }
-        write_json(args.output, proof, args.replace)
+        output_path = args.output.expanduser()
+        input_paths = [record_path, cartridge]
+        input_paths.extend(Path(details["path"]) for details in proof["evidence"].values())
+        if any(_aliases(output_path, input_path) for input_path in input_paths):
+            raise ProofError(
+                "--output must be distinct from the raw record, cartridge, and evidence files"
+            )
+        write_json(output_path, proof, args.replace)
     except (OSError, json.JSONDecodeError, ProofError) as error:
         parser.error(str(error))
     print(
