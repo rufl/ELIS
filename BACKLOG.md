@@ -28,6 +28,11 @@ summary below mirrors these rows and is not an independent completion signal.
   and `python3 scripts/test_mr_rescue_hardware_gate.py` passed. This proves the
   bounded desktop/package and proof-record paths; it does **not** close the
   named-board frame-time, memory, or soak gate.
+- **2026-09-27 — deployment smoke contract:** the merged CI artifact run
+  `36325436323` passed Linux/Windows builds, extracted-package smoke, and
+  Verify while exercising `--package-smoke`. This proves the receiver-facing
+  package command; it does **not** publish to a receiver or close named-board
+  hardware proof.
 
 
 <!-- OVERZEER:DOCS_BACKLOG_BEGIN -->
