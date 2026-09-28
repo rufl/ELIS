@@ -22,11 +22,12 @@ zig build cria -- --game-root=game \
   --export=projects/world.lua
 ```
 
-O projeto salvo é `.elisworld` v4, com migração das versões anteriores,
-histórico de desfazer/refazer, camadas visuais, colisão, spawn, objetivo e
-entidades tipadas. A exportação só passa quando o manifesto, os limites
-espaciais e os limites de dados do perfil Lupi são válidos. Sem manifesto
-válido, é possível salvar o projeto, mas a exportação é bloqueada.
+O projeto salvo é `.elisworld` v5, com migração das versões anteriores,
+histórico de desfazer/refazer, camadas visuais, colisão, spawn, objetivo,
+entidades tipadas e layouts de terreno cardinal/blob persistidos. A exportação
+só passa quando o manifesto, os limites espaciais e os limites de dados do
+perfil Lupi são válidos. Sem manifesto válido, é possível salvar o projeto,
+mas a exportação é bloqueada.
 
 Limites importantes: a exportação aprovada não valida Lua escrito à mão,
 animação, áudio, chamadas adicionais de mapa, taxa de quadros de placa física
@@ -73,10 +74,16 @@ editor map preview, not a claim that game-specific mechanics are running.
   vertical flip, and clockwise rotation rearrange stamp cells without mutating
   source tiles or pretending to mirror directional tile artwork.
 - Smart terrain stores the authored material base separately from rendered
-  tiles. Each material occupies 16 consecutive tiles. Cardinal neighbors form a
-  deterministic mask: north `1`, east `2`, south `4`, west `8`; the rendered
-  tile is `base + mask`. Painting or erasing refreshes the cell and four direct
-  neighbors inside the same undoable stroke.
+  tiles. Cardinal materials occupy 16 consecutive tiles. Cardinal neighbors
+  form a deterministic mask: north `1`, east `2`, south `4`, west `8`; the
+  rendered tile is `base + mask`.
+- Press `Y` or click the smart-family heading to switch between the persisted
+  `CARDINAL 16` layout and `BLOB 256`. Blob materials occupy 256 consecutive
+  tiles and use clockwise eight-neighbor bits: north `1`, northeast `2`,
+  east `4`, southeast `8`, south `16`, southwest `32`, west `64`, northwest
+  `128`. Blob bases are bounded to `0..768`; changing rule rebuilds every
+  rendered smart tile as one undoable operation. Painting or erasing refreshes
+  the active cell and all eight neighbors.
 - Map resize/rebase supports nine content anchors from top-left through
   bottom-right. The inspector reports clipped content and spawn/goal markers
   before apply. Resizing preserves all in-bounds authored grids, refreshes smart
@@ -98,11 +105,12 @@ editor map preview, not a claim that game-specific mechanics are running.
   Removing or reenabling a trailing field initializes instances from its validated
   default; undo restores their previous schema and distinct values. Failed entity
   placement leaves the project and pending undo gesture unchanged.
-- `.elisworld` v4 is a versioned checksummed binary source artifact containing
-  per-layer assets, semantic terrain, and typed entities. Saves write a sibling
-  temporary file, sync it, and atomically rename it into place. Version-one
-  projects gain independent layer tilesets; v1 and v2 migrate with an empty
-  entity grid, while v3 promotes its old value to field zero. Older formats
+- `.elisworld` v5 is a versioned checksummed binary source artifact containing
+  per-layer assets, semantic terrain, the selected terrain rule, and typed
+  entities. Saves write a sibling temporary file, sync it, and atomically
+  rename it into place. Version-one projects gain independent layer tilesets;
+  v1 and v2 migrate with an empty entity grid, while v3 promotes its old value
+  to field zero. V4 imports default to the cardinal terrain rule. Older formats
   never invent authored schema or entity data.
 - Exported Lua exposes official codec-style per-layer tables as
   `project.background`, `project.terrain`, `project.objects`, and
@@ -129,9 +137,11 @@ of generated Lua source. Visual, collision, and smart-terrain tables export
 sparsely; absent collision/smart entries mean false/empty. Without a valid
 manifest, the source can still be saved but export is blocked.
 
-V4 project import also rejects entity fields outside their schema. V3 stored
-an untyped integer: legacy decoration values above the tile-ID range migrate
-to an unsigned field rather than being discarded or clamped.
+V5 project import also persists the selected cardinal/blob terrain rule and
+rejects smart bases or rendered variants outside that rule's tile family.
+V4 imports default to cardinal families. V3 stored an untyped integer: legacy
+decoration values above the tile-ID range migrate to an unsigned field rather
+than being discarded or clamped.
 
 A successful `LUPI-SAFE EXPORT: PASS` therefore guarantees that Cria's
 unchanged generated module satisfies ELIS's fail-closed console admission
@@ -154,7 +164,7 @@ proof.
 | Tab | Switch Playful/Studio presentation |
 | Arrow keys | Move the grid cursor |
 | Space/Enter, Delete | Apply or erase at cursor |
-| Ctrl+Z / Ctrl+Y | Undo / redo |
+| Ctrl+Z / Ctrl+Y | Undo / redo; unmodified `Y` switches smart terrain rule |
 | Ctrl+C / Ctrl+V | Capture current selection / switch to the captured stamp |
 | `H` / `V` / `O` | Flip stamp horizontally / vertically / rotate clockwise |
 | Shift+rectangle drag | Draw a filled rectangle instead of an outline |

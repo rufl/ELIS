@@ -1,6 +1,10 @@
 # ELIS Changelog
 
 ## Unreleased
+- Added persisted Cria smart-terrain rule layouts: the existing 16-tile
+  cardinal family and an eight-neighbor 256-tile blob family. Rule changes
+  rebuild rendered variants transactionally, reject out-of-range bases, refresh
+  diagonal joins, and expose the selected rule in generated Lua metadata.
 - Added Cria's generated one-button playtest wrapper: PLAYTEST/F9 validates
   the current project, copies exact tileset assets into a private temporary
   package, runs the real simulator, and cleans the package after exit.
