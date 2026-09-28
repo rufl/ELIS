@@ -7,7 +7,8 @@
 const std = @import("std");
 const lupi_profile = @import("lupi_profile.zig");
 
-pub const schema_version: u16 = 4;
+pub const schema_version: u16 = 5;
+pub const previous_schema_version: u16 = 4;
 pub const layered_schema_version: u16 = 2;
 pub const entity_schema_version: u16 = 3;
 pub const legacy_schema_version: u16 = 1;
@@ -94,6 +95,36 @@ pub const resize_anchors = [_]ResizeAnchor{
 };
 
 pub const resize_anchor_labels = [_][]const u8{ "TL", "T", "TR", "L", "C", "R", "BL", "B", "BR" };
+
+pub const TerrainRule = enum(u8) {
+    cardinal,
+    blob,
+};
+
+pub fn terrainRuleVariantCount(rule: TerrainRule) u16 {
+    return switch (rule) {
+        .cardinal => 16,
+        .blob => 256,
+    };
+}
+
+pub fn terrainRuleBaseMax(rule: TerrainRule) u16 {
+    return max_tile_id - (terrainRuleVariantCount(rule) - 1);
+}
+
+pub fn terrainRuleName(rule: TerrainRule) []const u8 {
+    return switch (rule) {
+        .cardinal => "cardinal",
+        .blob => "blob",
+    };
+}
+
+pub fn terrainRuleLabel(rule: TerrainRule) []const u8 {
+    return switch (rule) {
+        .cardinal => "CARDINAL 16",
+        .blob => "BLOB 256",
+    };
+}
 
 pub const ResizeReport = struct {
     changed: bool = false,
@@ -280,6 +311,7 @@ pub const Project = struct {
     entity_field_kinds: [entity_kinds.len][max_entity_fields]EntityFieldKind = .{.{.unsigned} ** max_entity_fields} ** entity_kinds.len,
     entity_field_defaults: [entity_kinds.len][max_entity_fields]u16 = .{.{0} ** max_entity_fields} ** entity_kinds.len,
     entity_field_mins: [entity_kinds.len][max_entity_fields]u16 = .{.{0} ** max_entity_fields} ** entity_kinds.len,
+    terrain_rule: TerrainRule = .cardinal,
     entity_field_maxes: [entity_kinds.len][max_entity_fields]u16 = .{.{std.math.maxInt(u16)} ** max_entity_fields} ** entity_kinds.len,
     spawn: ?Point = null,
     goal: ?Point = null,
@@ -343,9 +375,20 @@ pub const Project = struct {
                 }
             }
         }
+
         result.spawn = .{ .x = 1, .y = height / 2 };
         result.goal = .{ .x = width - 2, .y = height / 2 };
         return result;
+    }
+    pub fn setTerrainRule(self: *Project, rule: TerrainRule) !void {
+        if (self.terrain_rule == rule) return;
+        const maximum_base = terrainRuleBaseMax(rule);
+        for (self.smart) |base| {
+            if (base != empty_tile and base > maximum_base) return error.InvalidTerrainRuleBase;
+        }
+        self.terrain_rule = rule;
+        refreshSmartTerrain(self);
+        self.revision +%= 1;
     }
 
     pub fn deinit(self: *Project) void {
@@ -901,35 +944,37 @@ pub const CommandBuilder = struct {
         material_base: ?u16,
     ) !void {
         if (layer >= layer_count or index >= project.cellCount()) return error.InvalidEditorChange;
-        if (material_base) |base| if (base > max_tile_id - 15) return error.InvalidSmartTerrainBase;
+        if (material_base) |base| if (base > terrainRuleBaseMax(project.terrain_rule)) return error.InvalidSmartTerrainBase;
         try self.setSmart(project, layer, index, material_base orelse empty_tile);
-        var affected: [5]usize = undefined;
+        var affected: [9]usize = undefined;
         if (material_base == null) try self.setTile(project, layer, index, empty_tile);
         var count: usize = 1;
         affected[0] = index;
         const x = index % project.width;
         const y = index / project.width;
-        if (x > 0) {
-            affected[count] = index - 1;
-            count += 1;
-        }
-        if (x + 1 < project.width) {
-            affected[count] = index + 1;
-            count += 1;
-        }
-        if (y > 0) {
-            affected[count] = index - project.width;
-            count += 1;
-        }
-        if (y + 1 < project.height) {
-            affected[count] = index + project.width;
-            count += 1;
+        const offsets = [_]?usize{
+            if (x > 0) index - 1 else null,
+            if (x + 1 < project.width) index + 1 else null,
+            if (y > 0) index - project.width else null,
+            if (y + 1 < project.height) index + project.width else null,
+            if (x > 0 and y > 0) index - project.width - 1 else null,
+            if (x + 1 < project.width and y > 0) index - project.width + 1 else null,
+            if (x > 0 and y + 1 < project.height) index + project.width - 1 else null,
+            if (x + 1 < project.width and y + 1 < project.height) index + project.width + 1 else null,
+        };
+        for (offsets) |maybe_neighbor| {
+            if (maybe_neighbor) |neighbor| {
+                affected[count] = neighbor;
+                count += 1;
+            }
         }
         for (affected[0..count]) |cell| try self.refreshSmartCell(project, layer, cell);
     }
 
     fn setSmart(self: *CommandBuilder, project: *Project, layer: u8, index: usize, base: u16) !void {
-        if (layer >= layer_count or index >= project.cellCount() or base > max_tile_id - 15 and base != empty_tile) {
+        if (layer >= layer_count or index >= project.cellCount() or
+            (base > terrainRuleBaseMax(project.terrain_rule) and base != empty_tile))
+        {
             return error.InvalidEditorChange;
         }
         const offset = @as(usize, layer) * project.cellCount() + index;
@@ -946,23 +991,26 @@ pub const CommandBuilder = struct {
         const smart = project.smartCells(layer);
         const base = smart[index];
         if (base == empty_tile) return;
-        const x = index % project.width;
-        const y = index / project.width;
-        var mask: u16 = 0;
-        if (y > 0 and smart[index - project.width] == base) mask |= 1;
-        if (x + 1 < project.width and smart[index + 1] == base) mask |= 2;
-        if (y + 1 < project.height and smart[index + project.width] == base) mask |= 4;
-        if (x > 0 and smart[index - 1] == base) mask |= 8;
+        const mask = terrainMask(project.*, layer, index, base);
         try self.setTile(project, layer, index, base + mask);
     }
 
     fn refreshSmartNeighbors(self: *CommandBuilder, project: *Project, layer: u8, index: usize) !void {
         const x = index % project.width;
         const y = index / project.width;
-        if (x > 0) try self.refreshSmartCell(project, layer, index - 1);
-        if (x + 1 < project.width) try self.refreshSmartCell(project, layer, index + 1);
-        if (y > 0) try self.refreshSmartCell(project, layer, index - project.width);
-        if (y + 1 < project.height) try self.refreshSmartCell(project, layer, index + project.width);
+        const offsets = [_]?usize{
+            if (x > 0) index - 1 else null,
+            if (x + 1 < project.width) index + 1 else null,
+            if (y > 0) index - project.width else null,
+            if (y + 1 < project.height) index + project.width else null,
+            if (x > 0 and y > 0) index - project.width - 1 else null,
+            if (x + 1 < project.width and y > 0) index - project.width + 1 else null,
+            if (x > 0 and y + 1 < project.height) index + project.width - 1 else null,
+            if (x + 1 < project.width and y + 1 < project.height) index + project.width + 1 else null,
+        };
+        for (offsets) |maybe_neighbor| {
+            if (maybe_neighbor) |neighbor| try self.refreshSmartCell(project, layer, neighbor);
+        }
     }
 
     pub fn setSolid(self: *CommandBuilder, project: *Project, index: usize, solid: bool) !void {
@@ -1183,6 +1231,17 @@ pub const History = struct {
         self.undo_stack.appendAssumeCapacity(command);
     }
 
+    pub fn setTerrainRule(self: *History, project: *Project, rule: TerrainRule) !bool {
+        if (project.terrain_rule == rule) return false;
+        var changed = try cloneProject(project.*);
+        errdefer changed.deinit();
+        try changed.setTerrainRule(rule);
+        const command = try buildProjectSnapshotCommand(self.allocator, project.*, changed);
+        try self.commit(command);
+        replaceProjectOwned(project, changed);
+        return true;
+    }
+
     pub fn undo(self: *History, project: *Project) !bool {
         if (self.undo_stack.items.len == 0) return false;
         try self.redo_stack.ensureUnusedCapacity(self.allocator, 1);
@@ -1375,6 +1434,7 @@ fn buildResizedProject(project: Project, width: u16, height: u16, anchor: Resize
         project.tile_size,
         project.layerTilesetName(0),
     );
+    resized.terrain_rule = project.terrain_rule;
     errdefer resized.deinit();
     for (1..layer_count) |layer| {
         resized.setLayerTilesetName(layer, project.layerTilesetName(layer));
@@ -1411,8 +1471,7 @@ fn buildResizedProject(project: Project, width: u16, height: u16, anchor: Resize
         }
     }
     resized.spawn = mapResizedPoint(project.spawn, offset_x, offset_y, width, height);
-    resized.goal = mapResizedPoint(project.goal, offset_x, offset_y, width, height);
-    refreshResizedSmartTerrain(&resized);
+    refreshSmartTerrain(&resized);
     resized.revision = project.revision +% 1;
     return .{ .project = resized, .report = report };
 }
@@ -1461,20 +1520,35 @@ fn cellHasContent(project: Project, index: usize) bool {
     return false;
 }
 
-fn refreshResizedSmartTerrain(project: *Project) void {
+fn terrainMask(project: Project, layer: usize, index: usize, base: u16) u16 {
+    const smart = project.smartCells(layer);
+    const x = index % project.width;
+    const y = index / project.width;
+    var mask: u16 = 0;
+    if (y > 0 and smart[index - project.width] == base) mask |= 1;
+    if (project.terrain_rule == .cardinal) {
+        if (x + 1 < project.width and smart[index + 1] == base) mask |= 2;
+        if (y + 1 < project.height and smart[index + project.width] == base) mask |= 4;
+        if (x > 0 and smart[index - 1] == base) mask |= 8;
+        return mask;
+    }
+    if (x + 1 < project.width and y > 0 and smart[index - project.width + 1] == base) mask |= 2;
+    if (x + 1 < project.width and smart[index + 1] == base) mask |= 4;
+    if (x + 1 < project.width and y + 1 < project.height and smart[index + project.width + 1] == base) mask |= 8;
+    if (y + 1 < project.height and smart[index + project.width] == base) mask |= 16;
+    if (x > 0 and y + 1 < project.height and smart[index + project.width - 1] == base) mask |= 32;
+    if (x > 0 and smart[index - 1] == base) mask |= 64;
+    if (x > 0 and y > 0 and smart[index - project.width - 1] == base) mask |= 128;
+    return mask;
+}
+
+fn refreshSmartTerrain(project: *Project) void {
     for (0..layer_count) |layer| {
         const smart = project.smartCells(layer);
         const tiles = project.layerCells(layer);
         for (smart, 0..) |base, index| {
             if (base == empty_tile) continue;
-            const x = index % project.width;
-            const y = index / project.width;
-            var mask: u16 = 0;
-            if (y > 0 and smart[index - project.width] == base) mask |= 1;
-            if (x + 1 < project.width and smart[index + 1] == base) mask |= 2;
-            if (y + 1 < project.height and smart[index + project.width] == base) mask |= 4;
-            if (x > 0 and smart[index - 1] == base) mask |= 8;
-            tiles[index] = base + mask;
+            tiles[index] = base + terrainMask(project.*, layer, index, base);
         }
     }
 }
@@ -1599,12 +1673,12 @@ pub fn validate(project: Project) ValidationReport {
     return report;
 }
 
-/// Encodes the checksummed `.elisworld` v4 source representation.
+/// Encodes the checksummed `.elisworld` v5 source representation.
 pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     const cell_count = project.cellCount();
     var tileset_bytes: usize = 0;
     for (project.tileset_lens) |length| tileset_bytes += length;
-    const payload_len = tileset_bytes + entitySchemaEncodedSize(project) + project.tiles.len * 2 + project.smart.len * 2 +
+    const payload_len = tileset_bytes + 1 + entitySchemaEncodedSize(project) + project.tiles.len * 2 + project.smart.len * 2 +
         project.solid.len + project.entities.len + project.entity_fields.len * 2;
     const fixed_len = magic.len + 2 + 2 + 2 + 2 + layer_count + 4 + 4 + 8;
     const total_len = fixed_len + payload_len + checksum_len;
@@ -1622,6 +1696,7 @@ pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     putU32(bytes, &cursor, encodePoint(project, project.goal));
     putU64(bytes, &cursor, project.revision);
     for (0..layer_count) |layer| putBytes(bytes, &cursor, project.layerTilesetName(layer));
+    putU8(bytes, &cursor, @intFromEnum(project.terrain_rule));
     encodeEntitySchemas(bytes, &cursor, project);
     for (project.tiles) |tile| putU16(bytes, &cursor, tile);
     for (project.smart) |base| putU16(bytes, &cursor, base);
@@ -1633,7 +1708,7 @@ pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     return bytes;
 }
 
-/// Decodes v1-v4 projects transactionally; failures return no partial owner.
+/// Decodes v1-v5 projects transactionally; failures return no partial owner.
 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Project {
     if (bytes.len < magic.len + 29 or bytes.len > max_file_bytes) return error.InvalidWorldProject;
     if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.InvalidWorldProject;
@@ -1644,9 +1719,10 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Project {
     const version = try takeU16(bytes, &cursor);
     return switch (version) {
         legacy_schema_version => decodeV1(allocator, bytes, &cursor),
-        layered_schema_version => decodeLayered(allocator, bytes, &cursor, false, false),
-        entity_schema_version => decodeLayered(allocator, bytes, &cursor, true, false),
-        schema_version => decodeLayered(allocator, bytes, &cursor, true, true),
+        layered_schema_version => decodeLayered(allocator, bytes, &cursor, false, false, false),
+        entity_schema_version => decodeLayered(allocator, bytes, &cursor, true, false, false),
+        previous_schema_version => decodeLayered(allocator, bytes, &cursor, true, true, false),
+        schema_version => decodeLayered(allocator, bytes, &cursor, true, true, true),
         else => error.UnsupportedWorldVersion,
     };
 }
@@ -1657,6 +1733,7 @@ fn decodeLayered(
     cursor: *usize,
     has_entities: bool,
     has_entity_schema: bool,
+    has_terrain_rule: bool,
 ) !Project {
     const width = try takeU16(bytes, cursor);
     const height = try takeU16(bytes, cursor);
@@ -1679,8 +1756,17 @@ fn decodeLayered(
         0;
     var tileset_names: [layer_count][]const u8 = undefined;
     for (&tileset_names, tileset_lens) |*name, length| name.* = try takeBytes(bytes, cursor, length);
+    const terrain_rule: TerrainRule = if (has_terrain_rule) blk: {
+        const raw_rule = try takeU8(bytes, cursor);
+        break :blk switch (raw_rule) {
+            @intFromEnum(TerrainRule.cardinal) => .cardinal,
+            @intFromEnum(TerrainRule.blob) => .blob,
+            else => return error.InvalidWorldProject,
+        };
+    } else .cardinal;
     var project = try Project.init(allocator, width, height, tile_size, tileset_names[0]);
     errdefer project.deinit();
+    project.terrain_rule = terrain_rule;
     for (tileset_names, 0..) |name, layer| project.setLayerTilesetName(layer, name);
     if (has_entity_schema) {
         project.clearEntitySchemas();
@@ -1694,10 +1780,10 @@ fn decodeLayered(
     }
     for (project.smart, 0..) |*base, index| {
         base.* = try takeU16(bytes, cursor);
-        if (base.* > max_tile_id - 15 and base.* != empty_tile) return error.InvalidWorldProject;
+        if (base.* > terrainRuleBaseMax(project.terrain_rule) and base.* != empty_tile) return error.InvalidWorldProject;
         if (base.* != empty_tile) {
             const tile = project.tiles[index];
-            if (tile < base.* or tile > base.* + 15) return error.InvalidWorldProject;
+            if (tile < base.* or tile - base.* >= terrainRuleVariantCount(project.terrain_rule)) return error.InvalidWorldProject;
         }
     }
     for (project.solid) |*value| {
@@ -1875,7 +1961,7 @@ pub fn exportLua(allocator: std.mem.Allocator, project: Project) ![]u8 {
         project.height,
         project.tile_size,
     });
-    try writer.print("  lupi_metadata = {{ editor = \"Cria\", schema = {}", .{schema_version});
+    try writer.print("  lupi_metadata = {{ editor = \"Cria\", schema = {}, terrain_rule = \"{s}\"", .{ schema_version, terrainRuleName(project.terrain_rule) });
     if (project.spawn) |spawn| try writer.print(", spawn = {{ x = {}, y = {} }}", .{ spawn.x, spawn.y });
     if (project.goal) |goal| try writer.print(", goal = {{ x = {}, y = {} }}", .{ goal.x, goal.y });
     try writer.writeAll(", entity_schemas = {");
@@ -2373,6 +2459,27 @@ test "project encoding round trips and rejects corruption" {
     try std.testing.expectError(error.InvalidWorldChecksum, decode(std.testing.allocator, bytes));
 }
 
+test "version four projects default to cardinal terrain rules" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "maps/v4");
+    defer project.deinit();
+    const current = try encode(std.testing.allocator, project);
+    defer std.testing.allocator.free(current);
+    var tileset_bytes: usize = 0;
+    for (project.tileset_lens) |length| tileset_bytes += length;
+    const terrain_rule_offset = magic.len + 2 + 2 + 2 + 2 + layer_count + 4 + 4 + 8 + tileset_bytes;
+    const legacy = try std.testing.allocator.alloc(u8, current.len - 1);
+    defer std.testing.allocator.free(legacy);
+    @memcpy(legacy[0..terrain_rule_offset], current[0..terrain_rule_offset]);
+    @memcpy(legacy[terrain_rule_offset..], current[terrain_rule_offset + 1 ..]);
+    legacy[magic.len] = @truncate(previous_schema_version);
+    legacy[magic.len + 1] = @truncate(previous_schema_version >> 8);
+    var checksum_cursor = legacy.len - checksum_len;
+    putU32(legacy, &checksum_cursor, checksum(legacy[0 .. legacy.len - checksum_len]));
+    var decoded = try decode(std.testing.allocator, legacy);
+    defer decoded.deinit();
+    try std.testing.expectEqual(TerrainRule.cardinal, decoded.terrain_rule);
+}
+
 test "version one projects migrate to independent layers without invented smart terrain" {
     var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "maps/legacy");
     defer project.deinit();
@@ -2454,6 +2561,51 @@ test "smart terrain derives cardinal variants and undo restores semantics" {
     try std.testing.expectEqual(empty_tile, project.smartCells(1)[center]);
     try std.testing.expect(try history.redo(&project));
     try std.testing.expectEqual(@as(u16, 34), project.layerCells(1)[center]);
+}
+
+test "blob terrain persists, refreshes diagonals, and rejects unsafe rule changes" {
+    var project = try Project.initStarter(std.testing.allocator, 7, 7, 16, "tiles/world");
+    defer project.deinit();
+    var history = History.init(std.testing.allocator);
+    defer history.deinit();
+    try std.testing.expect(try history.setTerrainRule(&project, .blob));
+    const center = project.cellIndex(3, 3);
+    const north = project.cellIndex(3, 2);
+    const northeast = project.cellIndex(4, 2);
+    const east = project.cellIndex(4, 3);
+    var builder = CommandBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+    try builder.paintSmartTerrain(&project, 1, center, 256);
+    try builder.paintSmartTerrain(&project, 1, north, 256);
+    try builder.paintSmartTerrain(&project, 1, northeast, 256);
+    try builder.paintSmartTerrain(&project, 1, east, 256);
+    try std.testing.expectEqual(@as(u16, 263), project.layerCells(1)[center]);
+    try std.testing.expectEqual(@as(u16, 368), project.layerCells(1)[northeast]);
+
+    const bytes = try encode(std.testing.allocator, project);
+    defer std.testing.allocator.free(bytes);
+    var decoded = try decode(std.testing.allocator, bytes);
+    defer decoded.deinit();
+    try std.testing.expectEqual(TerrainRule.blob, decoded.terrain_rule);
+    const output = try exportLua(std.testing.allocator, decoded);
+    defer std.testing.allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "terrain_rule = \"blob\"") != null);
+
+    var unsafe_project = try Project.initStarter(std.testing.allocator, 7, 7, 16, "tiles/world");
+    defer unsafe_project.deinit();
+    var unsafe_history = History.init(std.testing.allocator);
+    defer unsafe_history.deinit();
+    var unsafe_builder = CommandBuilder.init(std.testing.allocator);
+    defer unsafe_builder.deinit();
+    const unsafe_index = unsafe_project.cellIndex(3, 3);
+    try unsafe_builder.paintSmartTerrain(&unsafe_project, 1, unsafe_index, 769);
+    try unsafe_history.commit((try unsafe_builder.finish()).?);
+    try std.testing.expectError(
+        error.InvalidTerrainRuleBase,
+        unsafe_history.setTerrainRule(&unsafe_project, .blob),
+    );
+    try std.testing.expectEqual(TerrainRule.cardinal, unsafe_project.terrain_rule);
+    try std.testing.expectEqual(@as(u16, 769), unsafe_project.layerCells(1)[unsafe_index]);
 }
 
 test "anchored resize preserves semantic cells and is reversible" {
@@ -2822,7 +2974,7 @@ test "project entity schemas persist typed fields and export metadata" {
     try std.testing.expectEqual(@as(u16, 1), decoded.entityFieldAt(index, 1));
     const output = try exportLua(std.testing.allocator, decoded);
     defer std.testing.allocator.free(output);
-    try std.testing.expect(std.mem.indexOf(u8, output, "schema = 4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "schema = 5") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "name = \"Guard\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "fields = {4,1,0,0}") != null);
 }
@@ -2942,7 +3094,7 @@ test "Lua export preserves strict layer order and editor metadata" {
     const output = try exportLua(std.testing.allocator, project);
     defer std.testing.allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "layers = { \"background\", \"terrain\", \"objects\", \"foreground\" }") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "lupi_metadata = { editor = \"Cria\", schema = 4") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "lupi_metadata = { editor = \"Cria\", schema = 5") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "entities = {{ kind = \"pickup\", x = 2, y = 1, value = 3, fields = {3,0,0,0} }") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "smart_terrain = {") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "solid = {[") != null);

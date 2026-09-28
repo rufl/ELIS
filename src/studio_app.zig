@@ -42,6 +42,8 @@ const Notice = enum {
     stamp_missing,
     stamp_transformed,
     entity_changed,
+    terrain_rule_changed,
+    terrain_rule_blocked,
     layer_locked,
     layer_lock_changed,
     layer_visibility,
@@ -50,7 +52,6 @@ const Notice = enum {
     resize_clipped,
     template_applied,
 };
-
 const LupiExportStatus = enum {
     safe,
     project_invalid,
@@ -680,6 +681,24 @@ const Studio = struct {
         self.selected_entity_field = 0;
         self.syncSelectedEntityValue();
         self.notice = .entity_changed;
+    }
+
+    fn cycleTerrainRule(self: *Studio) !void {
+        try self.finishPointerGesture();
+        const next_rule: model.TerrainRule = switch (self.project.terrain_rule) {
+            .cardinal => .blob,
+            .blob => .cardinal,
+        };
+        _ = self.history.setTerrainRule(&self.project, next_rule) catch |err| {
+            if (err == error.InvalidTerrainRuleBase) {
+                self.notice = .terrain_rule_blocked;
+                return;
+            }
+            return err;
+        };
+        self.selected_tile = @min(self.selected_tile, model.terrainRuleBaseMax(self.project.terrain_rule));
+        self.palette_page = self.selected_tile / 64;
+        self.notice = .terrain_rule_changed;
     }
 
     fn togglePresentation(self: *Studio) !void {
@@ -1505,6 +1524,8 @@ fn handleKey(
                         );
                     }
                 }
+            } else if (studio.tool == .smart) {
+                try studio.cycleTerrainRule();
             }
         },
         c.SDLK_v => {
@@ -1859,11 +1880,19 @@ fn handleChromeClick(
             }
             return;
         }
+        if (studio.tool == .smart and y >= 64 and y < layout.palette_y) {
+            try studio.cycleTerrainRule();
+            return;
+        }
         const local_x = x - right_x - 18;
         const local_y = y - layout.palette_y;
         if (local_x >= 0 and local_y >= 0 and local_x < 8 * layout.palette_cell and local_y < 8 * layout.palette_cell) {
             const slot: u16 = @intCast(@divTrunc(local_y, layout.palette_cell) * 8 + @divTrunc(local_x, layout.palette_cell));
-            studio.selected_tile = studio.palette_page * 64 + slot;
+            const selected = studio.palette_page * 64 + slot;
+            studio.selected_tile = if (studio.tool == .smart)
+                @min(selected, model.terrainRuleBaseMax(studio.project.terrain_rule))
+            else
+                selected;
             return;
         }
         const asset_y = layout.palette_y + layout.palette_cell * 8 + 44;
@@ -1889,9 +1918,12 @@ fn previousTile(studio: *Studio) void {
     studio.selected_tile -|= 1;
     studio.palette_page = studio.selected_tile / 64;
 }
-
 fn nextTile(studio: *Studio, available: u16) void {
-    const maximum = if (available > 0) @min(available - 1, model.max_tile_id) else model.max_tile_id;
+    const available_max = if (available > 0) @min(available - 1, model.max_tile_id) else model.max_tile_id;
+    const maximum = if (studio.tool == .smart)
+        @min(available_max, model.terrainRuleBaseMax(studio.project.terrain_rule))
+    else
+        available_max;
     studio.selected_tile = @min(studio.selected_tile + 1, maximum);
     studio.palette_page = studio.selected_tile / 64;
 }
@@ -2183,9 +2215,17 @@ fn render(
         drawText(renderer, right_x + 18, layout.palette_y + 122, 1, "STAMP PREVIEW FOLLOWS CURSOR", 125, 145, 173);
         break :blk layout.palette_y + 184;
     } else blk: {
-        drawText(renderer, right_x + 18, 70, 1, if (studio.tool == .smart) "SMART MATERIAL FAMILY" else "TILE PALETTE", 154, 184, 222);
+        const heading = if (studio.tool == .smart)
+            std.fmt.bufPrint(&buffer, "SMART FAMILY  {s}  CLICK OR Y", .{model.terrainRuleLabel(studio.project.terrain_rule)}) catch "SMART FAMILY"
+        else
+            "TILE PALETTE";
+        drawText(renderer, right_x + 18, 70, 1, heading, 154, 184, 222);
         const selected = if (studio.tool == .smart)
-            std.fmt.bufPrint(&buffer, "BASE {d}  USES {d}-{d}", .{ studio.selected_tile, studio.selected_tile, @min(studio.selected_tile + 15, model.max_tile_id) }) catch "SMART MATERIAL"
+            std.fmt.bufPrint(&buffer, "BASE {d}  USES {d}-{d}", .{
+                studio.selected_tile,
+                studio.selected_tile,
+                @min(@as(u32, studio.selected_tile) + model.terrainRuleVariantCount(studio.project.terrain_rule) - 1, @as(u32, model.max_tile_id)),
+            }) catch "SMART MATERIAL"
         else
             std.fmt.bufPrint(&buffer, "TILE {d}  PAGE {d}/16", .{ studio.selected_tile, studio.palette_page + 1 }) catch "TILE";
         drawText(renderer, right_x + 18, 86, 1, selected, 236, 199, 110);
@@ -2868,6 +2908,8 @@ fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32
         .stamp_missing => "SELECT A RECTANGLE BEFORE PAINTING A STAMP",
         .stamp_transformed => "STAMP TRANSFORMED - SOURCE MAP UNCHANGED",
         .entity_changed => "ENTITY TYPE OR FIELD VALUE CHANGED",
+        .terrain_rule_changed => "TERRAIN RULE CHANGED - SMART CELLS REBUILT",
+        .terrain_rule_blocked => "BLOB RULE NEEDS A BASE TILE AT OR BELOW 768",
         .layer_locked => "LAYER LOCKED - UNLOCK IT TO PAINT",
         .layer_lock_changed => "LAYER LOCK STATE CHANGED FOR THIS SESSION",
         .layer_visibility => "LAYER VISIBILITY CHANGED FOR THIS SESSION",
@@ -2881,6 +2923,7 @@ fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32
         notice == .lupi_export_blocked or
         notice == .invalid_preview or notice == .asset_incompatible or
         notice == .stamp_missing or notice == .layer_locked or
+        notice == .terrain_rule_blocked or
         notice == .resize_clipped;
     drawText(renderer, 18, height - 20, 1, label, if (problem) 246 else 154, if (problem) 112 else 184, 222);
     _ = width;
