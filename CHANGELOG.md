@@ -1,6 +1,9 @@
 # ELIS Changelog
 
 ## Unreleased
+- Polished Cria's editor presentation with semantic UI color tokens, a
+  framed map header, active tool/layer footer context, dirty-state save
+  emphasis, and hover/focus feedback with compact-layout label clipping.
 - Added persisted Cria smart-terrain rule layouts: the existing 16-tile
   cardinal family and an eight-neighbor 256-tile blob family. Rule changes
   rebuild rendered variants transactionally, reject out-of-range bases, refresh
