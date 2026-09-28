@@ -1,6 +1,11 @@
 # ELIS Changelog
 
 ## Unreleased
+- Added Cria's generated one-button playtest wrapper: PLAYTEST/F9 validates
+  the current project, copies exact tileset assets into a private temporary
+  package, runs the real simulator, and cleans the package after exit.
+  `--playtest-smoke` exercises the same path through one deterministic
+  screenshot in native and extracted-package smoke.
 - Hardened Cria authoring boundaries: F5 now commits an in-progress pointer
   gesture before export, the template panel exposes its pointer Apply button,
   and F6 preview renders every saved visual layer instead of inheriting an
