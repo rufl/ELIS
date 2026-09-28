@@ -16,6 +16,55 @@ const default_height: u16 = 16;
 const default_tile_size: u16 = 16;
 const bar_top: i32 = 58;
 const bar_bottom: i32 = 32;
+const UiColor = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+};
+
+const UiTheme = struct {
+    background: UiColor,
+    header: UiColor,
+    left_panel: UiColor,
+    right_panel: UiColor,
+    footer: UiColor,
+    canvas: UiColor,
+    canvas_border: UiColor,
+    accent: UiColor,
+    accent_border: UiColor,
+    button: UiColor,
+    button_hover: UiColor,
+    button_border: UiColor,
+    focus: UiColor,
+    text: UiColor,
+    text_bright: UiColor,
+    muted: UiColor,
+    success: UiColor,
+    warning: UiColor,
+    danger: UiColor,
+};
+
+const ui_theme = UiTheme{
+    .background = .{ .r = 15, .g = 23, .b = 42 },
+    .header = .{ .r = 23, .g = 20, .b = 48 },
+    .left_panel = .{ .r = 15, .g = 23, .b = 42 },
+    .right_panel = .{ .r = 23, .g = 25, .b = 57 },
+    .footer = .{ .r = 8, .g = 12, .b = 24 },
+    .canvas = .{ .r = 9, .g = 12, .b = 18 },
+    .canvas_border = .{ .r = 88, .g = 103, .b = 128 },
+    .accent = .{ .r = 124, .g = 58, .b = 237 },
+    .accent_border = .{ .r = 196, .g = 125, .b = 255 },
+    .button = .{ .r = 30, .g = 41, .b = 59 },
+    .button_hover = .{ .r = 45, .g = 61, .b = 84 },
+    .button_border = .{ .r = 71, .g = 85, .b = 105 },
+    .focus = .{ .r = 249, .g = 211, .b = 112 },
+    .text = .{ .r = 203, .g = 213, .b = 225 },
+    .text_bright = .{ .r = 255, .g = 255, .b = 255 },
+    .muted = .{ .r = 125, .g = 145, .b = 173 },
+    .success = .{ .r = 111, .g = 214, .b = 112 },
+    .warning = .{ .r = 251, .g = 191, .b = 36 },
+    .danger = .{ .r = 246, .g = 112, .b = 110 },
+};
 
 // -----------------------------------------------------------------------------
 // Interaction and layout types
@@ -1939,7 +1988,7 @@ fn render(
     width: i32,
     height: i32,
 ) !void {
-    setColor(renderer, 15, 23, 42, 255);
+    setColor(renderer, ui_theme.background.r, ui_theme.background.g, ui_theme.background.b, 255);
     _ = c.SDL_RenderClear(renderer);
     if (studio.mode == .preview) {
         drawPreview(renderer, studio, atlases, width, height);
@@ -1948,15 +1997,18 @@ fn render(
     }
     const layout = layoutFor(width, height, studio.presentation);
     const playful = studio.presentation == .playful;
-    fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = bar_top }, 23, 20, 48, 255);
-    fill(renderer, .{ .x = 0, .y = bar_top, .w = layout.left, .h = height - bar_top }, 15, 23, 42, 255);
-    fill(renderer, .{ .x = width - layout.right, .y = bar_top, .w = layout.right, .h = height - bar_top }, 23, 25, 57, 255);
-    fill(renderer, .{ .x = 0, .y = height - bar_bottom, .w = width, .h = bar_bottom }, 8, 12, 24, 255);
-    fill(renderer, .{ .x = 0, .y = bar_top - 4, .w = width, .h = 4 }, 124, 58, 237, 255);
-    drawText(renderer, 18, 13, 2, "CRIA", 255, 255, 255);
+    fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = bar_top }, ui_theme.header.r, ui_theme.header.g, ui_theme.header.b, 255);
+    fill(renderer, .{ .x = 0, .y = bar_top, .w = layout.left, .h = height - bar_top }, ui_theme.left_panel.r, ui_theme.left_panel.g, ui_theme.left_panel.b, 255);
+    fill(renderer, .{ .x = width - layout.right, .y = bar_top, .w = layout.right, .h = height - bar_top }, ui_theme.right_panel.r, ui_theme.right_panel.g, ui_theme.right_panel.b, 255);
+    fill(renderer, .{ .x = 0, .y = height - bar_bottom, .w = width, .h = bar_bottom }, ui_theme.footer.r, ui_theme.footer.g, ui_theme.footer.b, 255);
+    fill(renderer, .{ .x = 0, .y = bar_top - 4, .w = width, .h = 4 }, ui_theme.accent.r, ui_theme.accent.g, ui_theme.accent.b, 255);
+    drawText(renderer, 18, 13, 2, "CRIA", ui_theme.text_bright.r, ui_theme.text_bright.g, ui_theme.text_bright.b);
     drawText(renderer, 18, 38, 1, if (playful) "WORLD MAKER  /  PLATFORM READY" else "PRECISION BUILD MODE", 165, 180, 210);
-    drawText(renderer, 206, 24, 1, if (studio.dirty()) "DRAFT" else "READY", if (studio.dirty()) 251 else 110, if (studio.dirty()) 191 else 231, if (studio.dirty()) 36 else 183);
-    button(renderer, .{ .x = 270, .y = 12, .w = 100, .h = 34 }, "SAVE", false);
+    const status_color = if (studio.dirty()) ui_theme.warning else ui_theme.success;
+    fill(renderer, .{ .x = 202, .y = 18, .w = 56, .h = 22 }, status_color.r, status_color.g, status_color.b, 34);
+    outline(renderer, .{ .x = 202, .y = 18, .w = 56, .h = 22 }, status_color.r, status_color.g, status_color.b, 170);
+    drawText(renderer, 210, 24, 1, if (studio.dirty()) "DRAFT" else "READY", status_color.r, status_color.g, status_color.b);
+    button(renderer, .{ .x = 270, .y = 12, .w = 100, .h = 34 }, "SAVE", studio.dirty());
     button(renderer, .{ .x = 380, .y = 12, .w = 110, .h = 34 }, "EXPORT", false);
     button(renderer, .{ .x = 500, .y = 12, .w = 120, .h = 34 }, "PLAYTEST", false);
     button(renderer, .{ .x = 630, .y = 12, .w = 140, .h = 34 }, if (playful) "PRECISION MODE" else "GUIDED MODE", true);
@@ -2284,7 +2336,7 @@ fn render(
     for (report.issues[0..visible_issues], 0..) |issue, index| {
         drawText(renderer, right_x + 18, validation_y + 71 + @as(i32, @intCast(index)) * 17, 1, issueLabel(issue.kind), if (issue.severity == .@"error") 246 else 236, if (issue.severity == .@"error") 112 else 199, 110);
     }
-    drawNotice(renderer, studio.notice, width, height);
+    drawNotice(renderer, studio, width, height);
     if (studio.quit_dialog) drawQuitDialog(renderer, studio, width, height);
 }
 
@@ -2346,7 +2398,24 @@ fn drawPreview(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer
 }
 
 fn drawMap(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer_count]Atlas, canvas: Canvas, editor_overlay: bool) void {
-    fill(renderer, canvas.rect, 9, 12, 18, 255);
+    fill(renderer, canvas.rect, ui_theme.canvas.r, ui_theme.canvas.g, ui_theme.canvas.b, 255);
+    if (editor_overlay) {
+        outline(renderer, canvas.rect, ui_theme.canvas_border.r, ui_theme.canvas_border.g, ui_theme.canvas_border.b, 255);
+        fill(renderer, .{
+            .x = canvas.rect.x + 14,
+            .y = canvas.rect.y + 34,
+            .w = @max(canvas.rect.w - 28, 1),
+            .h = 1,
+        }, ui_theme.canvas_border.r, ui_theme.canvas_border.g, ui_theme.canvas_border.b, 170);
+        var label_buffer: [64]u8 = undefined;
+        const map_label = std.fmt.bufPrint(&label_buffer, "{d} X {d}  /  TILE {d}", .{
+            studio.project.width,
+            studio.project.height,
+            studio.project.tile_size,
+        }) catch "MAP";
+        drawText(renderer, canvas.rect.x + 18, canvas.rect.y + 12, 1, "MAP CANVAS", ui_theme.text.r, ui_theme.text.g, ui_theme.text.b);
+        drawText(renderer, canvas.rect.x + canvas.rect.w - 132, canvas.rect.y + 12, 1, map_label, ui_theme.muted.r, ui_theme.muted.g, ui_theme.muted.b);
+    }
     for (0..studio.project.height) |y| {
         for (0..studio.project.width) |x| {
             const index = studio.project.cellIndex(@intCast(x), @intCast(y));
@@ -2428,7 +2497,7 @@ fn drawMap(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer_cou
         };
         outline(renderer, cursor_rect, 255, 255, 255, 255);
     }
-    outline(renderer, canvas.content, 88, 103, 128, 255);
+    outline(renderer, canvas.content, ui_theme.canvas_border.r, ui_theme.canvas_border.g, ui_theme.canvas_border.b, 255);
 }
 
 fn drawEntityMarker(renderer: *c.SDL_Renderer, cell: Rect, kind: model.EntityKind) void {
@@ -2890,7 +2959,8 @@ fn guideLine(tool: Tool) []const u8 {
     };
 }
 
-fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32) void {
+fn drawNotice(renderer: *c.SDL_Renderer, studio: *const Studio, width: i32, height: i32) void {
+    const notice = studio.notice;
     const label: []const u8 = switch (notice) {
         .none => "LMB BUILD  RMB ERASE  WHEEL TILE",
         .saved => "PROJECT SAVED ATOMICALLY",
@@ -2925,8 +2995,35 @@ fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32
         notice == .stamp_missing or notice == .layer_locked or
         notice == .terrain_rule_blocked or
         notice == .resize_clipped;
-    drawText(renderer, 18, height - 20, 1, label, if (problem) 246 else 154, if (problem) 112 else 184, 222);
-    _ = width;
+    var context_buffer: [96]u8 = undefined;
+    const context = std.fmt.bufPrint(&context_buffer, "ACTIVE  {s}  /  {s}", .{
+        tool_labels[@intFromEnum(studio.tool)],
+        model.layer_names[studio.active_layer],
+    }) catch "ACTIVE";
+    const message_x: i32 = 224;
+    fill(renderer, .{ .x = message_x - 14, .y = height - 24, .w = 1, .h = 16 }, ui_theme.button_border.r, ui_theme.button_border.g, ui_theme.button_border.b, 220);
+    drawTextClipped(
+        renderer,
+        18,
+        height - 20,
+        1,
+        context,
+        @intCast(@max(@divTrunc(message_x - 28, font.advance), 1)),
+        ui_theme.text.r,
+        ui_theme.text.g,
+        ui_theme.text.b,
+    );
+    drawTextClipped(
+        renderer,
+        message_x,
+        height - 20,
+        1,
+        label,
+        @intCast(@max(@divTrunc(width - message_x - 18, font.advance), 1)),
+        if (problem) ui_theme.danger.r else ui_theme.muted.r,
+        if (problem) ui_theme.danger.g else ui_theme.muted.g,
+        if (problem) ui_theme.danger.b else ui_theme.muted.b,
+    );
 }
 
 fn lupiExportStatusLabel(status: LupiExportStatus) []const u8 {
@@ -2954,9 +3051,29 @@ fn issueLabel(kind: model.IssueKind) []const u8 {
 }
 
 fn button(renderer: *c.SDL_Renderer, rect: Rect, label: []const u8, selected: bool) void {
-    fill(renderer, rect, if (selected) 124 else 30, if (selected) 58 else 41, if (selected) 237 else 59, 255);
-    outline(renderer, rect, if (selected) 196 else 71, if (selected) 125 else 85, if (selected) 255 else 105, 255);
-    drawText(renderer, rect.x + 9, rect.y + @divTrunc(rect.h - 8, 2), 1, label, if (selected) 255 else 203, if (selected) 255 else 213, if (selected) 255 else 225);
+    var mouse_x: c_int = 0;
+    var mouse_y: c_int = 0;
+    _ = c.SDL_GetMouseState(&mouse_x, &mouse_y);
+    const hovered = c.SDL_GetMouseFocus() != null and contains(rect, @intCast(mouse_x), @intCast(mouse_y));
+    const background = if (selected) ui_theme.accent else if (hovered) ui_theme.button_hover else ui_theme.button;
+    const border = if (selected) ui_theme.accent_border else if (hovered) ui_theme.focus else ui_theme.button_border;
+    const text_color = if (selected) ui_theme.text_bright else ui_theme.text;
+    fill(renderer, rect, background.r, background.g, background.b, 255);
+    outline(renderer, rect, border.r, border.g, border.b, 255);
+    if (hovered and !selected and rect.w > 4 and rect.h > 4) {
+        outline(renderer, .{ .x = rect.x + 2, .y = rect.y + 2, .w = rect.w - 4, .h = rect.h - 4 }, ui_theme.focus.r, ui_theme.focus.g, ui_theme.focus.b, 150);
+    }
+    drawTextClipped(
+        renderer,
+        rect.x + 9,
+        rect.y + @divTrunc(rect.h - 8, 2),
+        1,
+        label,
+        @intCast(@max(@divTrunc(rect.w - 18, font.advance), 1)),
+        text_color.r,
+        text_color.g,
+        text_color.b,
+    );
 }
 
 fn drawText(renderer: *c.SDL_Renderer, x: i32, y: i32, scale: i32, text: []const u8, r: u8, g: u8, b: u8) void {
