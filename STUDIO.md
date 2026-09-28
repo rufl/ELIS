@@ -168,8 +168,9 @@ proof.
 | Ctrl+S | Save `.elisworld` project |
 | Escape / window close | Close immediately when clean; otherwise choose Save and Exit or Discard Changes, with Escape returning to editing |
 | F5 | Finish the active pointer gesture, then export the Lua map |
-| F6 / F7 | Enter preview / return to edit |
+| F6 / F7 | Enter editor preview / return to edit |
 | F8 | Open or close the project-template panel |
+| F9 | Generate a temporary runtime wrapper and open the current world in the simulator |
 | Up/Down, Enter in template panel | Select and apply a template |
 | Template panel Apply button | Apply the selected template with the pointer |
 | Gamepad D-pad | Move cursor; adjust Resize dimensions; choose a Template |
@@ -202,6 +203,11 @@ For automation, `--save-export --smoke` writes the project and Lua map, renders
 a bounded native session, then exits. `--capture=path.bmp` retains the rendered
 editor frame.
 
+`--playtest-smoke` generates the same temporary runtime wrapper, copies the
+selected tilesets, runs one real simulator screenshot, verifies the frame, and
+cleans the wrapper directory before returning. The toolbar PLAYTEST button and
+F9 use the interactive form and return to Cria after the simulator closes.
+
 `--game-root` loads `lupi_manifest.txt`, `palette.lua`, and the selected raw
 bitmap assets. Palette values use Lupi's `0RRRRRGGGGGBBBBB` RGB555 contract.
 Defined entries are shown from the source palette; missing or unparsable entries
@@ -226,8 +232,7 @@ window-size flags support deterministic UI proof.
 
 ## Next mature slice
 
-The next useful additions are configurable Wang/blob terrain rule layouts
-beyond the deterministic cardinal family and an interactive
-generated test-game wrapper. The automated smoke already proves the
-export through the real simulator, but one-button interactive playtest and
-physical-controller approval remain separate work.
+The next useful addition is configurable Wang/blob terrain rule layouts beyond
+the deterministic cardinal family. Physical-controller approval remains
+separate evidence from the automated keyboard/pointer and generated-playtest
+proof.

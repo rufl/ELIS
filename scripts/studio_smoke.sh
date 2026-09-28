@@ -30,6 +30,7 @@ env SDL_VIDEODRIVER=dummy \
   --project="$work/starter.elisworld" \
   --export="$work/starter.lua" \
   --save-export \
+  --playtest-smoke \
   --capture="$work/studio.bmp" \
   --smoke
 

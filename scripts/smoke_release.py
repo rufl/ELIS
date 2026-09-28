@@ -102,7 +102,7 @@ def main():
         exported = root / "map.lua"
         capture = root / "studio.bmp"
         run([str(studio), f"--game-root={game}", f"--project={project}", f"--export={exported}",
-             "--template=platformer", "--save-export", "--smoke", f"--capture={capture}"], package, env)
+             "--template=platformer", "--save-export", "--playtest-smoke", "--smoke", f"--capture={capture}"], package, env)
         check(project.is_file() and exported.is_file(), "Cria did not save and export")
         check(capture.read_bytes().startswith(b"BM"), "Cria produced an invalid capture")
         original = project.read_bytes()
@@ -121,7 +121,7 @@ def main():
         run([str(runtime), "--screenshot", str(game), "1", str(exported_frame)], package, env)
         check(exported_frame.read_bytes().startswith(b"P6\n480 270\n255\n"),
               "Exported map produced an invalid screenshot")
-        print("Extracted package smoke, runtime screenshot, Cria save/export/reload, and exported map rendering: pass")
+        print("Extracted package smoke, runtime screenshot, Cria generated playtest, save/export/reload, and exported map rendering: pass")
 
 
 if __name__ == "__main__":

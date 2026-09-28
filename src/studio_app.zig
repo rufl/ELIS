@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const c = @import("native.zig").c;
+const native = @import("native.zig");
 const font = @import("font.zig");
 const model = @import("studio/model.zig");
 const assets = @import("studio/assets.zig");
@@ -28,6 +29,8 @@ const Notice = enum {
     none,
     saved,
     exported,
+    playtest_finished,
+    playtest_failed,
     asset_selected,
     asset_incompatible,
     save_failed,
@@ -752,6 +755,152 @@ const Studio = struct {
         };
         self.notice = .exported;
     }
+    fn launchPlaytest(
+        self: *Studio,
+        io: std.Io,
+        runtime_path: []const u8,
+        workspace: *const WorkspaceAssets,
+        smoke: bool,
+    ) void {
+        self.finishPointerGesture() catch {
+            self.notice = .edit_failed;
+            return;
+        };
+        if (runtime_path.len == 0) {
+            self.notice = .playtest_failed;
+            return;
+        }
+        if (lupiExportStatus(self.project, workspace) != .safe or
+            !self.workspaceAssetsStillValid(workspace))
+        {
+            self.notice = .lupi_export_blocked;
+            return;
+        }
+        const source_root = self.game_root orelse {
+            self.notice = .lupi_export_blocked;
+            return;
+        };
+        const map = model.exportLua(self.allocator, self.project) catch {
+            self.notice = .playtest_failed;
+            return;
+        };
+        defer self.allocator.free(map);
+
+        var root_buffer: [2048]u8 = undefined;
+        const root = native.temporaryDirectory(&root_buffer, "cria-playtest") orelse {
+            self.notice = .playtest_failed;
+            return;
+        };
+        defer removePlaytestTree(root);
+
+        const palette = buildPlaytestPalette(self.allocator, workspace.palette) catch {
+            self.notice = .playtest_failed;
+            return;
+        };
+        defer self.allocator.free(palette);
+
+        var manifest: std.Io.Writer.Allocating = .init(self.allocator);
+        defer manifest.deinit();
+        var entry_id: u32 = 1;
+        var copied_assets = [_]bool{false} ** assets.max_assets;
+        for (0..model.layer_count) |layer| {
+            const asset_index = workspace.catalog.find(self.project.layerTilesetName(layer)) orelse {
+                self.notice = .lupi_export_blocked;
+                return;
+            };
+            if (copied_assets[asset_index]) continue;
+            const asset = workspace.catalog.items[asset_index];
+            const source = playtestReadFile(
+                io,
+                self.allocator,
+                source_root,
+                asset.name(),
+                assets.lupi_tileset_pixels_max + 1,
+            ) catch {
+                self.notice = .playtest_failed;
+                return;
+            };
+            defer self.allocator.free(source);
+            playtestWriteFile(io, root, asset.name(), source) catch {
+                self.notice = .playtest_failed;
+                return;
+            };
+            manifest.writer.print(
+                "{d} {d} {s} {{\"type\":\"bitmap\",\"width\":{},\"height\":{},\"tiles\":{}}}\n",
+                .{ entry_id, source.len, asset.name(), asset.width, asset.height, asset.tiles },
+            ) catch {
+                self.notice = .playtest_failed;
+                return;
+            };
+            entry_id += 1;
+            copied_assets[asset_index] = true;
+        }
+
+        const game_source =
+            \\require("palette")
+            \\for index, value in ipairs(Palette) do ui.palset(index - 1, value) end
+            \\local map = require("map")
+            \\function update()
+            \\  ui.cls(0)
+            \\  for _, layer in ipairs(map.layers) do ui.map(map[layer], 0, 0) end
+            \\end
+        ;
+        playtestWriteFile(io, root, "palette.lua", palette) catch {
+            self.notice = .playtest_failed;
+            return;
+        };
+        manifest.writer.print("{d} {d} palette.lua {{\"type\":\"lua_code\"}}\n", .{ entry_id, palette.len }) catch {
+            self.notice = .playtest_failed;
+            return;
+        };
+        entry_id += 1;
+        playtestWriteFile(io, root, "map.lua", map) catch {
+            self.notice = .playtest_failed;
+            return;
+        };
+        manifest.writer.print("{d} {d} map.lua {{\"type\":\"lua_code\"}}\n", .{ entry_id, map.len }) catch {
+            self.notice = .playtest_failed;
+            return;
+        };
+        entry_id += 1;
+        playtestWriteFile(io, root, "game.lua", game_source) catch {
+            self.notice = .playtest_failed;
+            return;
+        };
+        manifest.writer.print("{d} {d} game.lua {{\"type\":\"lua_code\"}}\n", .{ entry_id, game_source.len }) catch {
+            self.notice = .playtest_failed;
+            return;
+        };
+        playtestWriteFile(io, root, "lupi_manifest.txt", manifest.written()) catch {
+            self.notice = .playtest_failed;
+            return;
+        };
+
+        if (smoke) {
+            var screenshot_buffer: [2048]u8 = undefined;
+            const screenshot = std.fmt.bufPrint(
+                &screenshot_buffer,
+                "{s}/playtest.ppm",
+                .{root},
+            ) catch {
+                self.notice = .playtest_failed;
+                return;
+            };
+            const argv = [_][]const u8{ runtime_path, "--screenshot", root, "1", screenshot };
+            if (!runPlaytestRuntime(self.allocator, io, root, &argv) or !fileExists(screenshot)) {
+                self.notice = .playtest_failed;
+                return;
+            }
+            std.debug.print("Cria generated playtest: pass\n", .{});
+        } else {
+            const argv = [_][]const u8{ runtime_path, root };
+            if (!runPlaytestRuntime(self.allocator, io, root, &argv)) {
+                self.notice = .playtest_failed;
+                return;
+            }
+        }
+        self.notice = .playtest_finished;
+    }
 
     fn togglePreview(self: *Studio) !void {
         try self.finishPointerGesture();
@@ -809,6 +958,7 @@ pub fn main(init: std.process.Init) !void {
     var tile_size = default_tile_size;
     var smoke_frames: ?u32 = null;
     var capture_path: ?[]const u8 = null;
+    var playtest_smoke = false;
     var save_export_on_start = false;
     var presentation: Presentation = .playful;
     var project_template: ?model.ProjectTemplate = null;
@@ -841,6 +991,9 @@ pub fn main(init: std.process.Init) !void {
             smoke_frames = 12;
         } else if (std.mem.eql(u8, argument, "--save-export")) {
             save_export_on_start = true;
+        } else if (std.mem.eql(u8, argument, "--playtest-smoke")) {
+            playtest_smoke = true;
+            save_export_on_start = true;
         } else if (std.mem.startsWith(u8, argument, "--capture=")) {
             capture_path = argument["--capture=".len..];
         } else if (std.mem.eql(u8, argument, "--presentation=studio")) {
@@ -863,7 +1016,7 @@ pub fn main(init: std.process.Init) !void {
                     "[--tileset-file=raw-bitmap] [--game-root=game] [--width=N] [--height=N] [--tile-size=N] " ++
                     "[--presentation=playful|studio] [--template=blank|platformer|arena|puzzle] " ++
                     "[--reduce-motion] [--window-width=N] [--window-height=N] " ++
-                    "[--save-export] [--smoke] [--capture=file.bmp]\n",
+                    "[--save-export] [--playtest-smoke] [--smoke] [--capture=file.bmp]\n",
                 .{},
             );
             return;
@@ -871,6 +1024,15 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const allocator = init.gpa;
+    var runtime_dir_buffer: [2048]u8 = undefined;
+    var runtime_path_buffer: [2048]u8 = undefined;
+    const runtime_path = blk: {
+        const directory_length = std.process.executableDirPath(init.io, &runtime_dir_buffer) catch break :blk "";
+        break :blk std.fmt.bufPrint(&runtime_path_buffer, "{s}/{s}", .{
+            runtime_dir_buffer[0..directory_length],
+            if (native.windows) "elis.exe" else "elis",
+        }) catch "";
+    };
     if (self_test_atlas_identity) return verifyAtlasIdentity(allocator);
     if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_GAMECONTROLLER | c.SDL_INIT_JOYSTICK) != 0) return error.SdlInit;
     defer c.SDL_Quit();
@@ -913,6 +1075,15 @@ pub fn main(init: std.process.Init) !void {
         studio.exportMap(&workspace_assets);
         if (studio.notice == .export_failed or studio.notice == .lupi_export_blocked) {
             return error.StudioWriteFailed;
+        }
+    }
+    if (playtest_smoke) {
+        studio.launchPlaytest(init.io, runtime_path, &workspace_assets, true);
+        if (studio.notice == .playtest_failed or
+            studio.notice == .lupi_export_blocked or
+            studio.notice == .edit_failed)
+        {
+            return error.StudioPlaytestFailed;
         }
     }
 
@@ -997,6 +1168,8 @@ pub fn main(init: std.process.Init) !void {
                         &atlases,
                         game_root,
                         &workspace_assets,
+                        init.io,
+                        runtime_path,
                         event.key.keysym.sym,
                         event.key.keysym.mod,
                         &running,
@@ -1050,6 +1223,8 @@ pub fn main(init: std.process.Init) !void {
                             &atlases,
                             game_root,
                             &workspace_assets,
+                            init.io,
+                            runtime_path,
                             event.button.x,
                             event.button.y,
                             window_w,
@@ -1176,6 +1351,8 @@ fn handleKey(
     atlases: *[model.layer_count]Atlas,
     game_root: ?[]const u8,
     workspace: *const WorkspaceAssets,
+    io: std.Io,
+    runtime_path: []const u8,
     key: c.SDL_Keycode,
     modifiers: c.SDL_Keymod,
     running: *bool,
@@ -1341,6 +1518,7 @@ fn handleKey(
         c.SDLK_F6 => try studio.togglePreview(),
         c.SDLK_F7 => studio.mode = .edit,
         c.SDLK_F8 => studio.template_panel = !studio.template_panel,
+        c.SDLK_F9 => studio.launchPlaytest(io, runtime_path, workspace, false),
         c.SDLK_LEFT => studio.moveCursor(-1, 0),
         c.SDLK_RIGHT => studio.moveCursor(1, 0),
         c.SDLK_UP => studio.moveCursor(0, -1),
@@ -1519,6 +1697,8 @@ fn handleChromeClick(
     atlases: *[model.layer_count]Atlas,
     game_root: ?[]const u8,
     workspace: *const WorkspaceAssets,
+    io: std.Io,
+    runtime_path: []const u8,
     x: i32,
     y: i32,
     window_w: i32,
@@ -1528,7 +1708,7 @@ fn handleChromeClick(
     if (y < bar_top) {
         if (x >= 270 and x < 370) studio.save();
         if (x >= 380 and x < 490) studio.exportMap(workspace);
-        if (x >= 500 and x < 620) try studio.togglePreview();
+        if (x >= 500 and x < 620) studio.launchPlaytest(io, runtime_path, workspace, false);
         if (x >= 630 and x < 770) try studio.togglePresentation();
         if (x >= 780 and x < 920) studio.template_panel = !studio.template_panel;
         return;
@@ -2675,6 +2855,8 @@ fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32
         .none => "LMB BUILD  RMB ERASE  WHEEL TILE",
         .saved => "PROJECT SAVED ATOMICALLY",
         .exported => "LUA MAP EXPORTED",
+        .playtest_finished => "PLAYTEST CLOSED - RETURNED TO CRIA",
+        .playtest_failed => "PLAYTEST FAILED - CHECK RUNTIME OUTPUT",
         .asset_selected => "LAYER TILESET CHANGED",
         .asset_incompatible => "ASSET SIZE DOES NOT MATCH THIS MAP GRID",
         .save_failed => "SAVE FAILED - SOURCE RETAINED",
@@ -2695,7 +2877,8 @@ fn drawNotice(renderer: *c.SDL_Renderer, notice: Notice, width: i32, height: i32
         .template_applied => "PROJECT TEMPLATE APPLIED - CTRL-Z RESTORES PRIOR WORK",
     };
     const problem = notice == .save_failed or notice == .edit_failed or
-        notice == .export_failed or notice == .lupi_export_blocked or
+        notice == .export_failed or notice == .playtest_failed or
+        notice == .lupi_export_blocked or
         notice == .invalid_preview or notice == .asset_incompatible or
         notice == .stamp_missing or notice == .layer_locked or
         notice == .resize_clipped;
@@ -2812,6 +2995,91 @@ fn openFirstController() ?*c.SDL_GameController {
     var index: c_int = 0;
     while (index < count) : (index += 1) if (c.SDL_IsGameController(index) != 0) return c.SDL_GameControllerOpen(index);
     return null;
+}
+
+fn buildPlaytestPalette(allocator: std.mem.Allocator, palette: assets.Palette) ![]u8 {
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    errdefer output.deinit();
+    try output.writer.writeAll("Palette = {\n");
+    for (palette.colors, 0..) |color, index| {
+        const red: u16 = @intCast(color[0] >> 3);
+        const green: u16 = @intCast(color[1] >> 3);
+        const blue: u16 = @intCast(color[2] >> 3);
+        const packed_color = (red << 10) | (green << 5) | blue;
+        try output.writer.print("  [{d}] = {d},\n", .{ index + 1, packed_color });
+    }
+    try output.writer.writeAll("}\n");
+    return output.toOwnedSlice();
+}
+
+fn playtestReadFile(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    root: []const u8,
+    relative: []const u8,
+    limit: usize,
+) ![]u8 {
+    var path_buffer: [2048]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}", .{ root, relative });
+    return std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(limit));
+}
+
+fn playtestWriteFile(io: std.Io, root: []const u8, relative: []const u8, data: []const u8) !void {
+    var path_buffer: [2048]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buffer, "{s}/{s}", .{ root, relative });
+    const cwd = std.Io.Dir.cwd();
+    if (std.fs.path.dirname(path)) |parent| try cwd.createDirPath(io, parent);
+    try cwd.writeFile(io, .{ .sub_path = path, .data = data });
+}
+
+fn runPlaytestRuntime(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    root: []const u8,
+    argv: []const []const u8,
+) bool {
+    const result = std.process.run(allocator, io, .{
+        .argv = argv,
+        .cwd = .{ .path = root },
+        .stdout_limit = .limited(64 * 1024),
+        .stderr_limit = .limited(64 * 1024),
+    }) catch |err| {
+        std.debug.print("Cria playtest failed to launch: {t}\n", .{err});
+        return false;
+    };
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    const success = switch (result.term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+    if (!success) {
+        std.debug.print("Cria playtest runtime failed: {t}\n{s}", .{ result.term, result.stderr });
+    }
+    return success;
+}
+
+fn removePlaytestTree(path: []const u8) void {
+    var path_z_buffer: [2048]u8 = undefined;
+    const path_z = std.fmt.bufPrintZ(&path_z_buffer, "{s}", .{path}) catch return;
+    if (native.entryKind(path_z.ptr) != .directory) {
+        _ = native.remove(path_z.ptr);
+        return;
+    }
+    const directory = c.opendir(path_z.ptr) orelse return;
+    while (c.readdir(directory)) |entry| {
+        const name = std.mem.sliceTo(entry.*.d_name[0..], 0);
+        if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
+        var child_buffer: [2048]u8 = undefined;
+        const child = std.fmt.bufPrintZ(&child_buffer, "{s}/{s}", .{ path, name }) catch continue;
+        if (native.entryKind(child.ptr) == .directory) {
+            removePlaytestTree(child);
+        } else {
+            _ = native.remove(child.ptr);
+        }
+    }
+    _ = c.closedir(directory);
+    _ = c.rmdir(path_z.ptr);
 }
 
 fn fileExists(path: []const u8) bool {
