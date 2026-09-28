@@ -20,3 +20,8 @@ results=
   rc.3 release archives and manifests: SHA256SUMS pass
 scope=release-package and deployment-smoke contract only
 hardware_status=not applicable
+deployment_release=v0.1.0-rc.3
+deployment_preview=local immutable receiver previews passed for ddjarin/windows-x86_64 and chopper/linux-x86_64
+deployment_ddjarin=blocked: authenticated native deployment timed out; receiver active state not proven
+deployment_chopper=blocked: DeploymentSmokeFailed; active deployment was not changed
+deployment_unblock=receiver reachability/validation must pass, then endpoint status must report version, build_id, SHA-256, size, and active=true
