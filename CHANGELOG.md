@@ -1,6 +1,10 @@
 # ELIS Changelog
 
 ## Unreleased
+- Hardened Cria authoring boundaries: F5 now commits an in-progress pointer
+  gesture before export, the template panel exposes its pointer Apply button,
+  and F6 preview renders every saved visual layer instead of inheriting an
+  edit-only visibility mask.
 
 - Renamed the native authoring experience to Cria, refreshed the dark violet
   world-builder interface, added the `RPG ROOM` starter presentation, and

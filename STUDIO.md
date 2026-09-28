@@ -59,7 +59,8 @@ editor map preview, not a claim that game-specific mechanics are running.
   project after traversal. A gesture that returns every target to its original
   value emits no command and restores its pre-gesture dirty revision. Session
   controls can hide a visual layer or lock it
-  against painting without changing saved/exported data.
+  against painting without changing saved/exported data. Hidden layers are an
+  edit-session aid only: F6 preview renders the complete saved layer stack.
 - The source project retains tile IDs from 0 through 1023; `65535` represents
   an empty cell and sparse Lua export omits empty entries.
 - Line and rectangle gestures use bounded integer rasterization and commit as
@@ -72,8 +73,8 @@ editor map preview, not a claim that game-specific mechanics are running.
   vertical flip, and clockwise rotation rearrange stamp cells without mutating
   source tiles or pretending to mirror directional tile artwork.
 - Smart terrain stores the authored material base separately from rendered
-  tiles. Each material occupies 16 consecutive tiles. Cardinal neighbors form
-  a deterministic mask: north `1`, east `2`, south `4`, west `8`; the rendered
+  tiles. Each material occupies 16 consecutive tiles. Cardinal neighbors form a
+  deterministic mask: north `1`, east `2`, south `4`, west `8`; the rendered
   tile is `base + mask`. Painting or erasing refreshes the cell and four direct
   neighbors inside the same undoable stroke.
 - Map resize/rebase supports nine content anchors from top-left through
@@ -166,10 +167,11 @@ proof.
 | Shift+`-` / Shift+`+` | Decrease / increase resize height |
 | Ctrl+S | Save `.elisworld` project |
 | Escape / window close | Close immediately when clean; otherwise choose Save and Exit or Discard Changes, with Escape returning to editing |
-| F5 | Export Lua map |
+| F5 | Finish the active pointer gesture, then export the Lua map |
 | F6 / F7 | Enter preview / return to edit |
 | F8 | Open or close the project-template panel |
 | Up/Down, Enter in template panel | Select and apply a template |
+| Template panel Apply button | Apply the selected template with the pointer |
 | Gamepad D-pad | Move cursor; adjust Resize dimensions; choose a Template |
 | Gamepad A / B / X / Y | Apply/shape, erase/cancel, pick/anchor, next tool; A applies and B closes Templates |
 | Gamepad shoulders | Previous/next tile; flip stamp; or cycle entity type, depending on tool |

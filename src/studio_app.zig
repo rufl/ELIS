@@ -736,6 +736,10 @@ const Studio = struct {
     }
 
     fn exportMap(self: *Studio, workspace: *const WorkspaceAssets) void {
+        self.finishPointerGesture() catch {
+            self.notice = .edit_failed;
+            return;
+        };
         if (lupiExportStatus(self.project, workspace) != .safe or
             !self.workspaceAssetsStillValid(workspace))
         {
@@ -1787,6 +1791,7 @@ fn render(
             184,
             222,
         );
+        button(renderer, .{ .x = right_x + 14, .y = 284, .w = layout.right - 28, .h = 32 }, "APPLY TEMPLATE", true);
         drawText(renderer, right_x + 18, 334, 1, "UNDO RESTORES YOUR CURRENT WORLD", 130, 150, 180);
         drawText(renderer, right_x + 18, 352, 1, "UP/DOWN SELECT  ENTER APPLY", 130, 150, 180);
         break :blk 402;
@@ -2132,7 +2137,7 @@ fn drawMap(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer_cou
                 .h = canvas.cell,
             };
             for (0..model.layer_count) |layer| {
-                if (!studio.layer_visible[layer]) continue;
+                if (editor_overlay and !studio.layer_visible[layer]) continue;
                 const tile = studio.project.layerCells(layer)[index];
                 if (tile != model.empty_tile) drawTile(renderer, atlases[layer], tile, rect, @intCast(layer));
             }
