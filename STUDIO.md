@@ -242,7 +242,8 @@ window-size flags support deterministic UI proof.
 
 ## Next mature slice
 
-The next useful addition is configurable Wang/blob terrain rule layouts beyond
-the deterministic cardinal family. Physical-controller approval remains
-separate evidence from the automated keyboard/pointer and generated-playtest
-proof.
+The configurable cardinal/blob terrain-rule slice is complete in `.elisworld`
+v5, with focused model coverage and native/package smoke proof. Further Cria
+authoring additions require a new bounded acceptance and proof item. Physical
+controller approval remains separate evidence from automated
+keyboard/pointer and generated-playtest proof.
