@@ -15,10 +15,12 @@ import json
 import math
 from pathlib import Path
 import os
+import re
 import tempfile
 from typing import Any
 
 SCHEMA = "elis.mr-rescue-hardware/v1"
+GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 FRAME_TIME_LIMIT_MS = 1000 / 60
 LUA_MEMORY_LIMIT_BYTES = 4 * 1024 * 1024
 CARTRIDGE_LIMIT_BYTES = 16 * 1024 * 1024
@@ -48,6 +50,14 @@ def _text(value: Any, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ProofError(f"{name} must be a non-empty string")
     return value.strip()
+
+
+def _commit(value: Any, name: str) -> str:
+    commit = _text(value, name)
+    if not GIT_COMMIT.fullmatch(commit):
+        raise ProofError(f"{name} must be a 40-character lowercase Git SHA-1")
+    return commit
+
 
 
 def _integer(value: Any, name: str, minimum: int = 0) -> int:
@@ -130,7 +140,7 @@ def validate_record(record: dict[str, Any], cartridge_path: Path) -> dict[str, A
     firmware = _text(board.get("firmware"), "board.firmware")
     build_config = _text(board.get("build_config"), "board.build_config")
     measurement_tool = _text(board.get("measurement_tool"), "board.measurement_tool")
-    source_commit = _text(record.get("source_commit"), "source_commit")
+    source_commit = _commit(record.get("source_commit"), "source_commit")
     started_at = _timestamp(record.get("started_at"), "started_at")
     ended_at = _timestamp(record.get("ended_at"), "ended_at")
     started_value = datetime.fromisoformat(started_at.replace("Z", "+00:00"))

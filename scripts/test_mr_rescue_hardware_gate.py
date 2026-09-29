@@ -39,7 +39,7 @@ class HardwareGateTests(unittest.TestCase):
                 "build_config": "release-lupi-n16r8",
                 "measurement_tool": "board-probe-1",
             },
-            "source_commit": "source-commit",
+            "source_commit": "0123456789abcdef0123456789abcdef01234567",
             "started_at": "2026-09-27T12:00:00Z",
             "ended_at": "2026-09-27T12:31:00Z",
             "cartridge": {
@@ -105,6 +105,12 @@ class HardwareGateTests(unittest.TestCase):
         record = copy.deepcopy(self.record)
         record["cartridge"]["sha256"] = "0" * 64
         with self.assertRaisesRegex(ProofError, "hash mismatch"):
+            validate_record(record, self.cartridge)
+
+    def test_source_commit_requires_full_lowercase_sha1(self):
+        record = copy.deepcopy(self.record)
+        record["source_commit"] = "source-commit"
+        with self.assertRaisesRegex(ProofError, "source_commit must be"):
             validate_record(record, self.cartridge)
 
     def test_exact_hardware_limits_are_accepted(self):
