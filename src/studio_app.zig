@@ -244,6 +244,7 @@ const Studio = struct {
     asset_page: u8 = 0,
     reduce_motion: bool = false,
     guide_pulse: u16 = 0,
+    shortcut_overlay: bool = false,
 
     fn deinit(self: *Studio) void {
         self.stroke.deinit();
@@ -1076,6 +1077,35 @@ fn verifyResponsiveLayout(allocator: std.mem.Allocator) !void {
     }
     std.debug.print("Cria responsive layout: pass\n", .{});
 }
+fn shortcutOverlayRect(width: i32, height: i32) Rect {
+    const panel_width = @min(width - 40, 660);
+    const panel_height = @min(height - 40, 360);
+    return .{
+        .x = @divTrunc(width - panel_width, 2),
+        .y = @divTrunc(height - panel_height, 2),
+        .w = panel_width,
+        .h = panel_height,
+    };
+}
+
+fn verifyShortcutOverlayGeometry() !void {
+    const viewports = [_]struct { width: i32, height: i32 }{
+        .{ .width = 960, .height = 600 },
+        .{ .width = 1280, .height = 760 },
+    };
+    for (viewports) |viewport| {
+        const panel = shortcutOverlayRect(viewport.width, viewport.height);
+        const content_bottom = panel.y + 116 + 9 * 22 + font.height;
+        if (panel.x < 0 or panel.y < 0 or
+            panel.x + panel.w > viewport.width or
+            panel.y + panel.h > viewport.height or
+            content_bottom > panel.y + panel.h - 24)
+        {
+            return error.ShortcutOverlayGeometryMismatch;
+        }
+    }
+    std.debug.print("Cria shortcut overlay geometry: pass\n", .{});
+}
 
 pub fn main(init: std.process.Init) !void {
     c.SDL_SetMainReady();
@@ -1095,9 +1125,11 @@ pub fn main(init: std.process.Init) !void {
     var presentation: Presentation = .playful;
     var project_template: ?model.ProjectTemplate = null;
     var reduce_motion = false;
+    var show_shortcuts = false;
     var self_test_atlas_identity = false;
     var self_test_header_geometry = false;
     var self_test_responsive_layout = false;
+    var self_test_shortcut_overlay = false;
     var window_width: i32 = 1280;
     var window_height: i32 = 760;
     var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
@@ -1136,12 +1168,16 @@ pub fn main(init: std.process.Init) !void {
             presentation = .playful;
         } else if (std.mem.eql(u8, argument, "--reduce-motion")) {
             reduce_motion = true;
+        } else if (std.mem.eql(u8, argument, "--show-shortcuts")) {
+            show_shortcuts = true;
         } else if (std.mem.eql(u8, argument, "--self-test-atlas-identity")) {
             self_test_atlas_identity = true;
         } else if (std.mem.eql(u8, argument, "--self-test-header-geometry")) {
             self_test_header_geometry = true;
         } else if (std.mem.eql(u8, argument, "--self-test-responsive-layout")) {
             self_test_responsive_layout = true;
+        } else if (std.mem.eql(u8, argument, "--self-test-shortcut-overlay")) {
+            self_test_shortcut_overlay = true;
         } else if (std.mem.startsWith(u8, argument, "--template=")) {
             project_template = try model.projectTemplateFromName(argument["--template=".len..]);
         } else if (std.mem.startsWith(u8, argument, "--window-width=")) {
@@ -1153,8 +1189,8 @@ pub fn main(init: std.process.Init) !void {
                 "Usage: elis-studio [--project=file] [--export=file] [--tileset-name=name] " ++
                     "[--tileset-file=raw-bitmap] [--game-root=game] [--width=N] [--height=N] [--tile-size=N] " ++
                     "[--presentation=playful|studio] [--template=blank|platformer|arena|puzzle] " ++
-                    "[--reduce-motion] [--window-width=N] [--window-height=N] " ++
-                    "[--self-test-header-geometry] [--self-test-responsive-layout] " ++
+                    "[--reduce-motion] [--show-shortcuts] [--window-width=N] [--window-height=N] " ++
+                    "[--self-test-shortcut-overlay] [--self-test-header-geometry] [--self-test-responsive-layout] " ++
                     "[--save-export] [--playtest-smoke] [--smoke] [--capture=file.bmp]\n",
                 .{},
             );
@@ -1175,6 +1211,7 @@ pub fn main(init: std.process.Init) !void {
     if (self_test_atlas_identity) return verifyAtlasIdentity(allocator);
     if (self_test_header_geometry) return verifyHeaderActionGeometry();
     if (self_test_responsive_layout) return verifyResponsiveLayout(allocator);
+    if (self_test_shortcut_overlay) return verifyShortcutOverlayGeometry();
     if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_GAMECONTROLLER | c.SDL_INIT_JOYSTICK) != 0) return error.SdlInit;
     defer c.SDL_Quit();
     const workspace_assets = loadWorkspaceAssets(allocator, game_root);
@@ -1206,6 +1243,7 @@ pub fn main(init: std.process.Init) !void {
         .stroke_revision = project.revision,
         .presentation = presentation,
         .reduce_motion = reduce_motion,
+        .shortcut_overlay = show_shortcuts,
     };
     defer studio.deinit();
     if (save_export_on_start) {
@@ -1330,6 +1368,8 @@ pub fn main(init: std.process.Init) !void {
                             window_h,
                         );
                     }
+                } else if (studio.shortcut_overlay) {
+                    if (event.button.button == c.SDL_BUTTON_LEFT) studio.shortcut_overlay = false;
                 } else if (studio.mode == .edit and studio.entity_text_target == .none and
                     (event.button.button == c.SDL_BUTTON_LEFT or
                         event.button.button == c.SDL_BUTTON_RIGHT))
@@ -1373,7 +1413,7 @@ pub fn main(init: std.process.Init) !void {
                         );
                     }
                 },
-                c.SDL_MOUSEMOTION => if (!studio.quit_dialog and studio.mode == .edit) {
+                c.SDL_MOUSEMOTION => if (!studio.quit_dialog and !studio.shortcut_overlay and studio.mode == .edit) {
                     if (studio.selecting) {
                         if (canvasPoint(studio.project, canvas, event.motion.x, event.motion.y)) |point| {
                             studio.cursor = point;
@@ -1390,12 +1430,12 @@ pub fn main(init: std.process.Init) !void {
                         }
                     }
                 },
-                c.SDL_MOUSEBUTTONUP => if (!studio.quit_dialog and
+                c.SDL_MOUSEBUTTONUP => if (!studio.quit_dialog and !studio.shortcut_overlay and
                     event.button.button == studio.pointer_button)
                 {
                     try studio.finishPointerGesture();
                 },
-                c.SDL_MOUSEWHEEL => if (!studio.quit_dialog and studio.mode == .edit and
+                c.SDL_MOUSEWHEEL => if (!studio.quit_dialog and !studio.shortcut_overlay and studio.mode == .edit and
                     studio.entity_text_target == .none)
                 {
                     if (event.wheel.y > 0) previousTile(&studio) else if (event.wheel.y < 0) nextTile(&studio, atlases[studio.active_layer].tile_count);
@@ -1503,6 +1543,14 @@ fn handleKey(
     const alt = (modifiers & c.KMOD_ALT) != 0;
     if (studio.mode == .preview) {
         if (key == c.SDLK_F7 or key == c.SDLK_ESCAPE or key == c.SDLK_BACKSPACE) studio.mode = .edit;
+        return;
+    }
+    if (key == c.SDLK_F1) {
+        studio.shortcut_overlay = !studio.shortcut_overlay;
+        return;
+    }
+    if (studio.shortcut_overlay) {
+        if (key == c.SDLK_ESCAPE) studio.shortcut_overlay = false;
         return;
     }
     if (studio.template_panel) {
@@ -1734,6 +1782,15 @@ fn handleController(
         }
         if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_A)) {
             studio.confirmQuit(running);
+        }
+        previous.* = current;
+        return;
+    }
+    if (studio.shortcut_overlay) {
+        if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_B) or
+            pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_BACK))
+        {
+            studio.shortcut_overlay = false;
         }
         previous.* = current;
         return;
@@ -2412,6 +2469,7 @@ fn render(
         drawText(renderer, right_x + 18, validation_y + 71 + @as(i32, @intCast(index)) * 17, 1, issueLabel(issue.kind), if (issue.severity == .@"error") 246 else 236, if (issue.severity == .@"error") 112 else 199, 110);
     }
     drawNotice(renderer, studio, width, height);
+    if (studio.shortcut_overlay) drawShortcutOverlay(renderer, width, height);
     if (studio.quit_dialog) drawQuitDialog(renderer, studio, width, height);
 }
 
@@ -2462,6 +2520,47 @@ fn drawQuitDialog(renderer: *c.SDL_Renderer, studio: *const Studio, width: i32, 
     } else {
         drawText(renderer, panel.x + 30, panel.y + 204, 1, "ESC KEEPS EDITING", 154, 184, 222);
     }
+}
+fn drawShortcutOverlay(renderer: *c.SDL_Renderer, width: i32, height: i32) void {
+    fill(renderer, .{ .x = 0, .y = 0, .w = width, .h = height }, 5, 7, 12, 190);
+    const panel = shortcutOverlayRect(width, height);
+    fill(renderer, panel, 23, 28, 43, 255);
+    outline(renderer, panel, ui_theme.accent_border.r, ui_theme.accent_border.g, ui_theme.accent_border.b, 255);
+    drawText(renderer, panel.x + 28, panel.y + 22, 2, "CRIA SHORTCUTS", ui_theme.text_bright.r, ui_theme.text_bright.g, ui_theme.text_bright.b);
+    drawText(renderer, panel.x + 30, panel.y + 50, 1, "EVERY ACTION STAYS AVAILABLE WITHOUT A MOUSE.", ui_theme.muted.r, ui_theme.muted.g, ui_theme.muted.b);
+    fill(renderer, .{ .x = panel.x + 28, .y = panel.y + 76, .w = panel.w - 56, .h = 1 }, ui_theme.button_border.r, ui_theme.button_border.g, ui_theme.button_border.b, 255);
+
+    const left_x = panel.x + 30;
+    const right_x = panel.x + 346;
+    drawText(renderer, left_x, panel.y + 94, 1, "TOOLS", ui_theme.focus.r, ui_theme.focus.g, ui_theme.focus.b);
+    drawText(renderer, right_x, panel.y + 94, 1, "EDITING + VIEW", ui_theme.focus.r, ui_theme.focus.g, ui_theme.focus.b);
+    const left = [_][]const u8{
+        "B  PENCIL       T  SMART",
+        "E  ERASER       F  FILL",
+        "P  PICK         C  COLLISION",
+        "S  START        G  GOAL",
+        "I  ENTITY       R  SELECT",
+        "M  STAMP        L  LINE",
+        "D  RECTANGLE    N  RESIZE",
+    };
+    const right = [_][]const u8{
+        "ARROWS  MOVE CURSOR",
+        "SPACE / ENTER  APPLY",
+        "BACKSPACE  ERASE",
+        "[ ]  TILE / FIELD",
+        "F5  EXPORT       F6  PREVIEW",
+        "F7  EDIT         F8  NEW WORLD",
+        "F9  PLAYTEST     TAB  PRESENTATION",
+        "CTRL-Z / CTRL-Y  UNDO / REDO",
+        "A / B  APPLY / ERASE (CONTROLLER)",
+    };
+    for (left, 0..) |line, index| {
+        drawText(renderer, left_x, panel.y + 116 + @as(i32, @intCast(index)) * 22, 1, line, ui_theme.text.r, ui_theme.text.g, ui_theme.text.b);
+    }
+    for (right, 0..) |line, index| {
+        drawText(renderer, right_x, panel.y + 116 + @as(i32, @intCast(index)) * 22, 1, line, ui_theme.text.r, ui_theme.text.g, ui_theme.text.b);
+    }
+    drawText(renderer, panel.x + 30, panel.y + panel.h - 30, 1, "F1 / ESC  CLOSE SHORTCUTS", ui_theme.warning.r, ui_theme.warning.g, ui_theme.warning.b);
 }
 
 fn drawPreview(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer_count]Atlas, width: i32, height: i32) void {
@@ -3049,7 +3148,7 @@ fn guideLine(tool: Tool) []const u8 {
 fn drawNotice(renderer: *c.SDL_Renderer, studio: *const Studio, width: i32, height: i32) void {
     const notice = studio.notice;
     const label: []const u8 = switch (notice) {
-        .none => "LMB BUILD  RMB ERASE  F5 EXPORT  F6 VIEW  F8 NEW  F9 TEST",
+        .none => "LMB BUILD  RMB ERASE  F1 HELP  F5 EXPORT  F6 VIEW  F8 NEW  F9 TEST",
         .saved => "PROJECT SAVED ATOMICALLY",
         .exported => "LUA MAP EXPORTED",
         .playtest_finished => "PLAYTEST CLOSED - RETURNED TO CRIA",

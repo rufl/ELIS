@@ -13,6 +13,7 @@ zig build native -Doptimize=ReleaseSafe >/dev/null
 ./zig-out/bin/elis-studio --self-test-atlas-identity
 ./zig-out/bin/elis-studio --self-test-header-geometry
 ./zig-out/bin/elis-studio --self-test-responsive-layout
+./zig-out/bin/elis-studio --self-test-shortcut-overlay
 
 mkdir -p "$work/game/tiles"
 head -c 4096 /dev/zero > "$work/game/tiles/world"
@@ -132,6 +133,21 @@ env SDL_VIDEODRIVER=dummy \
   --smoke
 cmp "$work/starter.lua" "$work/reloaded.lua"
 test -s "$work/studio-compact.bmp"
+
+# The shortcut overlay is a modal, mouse-independent reference surface. Keep
+# it in the compact reduced-motion capture so its columns remain readable.
+env SDL_VIDEODRIVER=dummy \
+  ./zig-out/bin/elis-studio \
+  --game-root="$work/game" \
+  --project="$work/starter.elisworld" \
+  --presentation=studio \
+  --reduce-motion \
+  --show-shortcuts \
+  --window-width=960 \
+  --window-height=600 \
+  --capture="$work/studio-shortcuts.bmp" \
+  --smoke
+test -s "$work/studio-shortcuts.bmp"
 
 # Load the exported table through the real compatible ui.map path. This proves
 # that Studio metadata remains reserved and the strict layer array is accepted.

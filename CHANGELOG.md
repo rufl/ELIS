@@ -10,6 +10,9 @@
 - Added cursor coordinates and aligned, clipped map metadata to the Cria
   canvas header; expanded the footer shortcut strip and added compact/roomy
   responsive-layout self-tests.
+- Added a modal, mouse-independent Cria shortcut guide on F1/ESC with
+  controller dismissal, compact-layout capture coverage, and a
+  `--show-shortcuts` visual-smoke option.
 - Added persisted Cria smart-terrain rule layouts: the existing 16-tile
   cardinal family and an eight-neighbor 256-tile blob family. Rule changes
   rebuild rendered variants transactionally, reject out-of-range bases, refresh
