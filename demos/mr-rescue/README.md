@@ -139,6 +139,13 @@ defaults; custom keyboard profiles are preserved.
   hash, representative worst-case frame time and memory, and sustained-device
   soak results required by `PARITY.md`.
 
+The finite content inventory and release audit can also be run directly:
+
+```sh
+python3 demos/mr-rescue/tools/audit_release.py
+python3 scripts/test_mr_rescue_release_audit.py
+```
+
 The raw hardware record is validated without claiming hardware from simulator
 data:
 
@@ -149,13 +156,13 @@ python3 scripts/mr_rescue_hardware_gate.py \
   --output /path/to/mr-rescue-hardware-proof.json
 ```
 
-The validator binds the raw record and exact cartridge SHA-256, records the
-input record's SHA-256 and byte count plus the same details for every raw
-evidence log, rejects input/output path collisions and input files changing
-during hashing, missing board/firmware identity, timezone-ambiguous timestamps,
-frame time above the 60 Hz budget, Lua memory above 4 MiB, oversized assets,
-failed soak flags, or a soak shorter than 30 minutes. Its boundary tests run
-with:
+The validator binds the raw record, exact source commit, and exact cartridge
+SHA-256, records the input record's SHA-256 and byte count plus the same details
+for every raw evidence log, rejects input/output path collisions and input
+files changing during hashing, missing board/firmware identity,
+timezone-ambiguous timestamps, frame time above the 60 Hz budget, Lua memory
+above 4 MiB, oversized assets, failed soak flags, or a soak shorter than 30
+minutes. Its boundary tests run with:
 
 ```sh
 python3 scripts/test_mr_rescue_hardware_gate.py
