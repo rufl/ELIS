@@ -1048,6 +1048,34 @@ fn verifyHeaderActionGeometry() !void {
     }
     std.debug.print("Cria header geometry: pass\n", .{});
 }
+fn verifyResponsiveLayout(allocator: std.mem.Allocator) !void {
+    var project = try model.Project.init(allocator, 30, 16, 16, "tiles/world");
+    defer project.deinit();
+    const viewports = [_]struct {
+        width: i32,
+        height: i32,
+        presentation: Presentation,
+    }{
+        .{ .width = 960, .height = 600, .presentation = .playful },
+        .{ .width = 960, .height = 600, .presentation = .studio },
+        .{ .width = 1280, .height = 760, .presentation = .playful },
+        .{ .width = 1280, .height = 760, .presentation = .studio },
+    };
+    for (viewports) |viewport| {
+        const layout = layoutFor(viewport.width, viewport.height, viewport.presentation);
+        if (layout.left + layout.right >= viewport.width) return error.ResponsiveLayoutMismatch;
+        const canvas = canvasLayout(project, viewport.width, viewport.height, .edit, layout);
+        if (canvas.cell < 2 or
+            canvas.content.x < canvas.rect.x or
+            canvas.content.y < canvas.rect.y or
+            canvas.content.x + canvas.content.w > canvas.rect.x + canvas.rect.w or
+            canvas.content.y + canvas.content.h > canvas.rect.y + canvas.rect.h)
+        {
+            return error.ResponsiveLayoutMismatch;
+        }
+    }
+    std.debug.print("Cria responsive layout: pass\n", .{});
+}
 
 pub fn main(init: std.process.Init) !void {
     c.SDL_SetMainReady();
@@ -1069,6 +1097,7 @@ pub fn main(init: std.process.Init) !void {
     var reduce_motion = false;
     var self_test_atlas_identity = false;
     var self_test_header_geometry = false;
+    var self_test_responsive_layout = false;
     var window_width: i32 = 1280;
     var window_height: i32 = 760;
     var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
@@ -1111,6 +1140,8 @@ pub fn main(init: std.process.Init) !void {
             self_test_atlas_identity = true;
         } else if (std.mem.eql(u8, argument, "--self-test-header-geometry")) {
             self_test_header_geometry = true;
+        } else if (std.mem.eql(u8, argument, "--self-test-responsive-layout")) {
+            self_test_responsive_layout = true;
         } else if (std.mem.startsWith(u8, argument, "--template=")) {
             project_template = try model.projectTemplateFromName(argument["--template=".len..]);
         } else if (std.mem.startsWith(u8, argument, "--window-width=")) {
@@ -1123,7 +1154,8 @@ pub fn main(init: std.process.Init) !void {
                     "[--tileset-file=raw-bitmap] [--game-root=game] [--width=N] [--height=N] [--tile-size=N] " ++
                     "[--presentation=playful|studio] [--template=blank|platformer|arena|puzzle] " ++
                     "[--reduce-motion] [--window-width=N] [--window-height=N] " ++
-                    "[--self-test-header-geometry] [--save-export] [--playtest-smoke] [--smoke] [--capture=file.bmp]\n",
+                    "[--self-test-header-geometry] [--self-test-responsive-layout] " ++
+                    "[--save-export] [--playtest-smoke] [--smoke] [--capture=file.bmp]\n",
                 .{},
             );
             return;
@@ -1142,6 +1174,7 @@ pub fn main(init: std.process.Init) !void {
     };
     if (self_test_atlas_identity) return verifyAtlasIdentity(allocator);
     if (self_test_header_geometry) return verifyHeaderActionGeometry();
+    if (self_test_responsive_layout) return verifyResponsiveLayout(allocator);
     if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_GAMECONTROLLER | c.SDL_INIT_JOYSTICK) != 0) return error.SdlInit;
     defer c.SDL_Quit();
     const workspace_assets = loadWorkspaceAssets(allocator, game_root);
@@ -2449,14 +2482,26 @@ fn drawMap(renderer: *c.SDL_Renderer, studio: *Studio, atlases: [model.layer_cou
             .w = @max(canvas.rect.w - 28, 1),
             .h = 1,
         }, ui_theme.canvas_border.r, ui_theme.canvas_border.g, ui_theme.canvas_border.b, 170);
-        var label_buffer: [64]u8 = undefined;
-        const map_label = std.fmt.bufPrint(&label_buffer, "{d} X {d}  /  TILE {d}", .{
+        var label_buffer: [96]u8 = undefined;
+        const map_label = std.fmt.bufPrint(&label_buffer, "{d} X {d}  /  TILE {d}  /  CURSOR {d},{d}", .{
             studio.project.width,
             studio.project.height,
             studio.project.tile_size,
+            studio.cursor.x,
+            studio.cursor.y,
         }) catch "MAP";
         drawText(renderer, canvas.rect.x + 18, canvas.rect.y + 12, 1, "MAP CANVAS", ui_theme.text.r, ui_theme.text.g, ui_theme.text.b);
-        drawText(renderer, canvas.rect.x + canvas.rect.w - 132, canvas.rect.y + 12, 1, map_label, ui_theme.muted.r, ui_theme.muted.g, ui_theme.muted.b);
+        drawTextRightClipped(
+            renderer,
+            canvas.rect.x + canvas.rect.w - 18,
+            canvas.rect.y + 12,
+            1,
+            map_label,
+            @intCast(@max(@divTrunc(canvas.rect.w - 176, font.advance), 1)),
+            ui_theme.muted.r,
+            ui_theme.muted.g,
+            ui_theme.muted.b,
+        );
     }
     for (0..studio.project.height) |y| {
         for (0..studio.project.width) |x| {
@@ -3004,7 +3049,7 @@ fn guideLine(tool: Tool) []const u8 {
 fn drawNotice(renderer: *c.SDL_Renderer, studio: *const Studio, width: i32, height: i32) void {
     const notice = studio.notice;
     const label: []const u8 = switch (notice) {
-        .none => "LMB BUILD  RMB ERASE  WHEEL TILE",
+        .none => "LMB BUILD  RMB ERASE  F5 EXPORT  F6 VIEW  F8 NEW  F9 TEST",
         .saved => "PROJECT SAVED ATOMICALLY",
         .exported => "LUA MAP EXPORTED",
         .playtest_finished => "PLAYTEST CLOSED - RETURNED TO CRIA",
@@ -3143,6 +3188,21 @@ fn drawText(renderer: *c.SDL_Renderer, x: i32, y: i32, scale: i32, text: []const
 
 fn drawTextClipped(renderer: *c.SDL_Renderer, x: i32, y: i32, scale: i32, value: []const u8, max_chars: usize, r: u8, g: u8, b: u8) void {
     drawText(renderer, x, y, scale, value[0..@min(value.len, max_chars)], r, g, b);
+}
+fn drawTextRightClipped(
+    renderer: *c.SDL_Renderer,
+    right: i32,
+    y: i32,
+    scale: i32,
+    value: []const u8,
+    max_chars: usize,
+    r: u8,
+    g: u8,
+    b: u8,
+) void {
+    const visible = value[0..@min(value.len, max_chars)];
+    const text_width = @as(i32, @intCast(visible.len)) * font.advance * scale;
+    drawText(renderer, @max(right - text_width, 0), y, scale, visible, r, g, b);
 }
 
 fn drawCross(renderer: *c.SDL_Renderer, rect: Rect, r: u8, g: u8, b: u8) void {
