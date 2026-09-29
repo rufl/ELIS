@@ -115,6 +115,26 @@ const EntityTextTarget = enum { none, schema_name, field_name };
 const EntitySchemaNumber = enum { default_value, minimum, maximum };
 
 const Rect = struct { x: i32, y: i32, w: i32, h: i32 };
+const HeaderAction = enum { save, export_map, playtest, presentation, new_world };
+const header_actions = [_]HeaderAction{ .save, .export_map, .playtest, .presentation, .new_world };
+
+fn headerActionRect(action: HeaderAction) Rect {
+    return switch (action) {
+        .save => .{ .x = 270, .y = 12, .w = 100, .h = 34 },
+        .export_map => .{ .x = 380, .y = 12, .w = 110, .h = 34 },
+        .playtest => .{ .x = 500, .y = 12, .w = 120, .h = 34 },
+        .presentation => .{ .x = 630, .y = 12, .w = 140, .h = 34 },
+        .new_world => .{ .x = 780, .y = 12, .w = 140, .h = 34 },
+    };
+}
+
+fn headerActionAt(x: i32, y: i32) ?HeaderAction {
+    for (header_actions) |action| {
+        if (contains(headerActionRect(action), x, y)) return action;
+    }
+    return null;
+}
+
 const Canvas = struct { rect: Rect, cell: i32, content: Rect };
 const Selection = struct {
     first: model.Point,
@@ -1012,6 +1032,22 @@ fn verifyAtlasIdentity(allocator: std.mem.Allocator) !void {
     if (atlasesNeedReload(project, atlases)) return error.AtlasIdentityMismatch;
     std.debug.print("Cria atlas identity: pass\n", .{});
 }
+fn verifyHeaderActionGeometry() !void {
+    var previous_end: i32 = -1;
+    for (header_actions) |action| {
+        const rect = headerActionRect(action);
+        if (rect.w <= 0 or rect.h <= 0 or rect.x <= previous_end) return error.HeaderActionGeometryMismatch;
+        const center_x = rect.x + @divTrunc(rect.w, 2);
+        const center_y = rect.y + @divTrunc(rect.h, 2);
+        const found = headerActionAt(center_x, center_y) orelse return error.HeaderActionGeometryMismatch;
+        if (found != action) return error.HeaderActionGeometryMismatch;
+        previous_end = rect.x + rect.w;
+    }
+    if (headerActionAt(270, 11) != null or headerActionAt(previous_end, 20) != null) {
+        return error.HeaderActionGeometryMismatch;
+    }
+    std.debug.print("Cria header geometry: pass\n", .{});
+}
 
 pub fn main(init: std.process.Init) !void {
     c.SDL_SetMainReady();
@@ -1032,6 +1068,7 @@ pub fn main(init: std.process.Init) !void {
     var project_template: ?model.ProjectTemplate = null;
     var reduce_motion = false;
     var self_test_atlas_identity = false;
+    var self_test_header_geometry = false;
     var window_width: i32 = 1280;
     var window_height: i32 = 760;
     var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
@@ -1072,6 +1109,8 @@ pub fn main(init: std.process.Init) !void {
             reduce_motion = true;
         } else if (std.mem.eql(u8, argument, "--self-test-atlas-identity")) {
             self_test_atlas_identity = true;
+        } else if (std.mem.eql(u8, argument, "--self-test-header-geometry")) {
+            self_test_header_geometry = true;
         } else if (std.mem.startsWith(u8, argument, "--template=")) {
             project_template = try model.projectTemplateFromName(argument["--template=".len..]);
         } else if (std.mem.startsWith(u8, argument, "--window-width=")) {
@@ -1084,7 +1123,7 @@ pub fn main(init: std.process.Init) !void {
                     "[--tileset-file=raw-bitmap] [--game-root=game] [--width=N] [--height=N] [--tile-size=N] " ++
                     "[--presentation=playful|studio] [--template=blank|platformer|arena|puzzle] " ++
                     "[--reduce-motion] [--window-width=N] [--window-height=N] " ++
-                    "[--save-export] [--playtest-smoke] [--smoke] [--capture=file.bmp]\n",
+                    "[--self-test-header-geometry] [--save-export] [--playtest-smoke] [--smoke] [--capture=file.bmp]\n",
                 .{},
             );
             return;
@@ -1102,6 +1141,7 @@ pub fn main(init: std.process.Init) !void {
         }) catch "";
     };
     if (self_test_atlas_identity) return verifyAtlasIdentity(allocator);
+    if (self_test_header_geometry) return verifyHeaderActionGeometry();
     if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_GAMECONTROLLER | c.SDL_INIT_JOYSTICK) != 0) return error.SdlInit;
     defer c.SDL_Quit();
     const workspace_assets = loadWorkspaceAssets(allocator, game_root);
@@ -1776,11 +1816,13 @@ fn handleChromeClick(
 ) !void {
     const layout = layoutFor(window_w, window_h, studio.presentation);
     if (y < bar_top) {
-        if (x >= 270 and x < 370) studio.save();
-        if (x >= 380 and x < 490) studio.exportMap(workspace);
-        if (x >= 500 and x < 620) studio.launchPlaytest(io, runtime_path, workspace, false);
-        if (x >= 630 and x < 770) try studio.togglePresentation();
-        if (x >= 780 and x < 920) studio.template_panel = !studio.template_panel;
+        switch (headerActionAt(x, y) orelse return) {
+            .save => studio.save(),
+            .export_map => studio.exportMap(workspace),
+            .playtest => studio.launchPlaytest(io, runtime_path, workspace, false),
+            .presentation => try studio.togglePresentation(),
+            .new_world => studio.template_panel = !studio.template_panel,
+        }
         return;
     }
     if (x < layout.left) {
@@ -2008,11 +2050,11 @@ fn render(
     fill(renderer, .{ .x = 202, .y = 18, .w = 56, .h = 22 }, status_color.r, status_color.g, status_color.b, 34);
     outline(renderer, .{ .x = 202, .y = 18, .w = 56, .h = 22 }, status_color.r, status_color.g, status_color.b, 170);
     drawText(renderer, 210, 24, 1, if (studio.dirty()) "DRAFT" else "READY", status_color.r, status_color.g, status_color.b);
-    button(renderer, .{ .x = 270, .y = 12, .w = 100, .h = 34 }, "SAVE", studio.dirty());
-    button(renderer, .{ .x = 380, .y = 12, .w = 110, .h = 34 }, "EXPORT", false);
-    button(renderer, .{ .x = 500, .y = 12, .w = 120, .h = 34 }, "PLAYTEST", false);
-    button(renderer, .{ .x = 630, .y = 12, .w = 140, .h = 34 }, if (playful) "PRECISION MODE" else "GUIDED MODE", true);
-    button(renderer, .{ .x = 780, .y = 12, .w = 140, .h = 34 }, "NEW WORLD", studio.template_panel);
+    button(renderer, headerActionRect(.save), "SAVE", studio.dirty());
+    button(renderer, headerActionRect(.export_map), "EXPORT", false);
+    button(renderer, headerActionRect(.playtest), "PLAYTEST", false);
+    button(renderer, headerActionRect(.presentation), if (playful) "PRECISION MODE" else "GUIDED MODE", true);
+    button(renderer, headerActionRect(.new_world), "NEW WORLD", studio.template_panel);
 
     drawText(renderer, 18, 70, 1, if (playful) "BUILD TOOLS" else "TOOLS", 165, 180, 210);
     for (tools, 0..) |tool, index| {
