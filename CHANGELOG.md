@@ -4,6 +4,9 @@
 - Polished Cria's editor presentation with semantic UI color tokens, a
   framed map header, active tool/layer footer context, dirty-state save
   emphasis, and hover/focus feedback with compact-layout label clipping.
+- Centralized Cria header action geometry so rendered controls and pointer hit
+  targets stay aligned at supported compact and roomy sizes; added a focused
+  header geometry self-test to the studio smoke gate.
 - Added persisted Cria smart-terrain rule layouts: the existing 16-tile
   cardinal family and an eight-neighbor 256-tile blob family. Rule changes
   rebuild rendered variants transactionally, reject out-of-range bases, refresh
