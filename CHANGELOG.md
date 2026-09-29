@@ -7,6 +7,9 @@
 - Centralized Cria header action geometry so rendered controls and pointer hit
   targets stay aligned at supported compact and roomy sizes; added a focused
   header geometry self-test to the studio smoke gate.
+- Added cursor coordinates and aligned, clipped map metadata to the Cria
+  canvas header; expanded the footer shortcut strip and added compact/roomy
+  responsive-layout self-tests.
 - Added persisted Cria smart-terrain rule layouts: the existing 16-tile
   cardinal family and an eight-neighbor 256-tile blob family. Rule changes
   rebuild rendered variants transactionally, reject out-of-range bases, refresh
