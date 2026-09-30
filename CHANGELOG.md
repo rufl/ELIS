@@ -1,6 +1,12 @@
 # ELIS Changelog
 
 ## Unreleased
+- Added persisted, undoable Cria objective rules for reaching the goal or
+  collecting every pickup first. The Goal inspector supports pointer, keyboard,
+  and controller input; project templates choose intentional defaults;
+  `.elisworld` v6 migrates v5 projects to reach-goal; Lua export records the
+  rule; generated playtests enforce and smoke-probe both behaviors. Anchored map
+  resize now also preserves or rebases the goal marker as documented.
 - Evolved Cria's generated PLAYTEST/F9 wrapper into an interactive starter
   cartridge: arrow movement, solid-cell collision, enemy reset, pickup counting,
   goal feedback, camera clamping, and START reset now exercise authored worlds
