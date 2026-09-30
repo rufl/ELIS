@@ -22,9 +22,10 @@ zig build cria -- --game-root=game \
   --export=projects/world.lua
 ```
 
-O projeto salvo é `.elisworld` v5, com migração das versões anteriores,
-histórico de desfazer/refazer, camadas visuais, colisão, spawn, objetivo,
-entidades tipadas e layouts de terreno cardinal/blob persistidos. A exportação
+O projeto salvo é `.elisworld` v6, com migração das versões anteriores,
+histórico de desfazer/refazer, camadas visuais, colisão, spawn, objetivo
+configurável (alcançar ou coletar tudo), entidades tipadas e layouts de terreno
+cardinal/blob persistidos. A exportação
 só passa quando o manifesto, os limites espaciais e os limites de dados do
 perfil Lupi são válidos. Sem manifesto válido, é possível salvar o projeto,
 mas a exportação é bloqueada.
@@ -43,9 +44,11 @@ workspace and dirty-state ownership, and PIWEBQOL's responsive density,
 minimum-size, reduced-motion, and input-equivalence policies.
 F9 / PLAYTEST runs a generated interactive starter cartridge for the current
 world. Arrow buttons move one cell, solid cells block movement, enemy entities
-reset the player, pickup entities are counted, and reaching the goal shows a
-success panel; START resets the run. This is bounded prototyping support, not a
-claim that entity schemas become runtime behavior in the exported Lua map.
+reset the player, and pickup entities are counted. The authored objective either
+wins at the goal immediately or keeps the goal locked until every pickup is
+collected; START resets the run. This is bounded prototyping support, not a
+claim that arbitrary entity schemas become runtime behavior in the exported Lua
+map.
 
 Studio does not modify the indexed simulator framebuffer, Lua globals, palette,
 input state, or timing. Export is an explicit file operation. Preview is an
@@ -100,6 +103,10 @@ editor map preview, not a claim that game-specific mechanics are running.
   only when creating a project at a path that does not yet exist.
 - Collision is an editor/runtime metadata mask rather than a visible layer.
 - Player spawn and goal are typed markers, not magic tile IDs.
+- The Goal inspector authors one of two persisted, undoable objective rules:
+  reach the goal, or collect every pickup before the goal unlocks. Platformer,
+  RPG Room, and Puzzle templates select the collect-all rule; Blank selects
+  reach-goal.
 - A dedicated LDtk-style entity grid stores at most one typed instance per cell:
   enemy, pickup, trigger, or decoration. Each project-defined slot has a bounded
   printable ASCII name and up to four named `unsigned`, `toggle`, or `tile`
@@ -110,13 +117,14 @@ editor map preview, not a claim that game-specific mechanics are running.
   Removing or reenabling a trailing field initializes instances from its validated
   default; undo restores their previous schema and distinct values. Failed entity
   placement leaves the project and pending undo gesture unchanged.
-- `.elisworld` v5 is a versioned checksummed binary source artifact containing
-  per-layer assets, semantic terrain, the selected terrain rule, and typed
-  entities. Saves write a sibling temporary file, sync it, and atomically
+- `.elisworld` v6 is a versioned checksummed binary source artifact containing
+  per-layer assets, semantic terrain, the selected terrain and goal rules, and
+  typed entities. Saves write a sibling temporary file, sync it, and atomically
   rename it into place. Version-one projects gain independent layer tilesets;
   v1 and v2 migrate with an empty entity grid, while v3 promotes its old value
-  to field zero. V4 imports default to the cardinal terrain rule. Older formats
-  never invent authored schema or entity data.
+  to field zero. V4 imports default to the cardinal terrain rule, and v5 imports
+  default to the reach-goal objective. Older formats never invent authored
+  schema or entity data.
 - Exported Lua exposes official codec-style per-layer tables as
   `project.background`, `project.terrain`, `project.objects`, and
   `project.foreground`; games call them with `ui.map` in the desired order.
@@ -142,11 +150,12 @@ of generated Lua source. Visual, collision, and smart-terrain tables export
 sparsely; absent collision/smart entries mean false/empty. Without a valid
 manifest, the source can still be saved but export is blocked.
 
-V5 project import also persists the selected cardinal/blob terrain rule and
-rejects smart bases or rendered variants outside that rule's tile family.
-V4 imports default to cardinal families. V3 stored an untyped integer: legacy
-decoration values above the tile-ID range migrate to an unsigned field rather
-than being discarded or clamped.
+V6 project import persists the selected reach-goal/collect-all objective. V5
+persists the selected cardinal/blob terrain rule; its imports default to the
+reach-goal objective and reject smart bases or rendered variants outside the
+terrain rule's tile family. V4 imports default to cardinal families. V3 stored
+an untyped integer: legacy decoration values above the tile-ID range migrate to
+an unsigned field rather than being discarded or clamped.
 
 A successful `LUPI-SAFE EXPORT: PASS` therefore guarantees that Cria's
 unchanged generated module satisfies ELIS's fail-closed console admission
@@ -173,7 +182,7 @@ proof.
 | Ctrl+C / Ctrl+V | Capture current selection / switch to the captured stamp |
 | `H` / `V` / `O` | Flip stamp horizontally / vertically / rotate clockwise |
 | Shift+rectangle drag | Draw a filled rectangle instead of an outline |
-| `Q`, `-`, `+` | Cycle entity schema and edit its selected field; in Resize, cycle anchor and change width |
+| `Q`, `-`, `+` | With Goal, `Q` cycles the objective rule; with Entity, cycle schema/edit its selected field; with Resize, cycle anchor/change width |
 | Shift+`I` / Escape | Open / close entity schema-definition mode |
 | `[` / `]` while Entity is active | Select the previous / next schema field |
 | Enter / Shift+Enter in schema mode | Rename selected field / entity type |
@@ -189,7 +198,7 @@ proof.
 | Up/Down, Enter in template panel | Select and apply a template |
 | Template panel Apply button | Apply the selected template with the pointer |
 | Gamepad D-pad | Move cursor; adjust Resize dimensions; choose a Template |
-| Gamepad A / B / X / Y | Apply/shape, erase/cancel, pick/anchor, next tool; A applies and B closes Templates |
+| Gamepad A / B / X / Y | Apply/shape, erase/cancel, pick/resize anchor/goal rule, next tool; A applies and B closes Templates |
 | Gamepad shoulders | Previous/next tile; flip stamp; or cycle entity type, depending on tool |
 | Gamepad left/right stick click | Switch presentation / next layer tileset; right stick rotates a stamp |
 | Gamepad Back / Start | Preview / save |
@@ -219,12 +228,12 @@ a bounded native session, then exits. `--capture=path.bmp` retains the rendered
 editor frame.
 
 `--playtest-smoke` generates the same temporary interactive runtime wrapper,
-copies the selected tilesets, runs one real simulator screenshot, verifies the
-frame, and cleans the wrapper directory before returning. The generated starter
-loop exercises movement, collision, entity rendering, pickup counting, goal
-feedback, and reset wiring; it does not replace hand-authored game logic. The
-toolbar PLAYTEST button and F9 use the interactive form and return to Cria after
-the simulator closes.
+copies the selected tilesets, runs objective probes plus one real simulator
+screenshot, verifies the frame, and cleans the wrapper directory before
+returning. The generated starter loop exercises movement, collision, entity
+rendering, pickup counting, both goal rules, feedback, and reset wiring; it does
+not replace hand-authored game logic. The toolbar PLAYTEST button and F9 use the
+interactive form and return to Cria after the simulator closes.
 
 `--game-root` loads `lupi_manifest.txt`, `palette.lua`, and the selected raw
 bitmap assets. Palette values use Lupi's `0RRRRRGGGGGBBBBB` RGB555 contract.
@@ -250,10 +259,11 @@ window-size flags support deterministic UI proof.
 
 ## Next mature slice
 
-The configurable cardinal/blob terrain-rule slice in `.elisworld` v5 and the
-interactive starter playtest slice are complete, with focused model and native
-package smoke proof. Cria can turn a validated world into a bounded, playable
-prototype without mutating the saved project. Further gameplay authoring
-requires a new bounded acceptance and proof item. Physical controller approval
+The persisted reach-goal/collect-all objective slice in `.elisworld` v6 is
+complete, with undo/redo, v5 migration, Goal-inspector input equivalence, Lua
+metadata, and generated-playtest behavioral proof. Cria can turn a validated
+world into a bounded playable prototype without mutating the saved project.
+Further gameplay authoring requires a new bounded acceptance and proof item.
+Physical controller approval
 remains separate evidence from automated keyboard/pointer and generated-
 playtest proof.

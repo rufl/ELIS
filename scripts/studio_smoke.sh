@@ -36,13 +36,14 @@ env SDL_VIDEODRIVER=dummy \
   --playtest-smoke \
   --capture="$work/studio.bmp" \
   --smoke 2>&1 | tee "$work/studio.log"
-grep -q 'Cria generated playtest: pass (interactive starter)' "$work/studio.log"
+grep -q 'Cria generated playtest: pass (authored objective rules)' "$work/studio.log"
 
 test -s "$work/starter.elisworld"
 test -s "$work/starter.lua"
 test -s "$work/studio.bmp"
 grep -q 'layers = { "background", "terrain", "objects", "foreground" }' "$work/starter.lua"
-grep -q 'lupi_metadata = { editor = "Cria", schema = 5' "$work/starter.lua"
+grep -q 'lupi_metadata = { editor = "Cria", schema = 6' "$work/starter.lua"
+grep -q 'goal_rule = "reach"' "$work/starter.lua"
 grep -q 'entities = {' "$work/starter.lua"
 grep -q 'entity_schemas = {' "$work/starter.lua"
 grep -q 'smart_terrain = {' "$work/starter.lua"
