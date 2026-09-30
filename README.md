@@ -165,9 +165,9 @@ over the same authoritative project and command history:
   foreground;
 - pencil, line, outline/filled rectangle, configurable 16-variant cardinal or
   256-variant blob smart terrain, erase, contiguous fill, pick, collision,
-  player-spawn, goal with undoable reach/collect-all objective rules, typed
-  entities with an undoable project-schema editor, rectangle selection, and
-  reusable transformable stamp tools;
+  player-spawn, and goal tools; undoable reach/collect-all objectives, starting
+  lives, and trigger/checkpoint rules; typed entities with an undoable
+  project-schema editor; rectangle selection; and reusable transformable stamps;
 - independent manifest-backed tileset selection plus session visibility and
   painting locks for every visual layer, and source-defined `palette.lua` RGB555
   preview with diagnostic fallback colors;
@@ -177,17 +177,17 @@ over the same authoritative project and command history:
 - fail-closed Lupi-safe export checks for level validity, manifest asset
   identity, tileset/tile bounds, map sampling, weighted Lua data, and generated
   source size;
-- atomic checksummed `.elisworld` v6 source projects, safe v1/v2/v3/v4/v5
+- atomic checksummed `.elisworld` v7 source projects, safe v1/v2/v3/v4/v5/v6
   migration, printable-ASCII entity-schema names, official per-layer `ui.map`
-  exports, an optional combined map, and semantic terrain/entities/objectives
-  retained as reserved metadata;
+  exports, an optional combined map, and semantic terrain, entities, objectives,
+  and playtest rules retained as reserved metadata;
 - responsive 960×600 compact and roomy layouts, reduced-motion mode, friendly
   contextual teaching, a one-key presentation switch, and an unsaved-close
   Save/Discard guard for mouse, keyboard, and controller users;
 - a chrome-free validated map preview, plus an interactive starter playtest that
-  moves through collision, renders typed entities, counts pickups, and enforces
-  the authored reach-goal or collect-all-then-goal objective without mutating the
-  saved project;
+  moves through collision, renders typed entities, counts pickups, applies
+  authored objectives, spends finite lives, and respawns at authored checkpoint
+  triggers without mutating the saved project;
 
 Open a project using the game manifest and palette source as its asset workspace:
 
