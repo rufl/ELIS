@@ -7,8 +7,9 @@
 const std = @import("std");
 const lupi_profile = @import("lupi_profile.zig");
 
-pub const schema_version: u16 = 6;
-pub const previous_schema_version: u16 = 5;
+pub const schema_version: u16 = 7;
+pub const goal_rule_schema_version: u16 = 6;
+pub const terrain_rule_schema_version: u16 = 5;
 pub const entity_definition_schema_version: u16 = 4;
 pub const entity_schema_version: u16 = 3;
 pub const layered_schema_version: u16 = 2;
@@ -115,6 +116,26 @@ pub fn goalRuleLabel(rule: GoalRule) []const u8 {
         .collect_all => "COLLECT ALL + GOAL",
     };
 }
+pub const TriggerRule = enum(u8) {
+    metadata,
+    checkpoint,
+};
+
+pub fn triggerRuleName(rule: TriggerRule) []const u8 {
+    return switch (rule) {
+        .metadata => "metadata",
+        .checkpoint => "checkpoint",
+    };
+}
+
+pub fn triggerRuleLabel(rule: TriggerRule) []const u8 {
+    return switch (rule) {
+        .metadata => "TRIGGERS: GAME METADATA",
+        .checkpoint => "TRIGGERS: CHECKPOINTS",
+    };
+}
+
+pub const max_starting_lives: u8 = 9;
 
 pub const TerrainRule = enum(u8) {
     cardinal,
@@ -333,6 +354,8 @@ pub const Project = struct {
     entity_field_mins: [entity_kinds.len][max_entity_fields]u16 = .{.{0} ** max_entity_fields} ** entity_kinds.len,
     terrain_rule: TerrainRule = .cardinal,
     goal_rule: GoalRule = .reach,
+    starting_lives: u8 = 0,
+    trigger_rule: TriggerRule = .metadata,
     entity_field_maxes: [entity_kinds.len][max_entity_fields]u16 = .{.{std.math.maxInt(u16)} ** max_entity_fields} ** entity_kinds.len,
     spawn: ?Point = null,
     goal: ?Point = null,
@@ -415,6 +438,18 @@ pub const Project = struct {
     pub fn setGoalRule(self: *Project, rule: GoalRule) void {
         if (self.goal_rule == rule) return;
         self.goal_rule = rule;
+        self.revision +%= 1;
+    }
+    pub fn setStartingLives(self: *Project, lives: u8) !void {
+        if (lives > max_starting_lives) return error.InvalidGameRule;
+        if (self.starting_lives == lives) return;
+        self.starting_lives = lives;
+        self.revision +%= 1;
+    }
+
+    pub fn setTriggerRule(self: *Project, rule: TriggerRule) void {
+        if (self.trigger_rule == rule) return;
+        self.trigger_rule = rule;
         self.revision +%= 1;
     }
 
@@ -637,10 +672,14 @@ fn buildProjectTemplate(project: Project, template: ProjectTemplate) !Project {
         .blank => {},
         .platformer => {
             result.goal_rule = .collect_all;
+            result.starting_lives = 3;
+            result.trigger_rule = .checkpoint;
             buildPlatformerTemplate(&result);
         },
         .arena => {
             result.goal_rule = .collect_all;
+            result.starting_lives = 3;
+            result.trigger_rule = .checkpoint;
             buildArenaTemplate(&result);
         },
         .puzzle => {
@@ -672,6 +711,7 @@ fn buildPlatformerTemplate(project: *Project) void {
     project.goal = .{ .x = project.width - 2, .y = project.height - 2 };
     setTemplateEntity(project, project.width / 2, project.height - 2, .enemy);
     setTemplateEntity(project, @max(project.width / 3, 1), @max(project.height - 3, 1), .pickup);
+    setTemplateEntity(project, @min(project.width * 2 / 3, project.width - 2), project.height - 2, .trigger);
 }
 
 fn buildArenaTemplate(project: *Project) void {
@@ -687,6 +727,7 @@ fn buildArenaTemplate(project: *Project) void {
     setTemplateEntity(project, project.width / 2, 1, .enemy);
     setTemplateEntity(project, project.width / 2, project.height - 2, .enemy);
     setTemplateEntity(project, project.width / 2, project.height / 2, .pickup);
+    setTemplateEntity(project, 1, 1, .trigger);
 }
 
 fn buildPuzzleTemplate(project: *Project) !void {
@@ -1288,6 +1329,27 @@ pub const History = struct {
         replaceProjectOwned(project, changed);
         return true;
     }
+    pub fn setStartingLives(self: *History, project: *Project, lives: u8) !bool {
+        if (project.starting_lives == lives) return false;
+        var changed = try cloneProject(project.*);
+        errdefer changed.deinit();
+        try changed.setStartingLives(lives);
+        const command = try buildProjectSnapshotCommand(self.allocator, project.*, changed);
+        try self.commit(command);
+        replaceProjectOwned(project, changed);
+        return true;
+    }
+
+    pub fn setTriggerRule(self: *History, project: *Project, rule: TriggerRule) !bool {
+        if (project.trigger_rule == rule) return false;
+        var changed = try cloneProject(project.*);
+        errdefer changed.deinit();
+        changed.setTriggerRule(rule);
+        const command = try buildProjectSnapshotCommand(self.allocator, project.*, changed);
+        try self.commit(command);
+        replaceProjectOwned(project, changed);
+        return true;
+    }
 
     pub fn undo(self: *History, project: *Project) !bool {
         if (self.undo_stack.items.len == 0) return false;
@@ -1483,6 +1545,8 @@ fn buildResizedProject(project: Project, width: u16, height: u16, anchor: Resize
     );
     resized.terrain_rule = project.terrain_rule;
     resized.goal_rule = project.goal_rule;
+    resized.starting_lives = project.starting_lives;
+    resized.trigger_rule = project.trigger_rule;
     errdefer resized.deinit();
     for (1..layer_count) |layer| {
         resized.setLayerTilesetName(layer, project.layerTilesetName(layer));
@@ -1632,6 +1696,7 @@ pub const IssueKind = enum {
     entity_blocked,
     invalid_entity_fields,
     empty_background,
+    checkpoint_without_trigger,
 };
 pub const Issue = struct { severity: Severity, kind: IssueKind };
 
@@ -1668,13 +1733,18 @@ pub fn validate(project: Project) ValidationReport {
         break;
     };
     if (!has_background) report.add(.{ .severity = .warning, .kind = .empty_background });
+    var has_trigger = false;
     for (project.entities, 0..) |raw_kind, index| {
         if (raw_kind > @intFromEnum(EntityKind.decoration)) continue;
         const kind: EntityKind = @enumFromInt(raw_kind);
+        if (kind == .trigger) has_trigger = true;
         if (kind != .none and kind != .decoration and project.solid[index] != 0) {
             report.add(.{ .severity = .warning, .kind = .entity_blocked });
             break;
         }
+    }
+    if (project.trigger_rule == .checkpoint and !has_trigger) {
+        report.add(.{ .severity = .warning, .kind = .checkpoint_without_trigger });
     }
     if (project.spawn) |spawn| {
         if (project.solid[project.cellIndex(spawn.x, spawn.y)] != 0) {
@@ -1722,12 +1792,12 @@ pub fn validate(project: Project) ValidationReport {
     return report;
 }
 
-/// Encodes the checksummed `.elisworld` v6 source representation.
+/// Encodes the checksummed `.elisworld` v7 source representation.
 pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     const cell_count = project.cellCount();
     var tileset_bytes: usize = 0;
     for (project.tileset_lens) |length| tileset_bytes += length;
-    const payload_len = tileset_bytes + 2 + entitySchemaEncodedSize(project) + project.tiles.len * 2 + project.smart.len * 2 +
+    const payload_len = tileset_bytes + 4 + entitySchemaEncodedSize(project) + project.tiles.len * 2 + project.smart.len * 2 +
         project.solid.len + project.entities.len + project.entity_fields.len * 2;
     const fixed_len = magic.len + 2 + 2 + 2 + 2 + layer_count + 4 + 4 + 8;
     const total_len = fixed_len + payload_len + checksum_len;
@@ -1747,6 +1817,8 @@ pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     for (0..layer_count) |layer| putBytes(bytes, &cursor, project.layerTilesetName(layer));
     putU8(bytes, &cursor, @intFromEnum(project.terrain_rule));
     putU8(bytes, &cursor, @intFromEnum(project.goal_rule));
+    putU8(bytes, &cursor, project.starting_lives);
+    putU8(bytes, &cursor, @intFromEnum(project.trigger_rule));
     encodeEntitySchemas(bytes, &cursor, project);
     for (project.tiles) |tile| putU16(bytes, &cursor, tile);
     for (project.smart) |base| putU16(bytes, &cursor, base);
@@ -1758,7 +1830,7 @@ pub fn encode(allocator: std.mem.Allocator, project: Project) ![]u8 {
     return bytes;
 }
 
-/// Decodes v1-v6 projects transactionally; failures return no partial owner.
+/// Decodes v1-v7 projects transactionally; failures return no partial owner.
 pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Project {
     if (bytes.len < magic.len + 29 or bytes.len > max_file_bytes) return error.InvalidWorldProject;
     if (!std.mem.eql(u8, bytes[0..magic.len], magic)) return error.InvalidWorldProject;
@@ -1769,11 +1841,12 @@ pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !Project {
     const version = try takeU16(bytes, &cursor);
     return switch (version) {
         legacy_schema_version => decodeV1(allocator, bytes, &cursor),
-        layered_schema_version => decodeLayered(allocator, bytes, &cursor, false, false, false, false),
-        entity_schema_version => decodeLayered(allocator, bytes, &cursor, true, false, false, false),
-        entity_definition_schema_version => decodeLayered(allocator, bytes, &cursor, true, true, false, false),
-        previous_schema_version => decodeLayered(allocator, bytes, &cursor, true, true, true, false),
-        schema_version => decodeLayered(allocator, bytes, &cursor, true, true, true, true),
+        layered_schema_version => decodeLayered(allocator, bytes, &cursor, false, false, false, false, false),
+        entity_schema_version => decodeLayered(allocator, bytes, &cursor, true, false, false, false, false),
+        entity_definition_schema_version => decodeLayered(allocator, bytes, &cursor, true, true, false, false, false),
+        terrain_rule_schema_version => decodeLayered(allocator, bytes, &cursor, true, true, true, false, false),
+        goal_rule_schema_version => decodeLayered(allocator, bytes, &cursor, true, true, true, true, false),
+        schema_version => decodeLayered(allocator, bytes, &cursor, true, true, true, true, true),
         else => error.UnsupportedWorldVersion,
     };
 }
@@ -1786,6 +1859,7 @@ fn decodeLayered(
     has_entity_schema: bool,
     has_terrain_rule: bool,
     has_goal_rule: bool,
+    has_game_rules: bool,
 ) !Project {
     const width = try takeU16(bytes, cursor);
     const height = try takeU16(bytes, cursor);
@@ -1824,11 +1898,23 @@ fn decodeLayered(
             else => return error.InvalidWorldProject,
         };
     } else .reach;
+    const starting_lives = if (has_game_rules) try takeU8(bytes, cursor) else 0;
+    if (starting_lives > max_starting_lives) return error.InvalidWorldProject;
+    const trigger_rule: TriggerRule = if (has_game_rules) blk: {
+        const raw_rule = try takeU8(bytes, cursor);
+        break :blk switch (raw_rule) {
+            @intFromEnum(TriggerRule.metadata) => .metadata,
+            @intFromEnum(TriggerRule.checkpoint) => .checkpoint,
+            else => return error.InvalidWorldProject,
+        };
+    } else .metadata;
     var project = try Project.init(allocator, width, height, tile_size, tileset_names[0]);
     errdefer project.deinit();
     project.terrain_rule = terrain_rule;
     project.goal_rule = goal_rule;
     for (tileset_names, 0..) |name, layer| project.setLayerTilesetName(layer, name);
+    project.starting_lives = starting_lives;
+    project.trigger_rule = trigger_rule;
     if (has_entity_schema) {
         project.clearEntitySchemas();
         try decodeEntitySchemas(bytes, cursor, &project);
@@ -2024,6 +2110,10 @@ pub fn exportLua(allocator: std.mem.Allocator, project: Project) ![]u8 {
     });
     try writer.print("  lupi_metadata = {{ editor = \"Cria\", schema = {}, terrain_rule = \"{s}\"", .{ schema_version, terrainRuleName(project.terrain_rule) });
     try writer.print(", goal_rule = \"{s}\"", .{goalRuleName(project.goal_rule)});
+    try writer.print(", starting_lives = {}, trigger_rule = \"{s}\"", .{
+        project.starting_lives,
+        triggerRuleName(project.trigger_rule),
+    });
     if (project.spawn) |spawn| try writer.print(", spawn = {{ x = {}, y = {} }}", .{ spawn.x, spawn.y });
     if (project.goal) |goal| try writer.print(", goal = {{ x = {}, y = {} }}", .{ goal.x, goal.y });
     try writer.writeAll(", entity_schemas = {");
@@ -2509,6 +2599,8 @@ test "project encoding round trips and rejects corruption" {
     project.entities[entity_index] = @intFromEnum(EntityKind.enemy);
     project.entity_fields[entity_index * max_entity_fields] = 12;
     project.setGoalRule(.collect_all);
+    try project.setStartingLives(3);
+    project.setTriggerRule(.checkpoint);
     const bytes = try encode(std.testing.allocator, project);
     defer std.testing.allocator.free(bytes);
     var decoded = try decode(std.testing.allocator, bytes);
@@ -2519,33 +2611,68 @@ test "project encoding round trips and rejects corruption" {
     try std.testing.expectEqual(EntityKind.enemy, decoded.entityKindAt(entity_index));
     try std.testing.expectEqual(@as(u16, 12), decoded.entityFieldAt(entity_index, 0));
     try std.testing.expectEqual(GoalRule.collect_all, decoded.goal_rule);
+    try std.testing.expectEqual(@as(u8, 3), decoded.starting_lives);
+    try std.testing.expectEqual(TriggerRule.checkpoint, decoded.trigger_rule);
     bytes[bytes.len - 5] ^= 1;
     try std.testing.expectError(error.InvalidWorldChecksum, decode(std.testing.allocator, bytes));
 }
 
-test "version five projects default to reach-goal rules" {
+test "version six projects preserve goal rules and default playtest rules" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "maps/v6");
+    defer project.deinit();
+    try project.setTerrainRule(.blob);
+    project.setGoalRule(.collect_all);
+    try project.setStartingLives(3);
+    project.setTriggerRule(.checkpoint);
+    const current = try encode(std.testing.allocator, project);
+    defer std.testing.allocator.free(current);
+    var tileset_bytes: usize = 0;
+    for (project.tileset_lens) |length| tileset_bytes += length;
+    const terrain_rule_offset = magic.len + 2 + 2 + 2 + 2 + layer_count + 4 + 4 + 8 + tileset_bytes;
+    const game_rules_offset = terrain_rule_offset + 2;
+    const legacy = try std.testing.allocator.alloc(u8, current.len - 2);
+    defer std.testing.allocator.free(legacy);
+    @memcpy(legacy[0..game_rules_offset], current[0..game_rules_offset]);
+    @memcpy(legacy[game_rules_offset..], current[game_rules_offset + 2 ..]);
+    legacy[magic.len] = @truncate(goal_rule_schema_version);
+    legacy[magic.len + 1] = @truncate(goal_rule_schema_version >> 8);
+    var checksum_cursor = legacy.len - checksum_len;
+    putU32(legacy, &checksum_cursor, checksum(legacy[0 .. legacy.len - checksum_len]));
+    var decoded = try decode(std.testing.allocator, legacy);
+    defer decoded.deinit();
+    try std.testing.expectEqual(TerrainRule.blob, decoded.terrain_rule);
+    try std.testing.expectEqual(GoalRule.collect_all, decoded.goal_rule);
+    try std.testing.expectEqual(@as(u8, 0), decoded.starting_lives);
+    try std.testing.expectEqual(TriggerRule.metadata, decoded.trigger_rule);
+}
+
+test "version five projects default to reach-goal and playtest rules" {
     var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "maps/v5");
     defer project.deinit();
     try project.setTerrainRule(.blob);
     project.setGoalRule(.collect_all);
+    try project.setStartingLives(3);
+    project.setTriggerRule(.checkpoint);
     const current = try encode(std.testing.allocator, project);
     defer std.testing.allocator.free(current);
     var tileset_bytes: usize = 0;
     for (project.tileset_lens) |length| tileset_bytes += length;
     const terrain_rule_offset = magic.len + 2 + 2 + 2 + 2 + layer_count + 4 + 4 + 8 + tileset_bytes;
     const goal_rule_offset = terrain_rule_offset + 1;
-    const legacy = try std.testing.allocator.alloc(u8, current.len - 1);
+    const legacy = try std.testing.allocator.alloc(u8, current.len - 3);
     defer std.testing.allocator.free(legacy);
     @memcpy(legacy[0..goal_rule_offset], current[0..goal_rule_offset]);
-    @memcpy(legacy[goal_rule_offset..], current[goal_rule_offset + 1 ..]);
-    legacy[magic.len] = @truncate(previous_schema_version);
-    legacy[magic.len + 1] = @truncate(previous_schema_version >> 8);
+    @memcpy(legacy[goal_rule_offset..], current[goal_rule_offset + 3 ..]);
+    legacy[magic.len] = @truncate(terrain_rule_schema_version);
+    legacy[magic.len + 1] = @truncate(terrain_rule_schema_version >> 8);
     var checksum_cursor = legacy.len - checksum_len;
     putU32(legacy, &checksum_cursor, checksum(legacy[0 .. legacy.len - checksum_len]));
     var decoded = try decode(std.testing.allocator, legacy);
     defer decoded.deinit();
     try std.testing.expectEqual(TerrainRule.blob, decoded.terrain_rule);
     try std.testing.expectEqual(GoalRule.reach, decoded.goal_rule);
+    try std.testing.expectEqual(@as(u8, 0), decoded.starting_lives);
+    try std.testing.expectEqual(TriggerRule.metadata, decoded.trigger_rule);
 }
 
 test "version four projects default to cardinal terrain and reach-goal rules" {
@@ -2558,10 +2685,10 @@ test "version four projects default to cardinal terrain and reach-goal rules" {
     var tileset_bytes: usize = 0;
     for (project.tileset_lens) |length| tileset_bytes += length;
     const terrain_rule_offset = magic.len + 2 + 2 + 2 + 2 + layer_count + 4 + 4 + 8 + tileset_bytes;
-    const legacy = try std.testing.allocator.alloc(u8, current.len - 2);
+    const legacy = try std.testing.allocator.alloc(u8, current.len - 4);
     defer std.testing.allocator.free(legacy);
     @memcpy(legacy[0..terrain_rule_offset], current[0..terrain_rule_offset]);
-    @memcpy(legacy[terrain_rule_offset..], current[terrain_rule_offset + 2 ..]);
+    @memcpy(legacy[terrain_rule_offset..], current[terrain_rule_offset + 4 ..]);
     legacy[magic.len] = @truncate(entity_definition_schema_version);
     legacy[magic.len + 1] = @truncate(entity_definition_schema_version >> 8);
     var checksum_cursor = legacy.len - checksum_len;
@@ -2700,25 +2827,56 @@ test "blob terrain persists, refreshes diagonals, and rejects unsafe rule change
     try std.testing.expectEqual(@as(u16, 769), unsafe_project.layerCells(1)[unsafe_index]);
 }
 
-test "goal rules participate in history and Lua export" {
+test "game rules participate in history and Lua export" {
     var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "tiles/world");
     defer project.deinit();
+    project.entities[project.cellIndex(2, 2)] = @intFromEnum(EntityKind.trigger);
     var history = History.init(std.testing.allocator);
     defer history.deinit();
 
     const initial_revision = project.revision;
     try std.testing.expect(try history.setGoalRule(&project, .collect_all));
-    try std.testing.expectEqual(GoalRule.collect_all, project.goal_rule);
-    try std.testing.expectEqual(initial_revision +% 1, project.revision);
-    try std.testing.expect(!(try history.setGoalRule(&project, .collect_all)));
+    try std.testing.expect(try history.setStartingLives(&project, 3));
+    try std.testing.expect(try history.setTriggerRule(&project, .checkpoint));
+    try std.testing.expectEqual(initial_revision +% 3, project.revision);
+    try std.testing.expect(!(try history.setStartingLives(&project, 3)));
+    try std.testing.expectError(error.InvalidGameRule, history.setStartingLives(&project, max_starting_lives + 1));
     const output = try exportLua(std.testing.allocator, project);
     defer std.testing.allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "goal_rule = \"collect_all\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "starting_lives = 3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "trigger_rule = \"checkpoint\"") != null);
 
+    try std.testing.expect(try history.undo(&project));
+    try std.testing.expectEqual(TriggerRule.metadata, project.trigger_rule);
+    try std.testing.expect(try history.undo(&project));
+    try std.testing.expectEqual(@as(u8, 0), project.starting_lives);
     try std.testing.expect(try history.undo(&project));
     try std.testing.expectEqual(GoalRule.reach, project.goal_rule);
     try std.testing.expect(try history.redo(&project));
+    try std.testing.expect(try history.redo(&project));
+    try std.testing.expect(try history.redo(&project));
     try std.testing.expectEqual(GoalRule.collect_all, project.goal_rule);
+    try std.testing.expectEqual(@as(u8, 3), project.starting_lives);
+    try std.testing.expectEqual(TriggerRule.checkpoint, project.trigger_rule);
+}
+
+test "checkpoint rule warns until a trigger is authored" {
+    var project = try Project.initStarter(std.testing.allocator, 8, 6, 16, "tiles/world");
+    defer project.deinit();
+    project.setTriggerRule(.checkpoint);
+    const missing = validate(project);
+    var found_missing = false;
+    for (missing.issues[0..missing.count]) |issue| {
+        if (issue.kind == .checkpoint_without_trigger) found_missing = true;
+    }
+    try std.testing.expect(found_missing);
+
+    project.entities[project.cellIndex(2, 2)] = @intFromEnum(EntityKind.trigger);
+    const authored = validate(project);
+    for (authored.issues[0..authored.count]) |issue| {
+        try std.testing.expect(issue.kind != .checkpoint_without_trigger);
+    }
 }
 
 test "anchored resize preserves semantic cells and is reversible" {
@@ -2734,6 +2892,8 @@ test "anchored resize preserves semantic cells and is reversible" {
     project.layerCells(1)[project.cellIndex(0, 0)] = 23;
     try project.setEntitySchemaName(.pickup, "Loot");
     project.setGoalRule(.collect_all);
+    try project.setStartingLives(3);
+    project.setTriggerRule(.checkpoint);
     const report = try history.resize(&project, 4, 4, .bottom_right);
     try std.testing.expect(report.changed);
     try std.testing.expect(report.clipped());
@@ -2746,16 +2906,22 @@ test "anchored resize preserves semantic cells and is reversible" {
     try std.testing.expectEqual(@as(u16, 8), project.entityFieldAt(rebased, 0));
     try std.testing.expectEqual(@as(u8, 1), project.solid[rebased]);
     try std.testing.expectEqual(GoalRule.collect_all, project.goal_rule);
+    try std.testing.expectEqual(@as(u8, 3), project.starting_lives);
+    try std.testing.expectEqual(TriggerRule.checkpoint, project.trigger_rule);
     try std.testing.expectEqual(Point{ .x = 2, .y = 1 }, project.goal.?);
     try std.testing.expect(try history.undo(&project));
     try std.testing.expectEqual(@as(u16, 6), project.width);
     try std.testing.expectEqual(@as(u16, 23), project.layerCells(1)[project.cellIndex(0, 0)]);
     try std.testing.expect(project.spawn != null);
     try std.testing.expectEqual(Point{ .x = 4, .y = 2 }, project.goal.?);
+    try std.testing.expectEqual(@as(u8, 3), project.starting_lives);
+    try std.testing.expectEqual(TriggerRule.checkpoint, project.trigger_rule);
     try std.testing.expect(try history.redo(&project));
     try std.testing.expectEqual(@as(u16, 4), project.width);
     try std.testing.expectEqual(EntityKind.pickup, project.entityKindAt(project.cellIndex(3, 3)));
     try std.testing.expectEqual(GoalRule.collect_all, project.goal_rule);
+    try std.testing.expectEqual(@as(u8, 3), project.starting_lives);
+    try std.testing.expectEqual(TriggerRule.checkpoint, project.trigger_rule);
     try std.testing.expectEqual(Point{ .x = 2, .y = 1 }, project.goal.?);
 }
 
@@ -2945,6 +3111,14 @@ test "project templates are valid deterministic and undoable" {
             if (template == .blank) GoalRule.reach else GoalRule.collect_all,
             project.goal_rule,
         );
+        try std.testing.expectEqual(
+            if (template == .platformer or template == .arena) @as(u8, 3) else 0,
+            project.starting_lives,
+        );
+        try std.testing.expectEqual(
+            if (template == .platformer or template == .arena) TriggerRule.checkpoint else TriggerRule.metadata,
+            project.trigger_rule,
+        );
         if (template == .puzzle) {
             try std.testing.expectEqualStrings("Crate", project.entitySchemaName(.enemy));
             try std.testing.expectEqualStrings("Switch", project.entitySchemaName(.pickup));
@@ -2960,6 +3134,20 @@ test "project templates are valid deterministic and undoable" {
         try std.testing.expect(try history.undo(&project));
         try std.testing.expectEqual(original_spawn, project.spawn.?);
     }
+    var minimum_platformer = try initProjectTemplate(
+        std.testing.allocator,
+        4,
+        4,
+        16,
+        "tiles/world",
+        .platformer,
+    );
+    defer minimum_platformer.deinit();
+    try std.testing.expect(std.mem.indexOfScalar(
+        u8,
+        minimum_platformer.entities,
+        @intFromEnum(EntityKind.trigger),
+    ) != null);
 }
 
 test "entity schema definitions participate in unified history" {
@@ -3097,7 +3285,7 @@ test "project entity schemas persist typed fields and export metadata" {
     try std.testing.expectEqual(@as(u16, 1), decoded.entityFieldAt(index, 1));
     const output = try exportLua(std.testing.allocator, decoded);
     defer std.testing.allocator.free(output);
-    try std.testing.expect(std.mem.indexOf(u8, output, "schema = 6") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "schema = 7") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "name = \"Guard\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "fields = {4,1,0,0}") != null);
 }
@@ -3215,11 +3403,14 @@ test "Lua export preserves strict layer order and editor metadata" {
     project.entities[entity_index] = @intFromEnum(EntityKind.pickup);
     project.entity_fields[entity_index * max_entity_fields] = 3;
     project.setGoalRule(.collect_all);
+    try project.setStartingLives(3);
+    project.setTriggerRule(.checkpoint);
     const output = try exportLua(std.testing.allocator, project);
     defer std.testing.allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "layers = { \"background\", \"terrain\", \"objects\", \"foreground\" }") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "lupi_metadata = { editor = \"Cria\", schema = 6") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "lupi_metadata = { editor = \"Cria\", schema = 7") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "goal_rule = \"collect_all\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "starting_lives = 3, trigger_rule = \"checkpoint\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "entities = {{ kind = \"pickup\", x = 2, y = 1, value = 3, fields = {3,0,0,0} }") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "smart_terrain = {") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "solid = {[") != null);

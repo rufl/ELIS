@@ -93,7 +93,7 @@ const Notice = enum {
     entity_changed,
     terrain_rule_changed,
     terrain_rule_blocked,
-    goal_rule_changed,
+    game_rule_changed,
     layer_locked,
     layer_lock_changed,
     layer_visibility,
@@ -158,6 +158,25 @@ const Layout = struct {
     palette_y: i32,
     palette_cell: i32,
 };
+const GoalPanelAction = enum { goal_rule, lives_down, lives_up, trigger_rule };
+const goal_panel_actions = [_]GoalPanelAction{ .goal_rule, .lives_down, .lives_up, .trigger_rule };
+
+fn goalPanelActionRect(layout: Layout, right_x: i32, action: GoalPanelAction) Rect {
+    const half_width = @divTrunc(layout.right - 34, 2);
+    return switch (action) {
+        .goal_rule => .{ .x = right_x + 14, .y = 112, .w = layout.right - 28, .h = 30 },
+        .lives_down => .{ .x = right_x + 14, .y = 148, .w = half_width, .h = 28 },
+        .lives_up => .{ .x = right_x + @divTrunc(layout.right, 2) + 3, .y = 148, .w = half_width, .h = 28 },
+        .trigger_rule => .{ .x = right_x + 14, .y = 182, .w = layout.right - 28, .h = 30 },
+    };
+}
+
+fn goalPanelActionAt(layout: Layout, right_x: i32, x: i32, y: i32) ?GoalPanelAction {
+    for (goal_panel_actions) |action| {
+        if (contains(goalPanelActionRect(layout, right_x, action), x, y)) return action;
+    }
+    return null;
+}
 
 const Atlas = struct {
     texture: ?*c.SDL_Texture = null,
@@ -779,7 +798,28 @@ const Studio = struct {
             .collect_all => .reach,
         };
         _ = try self.history.setGoalRule(&self.project, next_rule);
-        self.notice = .goal_rule_changed;
+        self.notice = .game_rule_changed;
+    }
+    fn adjustStartingLives(self: *Studio, delta: i32) !void {
+        try self.finishPointerGesture();
+        const lives: u8 = @intCast(std.math.clamp(
+            @as(i32, self.project.starting_lives) + delta,
+            0,
+            model.max_starting_lives,
+        ));
+        if (try self.history.setStartingLives(&self.project, lives)) {
+            self.notice = .game_rule_changed;
+        }
+    }
+
+    fn cycleTriggerRule(self: *Studio) !void {
+        try self.finishPointerGesture();
+        const rule: model.TriggerRule = switch (self.project.trigger_rule) {
+            .metadata => .checkpoint,
+            .checkpoint => .metadata,
+        };
+        _ = try self.history.setTriggerRule(&self.project, rule);
+        self.notice = .game_rule_changed;
     }
 
     fn togglePresentation(self: *Studio) !void {
@@ -952,10 +992,17 @@ const Studio = struct {
             \\local spawn = metadata.spawn
             \\local goal = metadata.goal
             \\local goal_rule = metadata.goal_rule or "reach"
+            \\local starting_lives = metadata.starting_lives or 0
+            \\local trigger_rule = metadata.trigger_rule or "metadata"
             \\local player_x = spawn.x
             \\local player_y = spawn.y
+            \\local respawn_x = spawn.x
+            \\local respawn_y = spawn.y
+            \\local checkpoint_index = nil
             \\local collected = {}
             \\local won = false
+            \\local game_over = false
+            \\local lives = starting_lives
             \\local pickup_total = 0
             \\local pickup_count = 0
             \\for _, entity in ipairs(entities) do
@@ -977,9 +1024,26 @@ const Studio = struct {
             \\local function reset()
             \\  player_x = spawn.x
             \\  player_y = spawn.y
+            \\  respawn_x = spawn.x
+            \\  respawn_y = spawn.y
+            \\  checkpoint_index = nil
             \\  collected = {}
             \\  pickup_count = 0
+            \\  lives = starting_lives
             \\  won = false
+            \\  game_over = false
+            \\end
+            \\
+            \\local function lose_life()
+            \\  if starting_lives > 0 then
+            \\    lives = lives - 1
+            \\    if lives <= 0 then
+            \\      game_over = true
+            \\      return
+            \\    end
+            \\  end
+            \\  player_x = respawn_x
+            \\  player_y = respawn_y
             \\end
             \\
             \\local function entity_at(x, y)
@@ -992,13 +1056,17 @@ const Studio = struct {
             \\end
             \\
             \\local function try_move(dx, dy)
-            \\  if won then return end
+            \\  if won or game_over then return end
             \\  local next_x = player_x + dx
             \\  local next_y = player_y + dy
             \\  if blocked(next_x, next_y) then return end
             \\  local index, entity = entity_at(next_x, next_y)
             \\  if entity and entity.kind == "enemy" then
-            \\    reset()
+            \\    if starting_lives == 0 and trigger_rule == "metadata" then
+            \\      reset()
+            \\    else
+            \\      lose_life()
+            \\    end
             \\    return
             \\  end
             \\  player_x = next_x
@@ -1006,6 +1074,10 @@ const Studio = struct {
             \\  if entity and entity.kind == "pickup" then
             \\    collected[index] = true
             \\    pickup_count = pickup_count + 1
+            \\  elseif entity and entity.kind == "trigger" and trigger_rule == "checkpoint" then
+            \\    respawn_x = player_x
+            \\    respawn_y = player_y
+            \\    checkpoint_index = index
             \\  end
             \\  if player_x == goal.x and player_y == goal.y and objective_ready() then won = true end
             \\end
@@ -1015,12 +1087,14 @@ const Studio = struct {
             \\  local saved_solid, saved_entities = solid, entities
             \\  local saved_spawn, saved_goal = spawn, goal
             \\  local saved_goal_rule, saved_pickup_total = goal_rule, pickup_total
+            \\  local saved_starting_lives, saved_trigger_rule = starting_lives, trigger_rule
             \\  width, height = 3, 3
             \\  solid = {}
             \\  entities = { { kind = "pickup", x = 0, y = 1 } }
             \\  spawn = { x = 0, y = 0 }
             \\  goal = { x = 1, y = 0 }
             \\  goal_rule = "collect_all"
+            \\  starting_lives, trigger_rule = 0, "metadata"
             \\  pickup_total = 1
             \\  reset()
             \\  try_move(1, 0)
@@ -1035,10 +1109,31 @@ const Studio = struct {
             \\  reset()
             \\  try_move(1, 0)
             \\  assert(won and pickup_count == 0)
+            \\
+            \\  width, height = 4, 1
+            \\  solid = {}
+            \\  entities = {
+            \\    { kind = "trigger", x = 1, y = 0 },
+            \\    { kind = "enemy", x = 2, y = 0 },
+            \\  }
+            \\  spawn = { x = 0, y = 0 }
+            \\  goal = { x = 3, y = 0 }
+            \\  goal_rule = "reach"
+            \\  starting_lives, trigger_rule = 2, "checkpoint"
+            \\  pickup_total = 0
+            \\  reset()
+            \\  try_move(1, 0)
+            \\  assert(checkpoint_index == 1 and respawn_x == 1)
+            \\  try_move(1, 0)
+            \\  assert(not game_over and lives == 1 and player_x == 1)
+            \\  try_move(1, 0)
+            \\  assert(game_over and lives == 0 and player_x == 1)
+            \\
             \\  width, height = saved_width, saved_height
             \\  solid, entities = saved_solid, saved_entities
             \\  spawn, goal = saved_spawn, saved_goal
             \\  goal_rule, pickup_total = saved_goal_rule, saved_pickup_total
+            \\  starting_lives, trigger_rule = saved_starting_lives, saved_trigger_rule
             \\  reset()
             \\end
             \\
@@ -1064,6 +1159,7 @@ const Studio = struct {
             \\      local color = entity.kind == "enemy" and 8 or
             \\        entity.kind == "pickup" and 10 or
             \\        entity.kind == "trigger" and 9 or 13
+            \\      if entity.kind == "trigger" and index == checkpoint_index then color = 11 end
             \\      ui.rectfill(x + 1, y + 1, x + size, y + size, color)
             \\    end
             \\  end
@@ -1071,7 +1167,7 @@ const Studio = struct {
             \\
             \\function update()
             \\  if ui.btnp("BTN_START", 0) then reset() end
-            \\  if not won then
+            \\  if not won and not game_over then
             \\    if ui.btnp("LEFT", 0) then try_move(-1, 0) end
             \\    if ui.btnp("RIGHT", 0) then try_move(1, 0) end
             \\    if ui.btnp("UP", 0) then try_move(0, -1) end
@@ -1094,15 +1190,22 @@ const Studio = struct {
             \\    player_screen_x + player_size, player_screen_y + player_size, 12)
             \\  ui.print("CRIA PLAYTEST // ARROWS MOVE", 8, 8, 7)
             \\  ui.print("PICKUPS " .. pickup_count .. "/" .. pickup_total, 8, 18, 7)
+            \\  ui.print(starting_lives == 0 and "LIVES UNLIMITED" or "LIVES " .. lives, 8, 28, 7)
+            \\  if checkpoint_index then ui.print("CHECKPOINT ACTIVE", 8, 38, 11) end
             \\  if goal_rule == "collect_all" and not objective_ready() then
-            \\    ui.print("GOAL LOCKED // COLLECT ALL", 8, 28, 8)
+            \\    ui.print("GOAL LOCKED // COLLECT ALL", 8, 48, 8)
             \\  else
-            \\    ui.print("GOAL READY", 8, 28, 11)
+            \\    ui.print("GOAL READY", 8, 48, 11)
             \\  end
             \\  if won then
             \\    ui.rectfill(128, 108, 352, 160, 0)
             \\    ui.rect(128, 108, 352, 160, 11)
             \\    ui.print("OBJECTIVE COMPLETE", 176, 124, 11)
+            \\    ui.print("START RESTARTS", 176, 140, 7)
+            \\  elseif game_over then
+            \\    ui.rectfill(128, 108, 352, 160, 0)
+            \\    ui.rect(128, 108, 352, 160, 8)
+            \\    ui.print("OUT OF LIVES", 194, 124, 8)
             \\    ui.print("START RESTARTS", 176, 140, 7)
             \\  end
             \\end
@@ -1166,7 +1269,7 @@ const Studio = struct {
                 self.notice = .playtest_failed;
                 return;
             }
-            std.debug.print("Cria generated playtest: pass (authored objective rules)\n", .{});
+            std.debug.print("Cria generated playtest: pass (objectives, lives, checkpoints)\n", .{});
         } else {
             const argv = [_][]const u8{ runtime_path, root };
             if (!runPlaytestRuntime(self.allocator, io, root, &argv)) {
@@ -1250,6 +1353,30 @@ fn verifyResponsiveLayout(allocator: std.mem.Allocator) !void {
     };
     for (viewports) |viewport| {
         const layout = layoutFor(viewport.width, viewport.height, viewport.presentation);
+        const right_x = viewport.width - layout.right;
+        for (goal_panel_actions, 0..) |action, index| {
+            const rect = goalPanelActionRect(layout, right_x, action);
+            if (rect.x < right_x or rect.y < bar_top or
+                rect.x + rect.w > viewport.width or rect.y + rect.h > viewport.height)
+            {
+                return error.ResponsiveLayoutMismatch;
+            }
+            const found = goalPanelActionAt(
+                layout,
+                right_x,
+                rect.x + @divTrunc(rect.w, 2),
+                rect.y + @divTrunc(rect.h, 2),
+            ) orelse return error.ResponsiveLayoutMismatch;
+            if (found != action) return error.ResponsiveLayoutMismatch;
+            for (goal_panel_actions[0..index]) |previous| {
+                const other = goalPanelActionRect(layout, right_x, previous);
+                if (rect.x < other.x + other.w and rect.x + rect.w > other.x and
+                    rect.y < other.y + other.h and rect.y + rect.h > other.y)
+                {
+                    return error.ResponsiveLayoutMismatch;
+                }
+            }
+        }
         if (layout.left + layout.right >= viewport.width) return error.ResponsiveLayoutMismatch;
         const canvas = canvasLayout(project, viewport.width, viewport.height, .edit, layout);
         if (canvas.cell < 2 or
@@ -1790,6 +1917,8 @@ fn handleKey(
         c.SDLK_k => {
             if (studio.tool == .entity and studio.entity_schema_editing) {
                 try studio.cycleEntityFieldKind();
+            } else if (studio.tool == .goal) {
+                try studio.cycleTriggerRule();
             }
         },
         c.SDLK_INSERT => {
@@ -1807,6 +1936,8 @@ fn handleKey(
                 );
             } else if (studio.tool == .entity) {
                 studio.adjustEntityValue(-1);
+            } else if (studio.tool == .goal) {
+                try studio.adjustStartingLives(-1);
             }
         },
         c.SDLK_EQUALS => {
@@ -1819,6 +1950,8 @@ fn handleKey(
                 );
             } else if (studio.tool == .entity) {
                 studio.adjustEntityValue(1);
+            } else if (studio.tool == .goal) {
+                try studio.adjustStartingLives(1);
             }
         },
         c.SDLK_c => {
@@ -2060,6 +2193,8 @@ fn handleController(
             studio.transformStamp(.horizontal);
         } else if (studio.tool == .entity) {
             studio.cycleEntityKind(-1);
+        } else if (studio.tool == .goal) {
+            try studio.adjustStartingLives(-1);
         } else previousTile(studio);
     }
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) {
@@ -2067,6 +2202,8 @@ fn handleController(
             studio.transformStamp(.vertical);
         } else if (studio.tool == .entity) {
             studio.cycleEntityKind(1);
+        } else if (studio.tool == .goal) {
+            try studio.adjustStartingLives(1);
         } else nextTile(studio, tile_count);
     }
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_LEFTSTICK)) {
@@ -2075,6 +2212,8 @@ fn handleController(
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_RIGHTSTICK)) {
         if (studio.tool == .stamp) {
             studio.transformStamp(.clockwise);
+        } else if (studio.tool == .goal) {
+            try studio.cycleTriggerRule();
         } else try cycleLayerAsset(allocator, renderer, studio, atlases, game_root, workspace, 1);
     }
     if (pressed(&current, previous, c.SDL_CONTROLLER_BUTTON_BACK)) try studio.togglePreview();
@@ -2173,7 +2312,12 @@ fn handleChromeClick(
             return;
         }
         if (studio.tool == .goal) {
-            if (y >= 112 and y < 146) try studio.cycleGoalRule();
+            switch (goalPanelActionAt(layout, right_x, x, y) orelse return) {
+                .goal_rule => try studio.cycleGoalRule(),
+                .lives_down => try studio.adjustStartingLives(-1),
+                .lives_up => try studio.adjustStartingLives(1),
+                .trigger_rule => try studio.cycleTriggerRule(),
+            }
             return;
         }
         if (studio.tool == .entity) {
@@ -2439,7 +2583,7 @@ fn render(
         }
         break :blk 438;
     } else if (studio.tool == .goal) blk: {
-        drawText(renderer, right_x + 18, 70, 1, "GOAL & OBJECTIVE", 154, 184, 222);
+        drawText(renderer, right_x + 18, 70, 1, "GOAL + PLAYTEST RULES", 154, 184, 222);
         const goal_position = if (studio.project.goal) |goal|
             std.fmt.bufPrint(&buffer, "GOAL CELL  {d},{d}", .{ goal.x, goal.y }) catch "GOAL CELL"
         else
@@ -2447,32 +2591,47 @@ fn render(
         drawText(renderer, right_x + 18, 88, 1, goal_position, 236, 199, 110);
         button(
             renderer,
-            .{ .x = right_x + 14, .y = 112, .w = layout.right - 28, .h = 34 },
+            goalPanelActionRect(layout, right_x, .goal_rule),
             model.goalRuleLabel(studio.project.goal_rule),
             true,
         );
+        button(renderer, goalPanelActionRect(layout, right_x, .lives_down), "- LIVES", false);
+        button(renderer, goalPanelActionRect(layout, right_x, .lives_up), "+ LIVES", false);
+        button(
+            renderer,
+            goalPanelActionRect(layout, right_x, .trigger_rule),
+            model.triggerRuleLabel(studio.project.trigger_rule),
+            studio.project.trigger_rule == .checkpoint,
+        );
+        const lives_label = if (studio.project.starting_lives == 0)
+            "STARTING LIVES  UNLIMITED"
+        else
+            std.fmt.bufPrint(&buffer, "STARTING LIVES  {d}", .{studio.project.starting_lives}) catch "STARTING LIVES";
+        drawText(renderer, right_x + 18, 220, 1, lives_label, 236, 199, 110);
         var pickup_count: usize = 0;
         for (studio.project.entities) |raw_kind| {
             if (raw_kind == @intFromEnum(model.EntityKind.pickup)) pickup_count += 1;
         }
         const pickup_label = std.fmt.bufPrint(&buffer, "AUTHORED PICKUPS  {d}", .{pickup_count}) catch "AUTHORED PICKUPS";
-        drawText(renderer, right_x + 18, 164, 1, pickup_label, 154, 184, 222);
-        drawText(
+        drawText(renderer, right_x + 18, 238, 1, pickup_label, 154, 184, 222);
+        drawTextClipped(
             renderer,
             right_x + 18,
-            184,
+            256,
             1,
             if (studio.project.goal_rule == .reach)
                 "WIN WHEN THE PLAYER REACHES GOAL"
             else
                 "COLLECT EVERY PICKUP, THEN GOAL",
+            @intCast(@max(@divTrunc(layout.right - 36, font.advance), 1)),
             203,
             213,
             225,
         );
-        drawText(renderer, right_x + 18, 208, 1, "Q / CLICK / GAMEPAD X CYCLES", 125, 145, 173);
-        drawText(renderer, right_x + 18, 226, 1, "SAVED, EXPORTED, AND PLAYTESTED", 125, 145, 173);
-        break :blk 270;
+        drawText(renderer, right_x + 18, 280, 1, "Q / GAMEPAD X  OBJECTIVE", 125, 145, 173);
+        drawText(renderer, right_x + 18, 298, 1, "-/+ / SHOULDERS  LIVES", 125, 145, 173);
+        drawText(renderer, right_x + 18, 316, 1, "K / RSTICK  TRIGGER MODE", 125, 145, 173);
+        break :blk 350;
     } else if (studio.tool == .entity) blk: {
         drawText(
             renderer,
@@ -2769,7 +2928,7 @@ fn drawShortcutOverlay(renderer: *c.SDL_Renderer, width: i32, height: i32) void 
         "B  PENCIL       T  SMART",
         "E  ERASER       F  FILL",
         "P  PICK         C  COLLISION",
-        "S  START        G  GOAL (Q RULE)",
+        "S  START        G  GOAL + RULES",
         "I  ENTITY       R  SELECT",
         "M  STAMP        L  LINE",
         "D  RECTANGLE    N  RESIZE",
@@ -2777,13 +2936,13 @@ fn drawShortcutOverlay(renderer: *c.SDL_Renderer, width: i32, height: i32) void 
     const right = [_][]const u8{
         "ARROWS  MOVE CURSOR",
         "SPACE / ENTER  APPLY",
-        "BACKSPACE  ERASE",
-        "[ ]  TILE/FIELD  Q  CONTEXT RULE",
+        "BACKSPACE ERASE  [ ] TILE/FIELD",
+        "GOAL  Q OBJECTIVE  -/+ LIVES",
+        "GOAL  K TRIGGERS",
         "F5  EXPORT       F6  PREVIEW",
         "F7  EDIT         F8  NEW WORLD",
         "F9  PLAYTEST     TAB  PRESENTATION",
         "CTRL-Z / CTRL-Y  UNDO / REDO",
-        "A / B  APPLY / ERASE (CONTROLLER)",
     };
     for (left, 0..) |line, index| {
         drawText(renderer, left_x, panel.y + 116 + @as(i32, @intCast(index)) * 22, 1, line, ui_theme.text.r, ui_theme.text.g, ui_theme.text.b);
@@ -3366,7 +3525,7 @@ fn guideLine(tool: Tool) []const u8 {
         .pick => "COPY A TILE FROM THE MAP.",
         .collision => "RED CELLS BLOCK THE PLAYER.",
         .spawn => "CHOOSE WHERE PLAY BEGINS.",
-        .goal => "PLACE GOAL; Q SETS RULE.",
+        .goal => "PLACE GOAL; SET PLAYTEST RULES.",
         .entity => "PLACE TYPED GAMEPLAY OBJECTS.",
         .select => "DRAG A RECTANGLE TO MAKE A STAMP.",
         .stamp => "PAINT YOUR SAVED STAMP ANYWHERE.",
@@ -3397,7 +3556,7 @@ fn drawNotice(renderer: *c.SDL_Renderer, studio: *const Studio, width: i32, heig
         .entity_changed => "ENTITY TYPE OR FIELD VALUE CHANGED",
         .terrain_rule_changed => "TERRAIN RULE CHANGED - SMART CELLS REBUILT",
         .terrain_rule_blocked => "BLOB RULE NEEDS A BASE TILE AT OR BELOW 768",
-        .goal_rule_changed => "GOAL RULE CHANGED - PLAYTEST OBJECTIVE UPDATED",
+        .game_rule_changed => "PLAYTEST RULES CHANGED - SAVE AND EXPORT UPDATED",
         .layer_locked => "LAYER LOCKED - UNLOCK IT TO PAINT",
         .layer_lock_changed => "LAYER LOCK STATE CHANGED FOR THIS SESSION",
         .layer_visibility => "LAYER VISIBILITY CHANGED FOR THIS SESSION",
@@ -3463,6 +3622,7 @@ fn issueLabel(kind: model.IssueKind) []const u8 {
         .goal_blocked => "ERROR: GOAL IS BLOCKED",
         .goal_unreachable => "ERROR: GOAL UNREACHABLE",
         .invalid_entity_fields => "ERROR: INVALID ENTITY FIELDS",
+        .checkpoint_without_trigger => "WARN: CHECKPOINT RULE NEEDS TRIGGER",
         .entity_blocked => "WARN: ENTITY ON COLLISION",
         .empty_background => "WARN: BACKGROUND EMPTY",
     };

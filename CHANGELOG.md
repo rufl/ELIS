@@ -6,12 +6,14 @@
   to the source commit, exact archive sizes, and SHA-256 hashes, with focused
   rejection coverage for incomplete, mutable-name, symlink, and replacement
   inputs.
-- Added persisted, undoable Cria objective rules for reaching the goal or
-  collecting every pickup first. The Goal inspector supports pointer, keyboard,
-  and controller input; project templates choose intentional defaults;
-  `.elisworld` v6 migrates v5 projects to reach-goal; Lua export records the
-  rule; generated playtests enforce and smoke-probe both behaviors. Anchored map
-  resize now also preserves or rebases the goal marker as documented.
+- Extended Cria's persisted gameplay rules with starting lives and
+  metadata/checkpoint trigger behavior. The Goal inspector supports pointer,
+  keyboard, and controller input; Platformer and RPG Room templates author
+  finite lives and checkpoints; `.elisworld` v7 migrates v6 projects to
+  unlimited lives and metadata-only triggers; Lua export records every rule;
+  generated playtests enforce and smoke-probe objectives, life loss, game-over,
+  checkpoint respawn, and full reset. Anchored map resize continues to preserve
+  or rebase the goal marker.
 - Evolved Cria's generated PLAYTEST/F9 wrapper into an interactive starter
   cartridge: arrow movement, solid-cell collision, enemy reset, pickup counting,
   goal feedback, camera clamping, and START reset now exercise authored worlds

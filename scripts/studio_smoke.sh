@@ -36,14 +36,14 @@ env SDL_VIDEODRIVER=dummy \
   --playtest-smoke \
   --capture="$work/studio.bmp" \
   --smoke 2>&1 | tee "$work/studio.log"
-grep -q 'Cria generated playtest: pass (authored objective rules)' "$work/studio.log"
+grep -q 'Cria generated playtest: pass (objectives, lives, checkpoints)' "$work/studio.log"
 
 test -s "$work/starter.elisworld"
 test -s "$work/starter.lua"
 test -s "$work/studio.bmp"
 grep -q 'layers = { "background", "terrain", "objects", "foreground" }' "$work/starter.lua"
-grep -q 'lupi_metadata = { editor = "Cria", schema = 6' "$work/starter.lua"
-grep -q 'goal_rule = "reach"' "$work/starter.lua"
+grep -q 'lupi_metadata = { editor = "Cria", schema = 7' "$work/starter.lua"
+grep -q 'goal_rule = "reach", starting_lives = 0, trigger_rule = "metadata"' "$work/starter.lua"
 grep -q 'entities = {' "$work/starter.lua"
 grep -q 'entity_schemas = {' "$work/starter.lua"
 grep -q 'smart_terrain = {' "$work/starter.lua"
@@ -117,6 +117,27 @@ env SDL_VIDEODRIVER=dummy \
 grep -q 'enemy = { name = "Crate"' "$work/puzzle.lua"
 grep -q 'pickup = { name = "Switch"' "$work/puzzle.lua"
 grep -q 'kind = "trigger"' "$work/puzzle.lua"
+
+# Persist, export, and reload the non-default finite-life/checkpoint template.
+env SDL_VIDEODRIVER=dummy \
+  ./zig-out/bin/elis-studio \
+  --game-root="$work/game" \
+  --project="$work/platformer.elisworld" \
+  --export="$work/platformer.lua" \
+  --template=platformer \
+  --save-export \
+  --smoke
+grep -q 'goal_rule = "collect_all", starting_lives = 3, trigger_rule = "checkpoint"' \
+  "$work/platformer.lua"
+grep -q 'kind = "trigger"' "$work/platformer.lua"
+env SDL_VIDEODRIVER=dummy \
+  ./zig-out/bin/elis-studio \
+  --game-root="$work/game" \
+  --project="$work/platformer.elisworld" \
+  --export="$work/platformer-reloaded.lua" \
+  --save-export \
+  --smoke
+cmp "$work/platformer.lua" "$work/platformer-reloaded.lua"
 
 # Reload the exact saved artifact through the compact, reduced-motion Studio
 # presentation. Together with the roomy default capture this exercises both
