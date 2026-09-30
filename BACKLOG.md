@@ -28,11 +28,13 @@ summary below mirrors these rows and is not an independent completion signal.
   and `python3 scripts/test_mr_rescue_hardware_gate.py` passed. This proves the
   bounded desktop/package and proof-record paths; it does **not** close the
   named-board frame-time, memory, or soak gate.
-- **2026-09-27 — deployment smoke contract:** the merged CI artifact run
-  `36325436323` passed Linux/Windows builds, extracted-package smoke, and
-  Verify while exercising `--package-smoke`. This proves the receiver-facing
-  package command; it does **not** publish to a receiver or close named-board
-  hardware proof.
+- **2026-09-30 — rc.9 release and deployment:** main CI runs
+  `36740734199` and `36740734247` passed Linux/Windows builds,
+  extracted-package smoke, and Verify. Release run `36740841546` published
+  `v0.1.0-rc.9` with per-target manifests, the aggregate ZTASH manifest, and
+  passing SHA-256 records. DDJARIN and CHOPPER both report the exact rc.9
+  package identity active and current; the immutable values and deployment IDs
+  are recorded in `.overzeer/elis-package-smoke-proof.md`.
 
 
 <!-- OVERZEER:DOCS_BACKLOG_BEGIN -->

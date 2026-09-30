@@ -1,11 +1,11 @@
 ELIS_PACKAGE_SMOKE_PROOF_V1
 status=passed
-source_commit=d999355d254c57453a061b2028491be274375936
-ci_build_run=https://github.com/rufl/ELIS/actions/runs/36687673612
-ci_verify_run=https://github.com/rufl/ELIS/actions/runs/36687673429
-release=v0.1.0-rc.8
-release_workflow_run=https://github.com/rufl/ELIS/actions/runs/36688831624
-checked_utc=2026-09-30T08:47:40Z
+source_commit=44795f3484135ecbf6c928b17a92752bc395fe84
+ci_build_run=https://github.com/rufl/ELIS/actions/runs/36740734199
+ci_verify_run=https://github.com/rufl/ELIS/actions/runs/36740734247
+release=v0.1.0-rc.9
+release_workflow_run=https://github.com/rufl/ELIS/actions/runs/36740841546
+checked_utc=2026-09-30T16:48:56Z
 contract=--package-smoke
 commands=
   ./zig-out/bin/elis --package-smoke
@@ -17,11 +17,12 @@ results=
   extracted Linux smoke including --package-smoke: pass
   extracted Windows smoke including --package-smoke: pass
   Verify: pass
-  rc.8 release archives and manifests: SHA256SUMS pass
+  rc.9 release archives, per-target manifests, aggregate ZTASH manifest, and SHA256SUMS: pass
+  ZTASH immutable preview for ddjarin/windows-x86_64 and chopper/linux-x86_64: pass
 scope=release-package and deployment-smoke contract only
 hardware_status=not applicable
-deployment_release=v0.1.0-rc.8
-deployment_preview=remote immutable receiver previews passed for ddjarin/windows-x86_64 and chopper/linux-x86_64
-deployment_ddjarin=passed: native deployment completed; deployment_id=4bbe60fd8d2de104221ac603b7161d2d version=0.1.0-rc.8 build_id=d999355d254c57453a061b2028491be274375936 sha256=e0b1980a4d023be6f5a5bc953e9fd29574d9655ce39334aa5b5294edefeb7581 size=127721495 active=true freshness=current status=succeeded
-deployment_chopper=passed: native deployment completed; deployment_id=b802d0228925f7fd28a76ece7ecc6b8f version=0.1.0-rc.8 build_id=d999355d254c57453a061b2028491be274375936 sha256=a96302ce3dae9a9951839f3ac805a69ee71ce6c30974b23abbf7203b4eefa188 size=2361935 active=true freshness=current status=succeeded
-deployment_unblock=none: both configured receivers report the requested version, build_id, SHA-256, size, active=true, freshness=current, and status=succeeded
+deployment_release=v0.1.0-rc.9
+deployment_preview=passed: exact rc.9 archives matched the aggregate manifest for ddjarin/windows-x86_64 and chopper/linux-x86_64 before mutation
+deployment_ddjarin=passed: authenticated curl deployment completed after the receiver returned; deployment_id=f141f544ed4a787654c54ab1cf4fefdd version=0.1.0-rc.9 build_id=44795f3484135ecbf6c928b17a92752bc395fe84 sha256=bef43b7d3d2b5bbea94178ae2d747a2bff290f3fee4d88ee24c79478d456d167 size=127723448 active=true freshness=current
+deployment_chopper=passed: authenticated curl deployment completed; deployment_id=3450d77ab0b19d875436fbe526850318 version=0.1.0-rc.9 build_id=44795f3484135ecbf6c928b17a92752bc395fe84 sha256=9f7634426e1d90b2d3f26c148e74c02b4acf0bae26ecd69267a9cf54fafa33ae size=2365505 active=true freshness=current
+deployment_unblock=none: both configured receivers report the requested version, build_id, SHA-256, size, active=true, and freshness=current
