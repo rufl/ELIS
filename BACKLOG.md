@@ -32,10 +32,9 @@ summary below mirrors these rows and is not an independent completion signal.
   `36740734199` and `36740734247` passed Linux/Windows builds,
   extracted-package smoke, and Verify. Release run `36740841546` published
   `v0.1.0-rc.9` with per-target manifests, the aggregate ZTASH manifest, and
-  passing SHA-256 records. CHOPPER reports the exact Linux package active and
-  current. DDJARIN went offline during its upload, so fleet deployment remains
-  open until that endpoint returns and reports the exact Windows identity;
-  `.overzeer/elis-package-smoke-proof.md` records the immutable details.
+  passing SHA-256 records. DDJARIN and CHOPPER both report the exact rc.9
+  package identity active and current; the immutable values and deployment IDs
+  are recorded in `.overzeer/elis-package-smoke-proof.md`.
 
 
 <!-- OVERZEER:DOCS_BACKLOG_BEGIN -->
