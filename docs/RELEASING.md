@@ -89,6 +89,13 @@ at the exact workflow commit with archives, dependency manifests, and SHA256SUMS
 Existing releases must not be overwritten. Binaries are unsigned; checksums
 detect corruption but are not a substitute for code-signing identity.
 
+Every published prerelease also includes `ztash-release.json`. It binds the
+Linux and Windows archives to one source commit, byte size, and SHA-256 so
+`/ztash this` can preview every compatible receiver before deployment. The
+manifest and both archives are covered by the release's `SHA256SUMS`; successful
+headless activation remains dogfood evidence, not signing, graphics, or
+hardware approval.
+
 ## Local artifact publication
 
 Both packagers exclusively lock their output directory with `.elis-artifacts.lock`

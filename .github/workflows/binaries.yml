@@ -139,9 +139,25 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: artifacts
+      - name: Generate immutable ZTASH release manifest
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          source_epoch="$(git show -s --format=%ct "$SOURCE_SHA")"
+          python3 scripts/package_ztash_manifest.py \
+            --version "$RELEASE_VERSION" \
+            --build-id "$SOURCE_SHA" \
+            --source-commit "$SOURCE_SHA" \
+            --source-date-epoch "$source_epoch" \
+            --artifact "x86_64-linux=artifacts/linux-x86_64/elis-$RELEASE_VERSION-linux-x86_64.tar.gz" \
+            --artifact "x86_64-windows-gnu=artifacts/windows-x86_64/elis-$RELEASE_VERSION-windows-x86_64.zip" \
+            --output artifacts/ztash-release.json
       - name: Publish immutable prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -160,5 +176,5 @@ jobs:
           files = sorted(p for p in Path('artifacts').rglob('*') if p.is_file() and p.name != 'SHA256SUMS')
           checksums = Path('SHA256SUMS')
           checksums.write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
-          subprocess.run(['gh', 'release', 'create', 'v' + version, '--target', os.environ['SOURCE_SHA'], '--prerelease', '--title', 'ELIS ' + version, '--notes', 'Experimental x86-64 binaries. Linux requires Ubuntu 24.04 runtime libraries documented in the archive. Windows includes native DLL dependencies and their notices. Unsigned binaries; no hardware certification. Mr. Rescue is not bundled.', *map(str, files), str(checksums)], check=True)
+          subprocess.run(['gh', 'release', 'create', 'v' + version, '--target', os.environ['SOURCE_SHA'], '--prerelease', '--title', 'ELIS ' + version, '--notes', 'Experimental x86-64 binaries with an immutable ZTASH deployment manifest. Linux requires Ubuntu 24.04 runtime libraries documented in the archive. Windows includes native DLL dependencies and their notices. Unsigned binaries; no hardware certification. Mr. Rescue is not bundled.', *map(str, files), str(checksums)], check=True)
           PY
