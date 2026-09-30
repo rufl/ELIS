@@ -41,6 +41,11 @@ The workflow takes ZYLVE World Studio's directness and mode-aware controller
 edges, DINX's authoritative source/history/validation boundaries, ZNAP's clear
 workspace and dirty-state ownership, and PIWEBQOL's responsive density,
 minimum-size, reduced-motion, and input-equivalence policies.
+F9 / PLAYTEST runs a generated interactive starter cartridge for the current
+world. Arrow buttons move one cell, solid cells block movement, enemy entities
+reset the player, pickup entities are counted, and reaching the goal shows a
+success panel; START resets the run. This is bounded prototyping support, not a
+claim that entity schemas become runtime behavior in the exported Lua map.
 
 Studio does not modify the indexed simulator framebuffer, Lua globals, palette,
 input state, or timing. Export is an explicit file operation. Preview is an
@@ -180,7 +185,7 @@ proof.
 | F5 | Finish the active pointer gesture, then export the Lua map |
 | F6 / F7 | Enter editor preview / return to edit |
 | F8 | Open or close the project-template panel |
-| F9 | Generate a temporary runtime wrapper and open the current world in the simulator |
+| F9 | Generate a temporary interactive runtime wrapper and open the current world in the simulator |
 | Up/Down, Enter in template panel | Select and apply a template |
 | Template panel Apply button | Apply the selected template with the pointer |
 | Gamepad D-pad | Move cursor; adjust Resize dimensions; choose a Template |
@@ -213,10 +218,13 @@ For automation, `--save-export --smoke` writes the project and Lua map, renders
 a bounded native session, then exits. `--capture=path.bmp` retains the rendered
 editor frame.
 
-`--playtest-smoke` generates the same temporary runtime wrapper, copies the
-selected tilesets, runs one real simulator screenshot, verifies the frame, and
-cleans the wrapper directory before returning. The toolbar PLAYTEST button and
-F9 use the interactive form and return to Cria after the simulator closes.
+`--playtest-smoke` generates the same temporary interactive runtime wrapper,
+copies the selected tilesets, runs one real simulator screenshot, verifies the
+frame, and cleans the wrapper directory before returning. The generated starter
+loop exercises movement, collision, entity rendering, pickup counting, goal
+feedback, and reset wiring; it does not replace hand-authored game logic. The
+toolbar PLAYTEST button and F9 use the interactive form and return to Cria after
+the simulator closes.
 
 `--game-root` loads `lupi_manifest.txt`, `palette.lua`, and the selected raw
 bitmap assets. Palette values use Lupi's `0RRRRRGGGGGBBBBB` RGB555 contract.
@@ -242,8 +250,10 @@ window-size flags support deterministic UI proof.
 
 ## Next mature slice
 
-The configurable cardinal/blob terrain-rule slice is complete in `.elisworld`
-v5, with focused model coverage and native/package smoke proof. Further Cria
-authoring additions require a new bounded acceptance and proof item. Physical
-controller approval remains separate evidence from automated
-keyboard/pointer and generated-playtest proof.
+The configurable cardinal/blob terrain-rule slice in `.elisworld` v5 and the
+interactive starter playtest slice are complete, with focused model and native
+package smoke proof. Cria can turn a validated world into a bounded, playable
+prototype without mutating the saved project. Further gameplay authoring
+requires a new bounded acceptance and proof item. Physical controller approval
+remains separate evidence from automated keyboard/pointer and generated-
+playtest proof.

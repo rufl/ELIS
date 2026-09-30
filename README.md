@@ -183,7 +183,9 @@ over the same authoritative project and command history:
 - responsive 960×600 compact and roomy layouts, reduced-motion mode, friendly
   contextual teaching, a one-key presentation switch, and an unsaved-close
   Save/Discard guard for mouse, keyboard, and controller users;
-- a chrome-free validated map preview plus native save/export/reload smoke.
+- a chrome-free validated map preview, plus an interactive starter playtest that
+  moves through collision, renders typed entities, counts pickups, and reports
+  the goal without mutating the saved project;
 
 Open a project using the game manifest and palette source as its asset workspace:
 
