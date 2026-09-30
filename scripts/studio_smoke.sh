@@ -35,7 +35,8 @@ env SDL_VIDEODRIVER=dummy \
   --save-export \
   --playtest-smoke \
   --capture="$work/studio.bmp" \
-  --smoke
+  --smoke 2>&1 | tee "$work/studio.log"
+grep -q 'Cria generated playtest: pass (interactive starter)' "$work/studio.log"
 
 test -s "$work/starter.elisworld"
 test -s "$work/starter.lua"

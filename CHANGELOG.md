@@ -1,6 +1,11 @@
 # ELIS Changelog
 
 ## Unreleased
+- Evolved Cria's generated PLAYTEST/F9 wrapper into an interactive starter
+  cartridge: arrow movement, solid-cell collision, enemy reset, pickup counting,
+  goal feedback, camera clamping, and START reset now exercise authored worlds
+  through the real simulator without changing the saved project or exported map
+  contract.
 - Polished Cria's editor presentation with semantic UI color tokens, a
   framed map header, active tool/layer footer context, dirty-state save
   emphasis, and hover/focus feedback with compact-layout label clipping.
