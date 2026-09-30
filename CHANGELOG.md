@@ -1,6 +1,11 @@
 # ELIS Changelog
 
 ## Unreleased
+- Made ELIS prereleases directly deployable through `/ztash this`: the binary
+  workflow now publishes an immutable two-platform `ztash-release.json` bound
+  to the source commit, exact archive sizes, and SHA-256 hashes, with focused
+  rejection coverage for incomplete, mutable-name, symlink, and replacement
+  inputs.
 - Added persisted, undoable Cria objective rules for reaching the goal or
   collecting every pickup first. The Goal inspector supports pointer, keyboard,
   and controller input; project templates choose intentional defaults;
