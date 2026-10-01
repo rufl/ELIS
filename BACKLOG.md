@@ -28,11 +28,11 @@ summary below mirrors these rows and is not an independent completion signal.
   and `python3 scripts/test_mr_rescue_hardware_gate.py` passed. This proves the
   bounded desktop/package and proof-record paths; it does **not** close the
   named-board frame-time, memory, or soak gate.
-- **2026-10-01 — rc.10 release and deployment:** main CI runs
-  `36861519499` and `36861519466` passed Verify, Linux/Windows builds, and
-  extracted-package smoke. Release run `36864402637` published
-  `v0.1.0-rc.10` with per-target manifests, the aggregate ZTASH manifest, and
-  passing SHA-256 records. DDJARIN and CHOPPER both report the exact rc.10
+- **2026-10-01 — rc.11 release and deployment:** main CI runs
+  `36869449154` and `36869449140` passed Verify, Linux/Windows builds, and
+  extracted-package smoke. Release run `36869479011` published
+  `v0.1.0-rc.11` with per-target manifests, the aggregate ZTASH manifest, and
+  passing SHA-256 records. DDJARIN and CHOPPER both report the exact rc.11
   package identity active and current; immutable values and deployment IDs are
   recorded in `.overzeer/elis-package-smoke-proof.md`.
 
