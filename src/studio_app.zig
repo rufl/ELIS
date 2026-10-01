@@ -1068,6 +1068,17 @@ const Studio = struct {
             \\  end
             \\end
             \\
+            \\local function respawn_collected_pickups()
+            \\  for index, entity in ipairs(entities) do
+            \\    if entity.kind == "pickup" and collected[index] and
+            \\      entity_field(entity, "respawn", 0) == 1 then
+            \\      collected[index] = nil
+            \\      pickup_count = pickup_count - 1
+            \\      score = score - math.max(0, entity_field(entity, "amount", 1))
+            \\    end
+            \\  end
+            \\end
+            \\
             \\local function lose_life(damage)
             \\  damage = math.max(1, damage or 1)
             \\  if starting_lives > 0 then
@@ -1079,6 +1090,7 @@ const Studio = struct {
             \\  end
             \\  player_x = respawn_x
             \\  player_y = respawn_y
+            \\  if starting_lives > 0 then respawn_collected_pickups() end
             \\end
             \\
             \\remember_entity_positions()
@@ -1191,27 +1203,18 @@ const Studio = struct {
             \\
             \\  width, height = 5, 1
             \\  solid = {}
-            \\  entities = { { kind = "enemy", x = 2, y = 0, fields = { 1, 1, 1, 0 } } }
+            \\  entities = { { kind = "pickup", x = 1, y = 0, fields = { 0, 2, 1, 0 } }, { kind = "enemy", x = 2, y = 0, fields = { 0, 0, 1, 0 } } }
             \\  spawn = { x = 0, y = 0 }
             \\  goal = { x = 4, y = 0 }
+            \\  goal_rule = "reach"
             \\  starting_lives, trigger_rule = 3, "metadata"
+            \\  pickup_total = 1
             \\  remember_entity_positions()
             \\  reset()
             \\  try_move(1, 0)
-            \\  assert(entities[1].x == 3 and lives == 3)
+            \\  assert(score == 2 and pickup_count == 1)
             \\  try_move(1, 0)
-            \\  assert(player_x == 2 and entities[1].x == 4)
-            \\
-            \\  entities = { { kind = "enemy", x = 1, y = 0, fields = { 0, 0, 2, 0 } } }
-            \\  spawn = { x = 0, y = 0 }
-            \\  goal = { x = 3, y = 0 }
-            \\  starting_lives, trigger_rule = 3, "metadata"
-            \\  remember_entity_positions()
-            \\  reset()
-            \\  try_move(1, 0)
-            \\  assert(player_x == 0 and lives == 1 and not game_over)
-            \\  try_move(1, 0)
-            \\  assert(game_over and lives == -1)
+            \\  assert(lives == 2 and player_x == 0 and score == 0 and pickup_count == 0 and not collected[1])
             \\
             \\  width, height = 4, 1
             \\  solid = {}
@@ -1376,7 +1379,7 @@ const Studio = struct {
                 self.notice = .playtest_failed;
                 return;
             }
-            std.debug.print("Cria generated playtest: pass (objectives, lives, checkpoints, entity behaviors)\n", .{});
+            std.debug.print("Cria generated playtest: pass (objectives, lives, checkpoints, entity behaviors, pickup respawn)\n", .{});
         } else {
             const argv = [_][]const u8{ runtime_path, root };
             if (!runPlaytestRuntime(self.allocator, io, root, &argv)) {

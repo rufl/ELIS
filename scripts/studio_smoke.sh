@@ -36,7 +36,7 @@ env SDL_VIDEODRIVER=dummy \
   --playtest-smoke \
   --capture="$work/studio.bmp" \
   --smoke 2>&1 | tee "$work/studio.log"
-grep -q 'Cria generated playtest: pass (objectives, lives, checkpoints, entity behaviors)' "$work/studio.log"
+grep -q 'Cria generated playtest: pass (objectives, lives, checkpoints, entity behaviors, pickup respawn)' "$work/studio.log"
 
 test -s "$work/starter.elisworld"
 test -s "$work/starter.lua"
