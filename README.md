@@ -166,8 +166,9 @@ over the same authoritative project and command history:
 - pencil, line, outline/filled rectangle, configurable 16-variant cardinal or
   256-variant blob smart terrain, erase, contiguous fill, pick, collision,
   player-spawn, and goal tools; undoable reach/collect-all objectives, starting
-  lives, and trigger/checkpoint rules; typed entities with an undoable
-  project-schema editor; rectangle selection; and reusable transformable stamps;
+  lives, and trigger/checkpoint rules; typed entities with editable behavior
+  fields, an undoable project-schema editor; rectangle selection; and reusable
+  transformable stamps;
 - independent manifest-backed tileset selection plus session visibility and
   painting locks for every visual layer, and source-defined `palette.lua` RGB555
   preview with diagnostic fallback colors;
@@ -185,9 +186,10 @@ over the same authoritative project and command history:
   contextual teaching, a one-key presentation switch, and an unsaved-close
   Save/Discard guard for mouse, keyboard, and controller users;
 - a chrome-free validated map preview, plus an interactive starter playtest that
-  moves through collision, renders typed entities, counts pickups, applies
-  authored objectives, spends finite lives, and respawns at authored checkpoint
-  triggers without mutating the saved project;
+  moves through collision, renders typed entities, counts and scores pickups,
+  patrols authored enemies, applies enemy damage, enforces authored objectives,
+  spends finite lives, and respawns at authored checkpoint triggers without
+  mutating the saved project;
 
 Open a project using the game manifest and palette source as its asset workspace:
 

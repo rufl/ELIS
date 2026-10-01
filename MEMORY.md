@@ -35,18 +35,20 @@ Run `bash scripts/verify.sh`. It builds in `ReleaseSafe`, uses dummy SDL drivers
 - Cria Lua exposes official per-layer map tables for physical-console call ordering and keeps ELIS's deterministic combined representation under `project.map`.
 - `LUPI-SAFE EXPORT: PASS` is fail-closed: generated Lua uses sparse visual/collision/smart data, at most 4,096 weighted entries and 128 KiB source, while the runtime enforces the 4 MiB heap. The claim ends when arbitrary Lua or additional runtime work is added.
 - Full third-party ports are staged under `ports/` until content completeness, license isolation, deterministic package/simulator gates, and named physical-device proof. `demos/mr-rescue/` is the sole explicit physical-validation exception and remains unapproved; all 100 Hex-a-Hop levels follow only after named-board approval.
-- `.elisworld` schema v7 adds bounded starting lives and metadata/checkpoint
-  trigger behavior; v6 added the reach-goal/collect-all objective rule, v5 added
-  cardinal/blob terrain, and v4 added project-defined names plus four typed
-  fields per entity slot. These edits use project snapshots in the same ordered
-  history as map edits. History revisions remain monotonic across snapshots so
-  dirty state cannot collide after save; project/settings writes use
-  collision-free atomic temporary files, and dirty close requests require Save
-  and Exit or explicit discard. V1 and v2 load with empty entity data; v3
-  promotes its old value to field zero; v4 defaults to cardinal terrain; v5
-  defaults to reach-goal; v6 defaults to unlimited lives and metadata-only
-  triggers. Export keeps rules, schemas, and entities inside reserved
-  `lupi_metadata`.
+- `.elisworld` schema v7 adds bounded starting lives, metadata/checkpoint
+trigger behavior, and the named built-in starter behaviors `enemy.speed`,
+`enemy.patrol`, `enemy.damage`, and `pickup.amount`; v6 added the
+reach-goal/collect-all objective rule, v5 added cardinal/blob terrain, and v4
+added project-defined names plus four typed fields per entity slot. These edits
+use project snapshots in the same ordered history as map edits. History
+revisions remain monotonic across snapshots so dirty state cannot collide after
+save; project/settings writes use collision-free atomic temporary files, and
+dirty close requests require Save and Exit or explicit discard. V1 and v2 load
+with empty entity data; v3 promotes its old value to field zero; v4 defaults to
+cardinal terrain; v5 defaults to reach-goal; v6 defaults to unlimited lives and
+metadata-only triggers. Export keeps rules, schemas, and entities inside
+reserved `lupi_metadata`; renamed custom fields remain metadata-only in the
+generated starter.
 - Treat downloaded demos and local Lua games as untrusted input when changing archive, filesystem, or network handling. Automatic conversion pins lupi-codec revision `3e8c66299a4606b36b9f490212acc44e084a6aa2`; downloads allow HTTPS redirects only, stop at 64 MiB before conversion, reject unsupported source-tree nodes or failed staging directories, and release per-demo extraction roots before processing the next catalog entry.
 - Runtime input has explicit focus ownership: focus loss clears held and edge state plus queued text; device lifecycle events still run while suspended; focus return snapshots analog state before `btnp` can observe it. Cria similarly ignores queued keyboard, text, and pointer events while unfocused.
 - Live Cria commands mutate the project before entering history. They must use `History.commitApplied` with the pre-gesture revision so allocation failure restores data and dirty-state identity; structural snapshots still commit before replacing the authoritative project.

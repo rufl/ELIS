@@ -36,7 +36,7 @@ env SDL_VIDEODRIVER=dummy \
   --playtest-smoke \
   --capture="$work/studio.bmp" \
   --smoke 2>&1 | tee "$work/studio.log"
-grep -q 'Cria generated playtest: pass (objectives, lives, checkpoints)' "$work/studio.log"
+grep -q 'Cria generated playtest: pass (objectives, lives, checkpoints, entity behaviors)' "$work/studio.log"
 
 test -s "$work/starter.elisworld"
 test -s "$work/starter.lua"
@@ -129,6 +129,7 @@ env SDL_VIDEODRIVER=dummy \
   --smoke
 grep -q 'goal_rule = "collect_all", starting_lives = 3, trigger_rule = "checkpoint"' \
   "$work/platformer.lua"
+grep -q 'fields = {0,1,0,0}' "$work/platformer.lua"
 grep -q 'kind = "trigger"' "$work/platformer.lua"
 env SDL_VIDEODRIVER=dummy \
   ./zig-out/bin/elis-studio \

@@ -228,6 +228,12 @@ const default_field_kinds = [_][max_entity_fields]EntityFieldKind{
     .{ .unsigned, .toggle, .unsigned, .unsigned },
     .{ .tile, .unsigned, .unsigned, .unsigned },
 };
+const default_field_defaults = [_][max_entity_fields]u16{
+    .{ 1, 0, 1, 0 },
+    .{ 0, 1, 0, 0 },
+    .{ 0, 0, 0, 0 },
+    .{ 0, 0, 0, 0 },
+};
 
 pub const EntitySchema = struct {
     name: []const u8,
@@ -603,7 +609,7 @@ pub const Project = struct {
                     field,
                     name,
                     default_field_kinds[schema_index][field],
-                    0,
+                    default_field_defaults[schema_index][field],
                     0,
                     if (default_field_kinds[schema_index][field] == .toggle) 1 else if (default_field_kinds[schema_index][field] == .tile) max_tile_id else std.math.maxInt(u16),
                 ) catch unreachable;
@@ -2525,7 +2531,7 @@ test "compound entity allocation failure preserves the project and pending undo 
         try builder.changes.ensureTotalCapacityPrecise(builder.allocator, 2);
         const index = project.cellIndex(3, 2);
         if (coalesced) {
-            try builder.setEntity(&project, index, .pickup, 3);
+            try builder.setEntity(&project, index, .decoration, 3);
         } else {
             try builder.setTile(&project, 1, index, 7);
         }
@@ -2549,7 +2555,7 @@ test "compound entity allocation failure preserves the project and pending undo 
         try std.testing.expectEqualSlices(u16, &.{ 0, 0, 0, 0 }, project.entity_fields[index * max_entity_fields ..][0..max_entity_fields]);
         try std.testing.expectEqual(empty_tile, project.layerCells(1)[index]);
         try std.testing.expect(try history.redo(&project));
-        try std.testing.expectEqual(if (coalesced) EntityKind.pickup else EntityKind.none, project.entityKindAt(index));
+        try std.testing.expectEqual(if (coalesced) EntityKind.decoration else EntityKind.none, project.entityKindAt(index));
         try std.testing.expectEqual(@as(u16, if (coalesced) 3 else 0), project.entityFieldAt(index, 0));
         try std.testing.expectEqualSlices(u16, &.{ 0, 0, 0 }, project.entity_fields[index * max_entity_fields + 1 ..][0 .. max_entity_fields - 1]);
         try std.testing.expectEqual(if (coalesced) empty_tile else @as(u16, 7), project.layerCells(1)[index]);
@@ -3097,6 +3103,9 @@ test "layer tileset assignments participate in unified history" {
 
 test "project templates are valid deterministic and undoable" {
     var project = try Project.initStarter(std.testing.allocator, 16, 10, 16, "tiles/world");
+    try std.testing.expectEqual(@as(u16, 1), project.entityFieldDefault(.enemy, 0));
+    try std.testing.expectEqual(@as(u16, 1), project.entityFieldDefault(.enemy, 2));
+    try std.testing.expectEqual(@as(u16, 1), project.entityFieldDefault(.pickup, 1));
     defer project.deinit();
     project.setLayerTilesetName(2, "props/world");
     const original_spawn = project.spawn.?;
@@ -3287,7 +3296,7 @@ test "project entity schemas persist typed fields and export metadata" {
     defer std.testing.allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "schema = 7") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "name = \"Guard\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "fields = {4,1,0,0}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "fields = {4,1,1,0}") != null);
 }
 
 test "entity schema values are checked on import and export including unnamed slots" {
