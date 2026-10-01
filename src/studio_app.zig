@@ -989,6 +989,7 @@ const Studio = struct {
             \\local world_height = height * tile_size
             \\local solid = metadata.solid or {}
             \\local entities = metadata.entities or {}
+            \\local entity_schemas = metadata.entity_schemas or {}
             \\local spawn = metadata.spawn
             \\local goal = metadata.goal
             \\local goal_rule = metadata.goal_rule or "reach"
@@ -1000,13 +1001,36 @@ const Studio = struct {
             \\local respawn_y = spawn.y
             \\local checkpoint_index = nil
             \\local collected = {}
+            \\local entity_home = {}
+            \\local patrol_direction = {}
             \\local won = false
             \\local game_over = false
             \\local lives = starting_lives
+            \\local score = 0
+            \\local turn_count = 0
             \\local pickup_total = 0
             \\local pickup_count = 0
             \\for _, entity in ipairs(entities) do
             \\  if entity.kind == "pickup" then pickup_total = pickup_total + 1 end
+            \\end
+            \\
+            \\local function entity_field(entity, name, fallback)
+            \\  local schema = entity_schemas[entity.kind]
+            \\  for field_index, field in ipairs(schema and schema.fields or {}) do
+            \\    if field.name == name then
+            \\      return (entity.fields and entity.fields[field_index]) or fallback
+            \\    end
+            \\  end
+            \\  return fallback
+            \\end
+            \\
+            \\local function remember_entity_positions()
+            \\  entity_home = {}
+            \\  patrol_direction = {}
+            \\  for index, entity in ipairs(entities) do
+            \\    entity_home[index] = { x = entity.x, y = entity.y }
+            \\    patrol_direction[index] = 1
+            \\  end
             \\end
             \\
             \\local function cell_index(x, y)
@@ -1029,14 +1053,25 @@ const Studio = struct {
             \\  checkpoint_index = nil
             \\  collected = {}
             \\  pickup_count = 0
+            \\  score = 0
+            \\  turn_count = 0
             \\  lives = starting_lives
             \\  won = false
             \\  game_over = false
+            \\  for index, entity in ipairs(entities) do
+            \\    local home = entity_home[index]
+            \\    if home then
+            \\      entity.x = home.x
+            \\      entity.y = home.y
+            \\    end
+            \\    patrol_direction[index] = 1
+            \\  end
             \\end
             \\
-            \\local function lose_life()
+            \\local function lose_life(damage)
+            \\  damage = math.max(1, damage or 1)
             \\  if starting_lives > 0 then
-            \\    lives = lives - 1
+            \\    lives = lives - damage
             \\    if lives <= 0 then
             \\      game_over = true
             \\      return
@@ -1046,6 +1081,9 @@ const Studio = struct {
             \\  player_y = respawn_y
             \\end
             \\
+            \\remember_entity_positions()
+            \\reset()
+            \\
             \\local function entity_at(x, y)
             \\  for index, entity in ipairs(entities) do
             \\    if not collected[index] and entity.x == x and entity.y == y then
@@ -1053,6 +1091,44 @@ const Studio = struct {
             \\    end
             \\  end
             \\  return nil, nil
+            \\end
+            \\
+            \\local function occupied_by_entity(x, y, ignored_index)
+            \\  for index, entity in ipairs(entities) do
+            \\    if index ~= ignored_index and not collected[index] and entity.x == x and entity.y == y then
+            \\      return true
+            \\    end
+            \\  end
+            \\  return false
+            \\end
+            \\
+            \\local function advance_enemies()
+            \\  turn_count = turn_count + 1
+            \\  for index, entity in ipairs(entities) do
+            \\    if entity.kind == "enemy" and entity_field(entity, "patrol", 0) == 1 then
+            \\      local speed = math.max(1, entity_field(entity, "speed", 1))
+            \\      if turn_count % speed == 0 then
+            \\        local direction = patrol_direction[index] or 1
+            \\        local next_x = entity.x + direction
+            \\        if blocked(next_x, entity.y) or occupied_by_entity(next_x, entity.y, index) then
+            \\          direction = -direction
+            \\          next_x = entity.x + direction
+            \\        end
+            \\        if not blocked(next_x, entity.y) and not occupied_by_entity(next_x, entity.y, index) then
+            \\          entity.x = next_x
+            \\        end
+            \\        patrol_direction[index] = direction
+            \\      end
+            \\      if entity.x == player_x and entity.y == player_y then
+            \\        if starting_lives == 0 and trigger_rule == "metadata" then
+            \\          reset()
+            \\        else
+            \\          lose_life(entity_field(entity, "damage", 1))
+            \\        end
+            \\        return
+            \\      end
+            \\    end
+            \\  end
             \\end
             \\
             \\local function try_move(dx, dy)
@@ -1065,7 +1141,7 @@ const Studio = struct {
             \\    if starting_lives == 0 and trigger_rule == "metadata" then
             \\      reset()
             \\    else
-            \\      lose_life()
+            \\      lose_life(entity_field(entity, "damage", 1))
             \\    end
             \\    return
             \\  end
@@ -1074,12 +1150,14 @@ const Studio = struct {
             \\  if entity and entity.kind == "pickup" then
             \\    collected[index] = true
             \\    pickup_count = pickup_count + 1
+            \\    score = score + math.max(0, entity_field(entity, "amount", 1))
             \\  elseif entity and entity.kind == "trigger" and trigger_rule == "checkpoint" then
             \\    respawn_x = player_x
             \\    respawn_y = player_y
             \\    checkpoint_index = index
             \\  end
             \\  if player_x == goal.x and player_y == goal.y and objective_ready() then won = true end
+            \\  if not won then advance_enemies() end
             \\end
             \\
             \\local function run_smoke_probe()
@@ -1090,18 +1168,19 @@ const Studio = struct {
             \\  local saved_starting_lives, saved_trigger_rule = starting_lives, trigger_rule
             \\  width, height = 3, 3
             \\  solid = {}
-            \\  entities = { { kind = "pickup", x = 0, y = 1 } }
+            \\  entities = { { kind = "pickup", x = 0, y = 1, fields = { 0, 3, 0, 0 } } }
             \\  spawn = { x = 0, y = 0 }
             \\  goal = { x = 1, y = 0 }
             \\  goal_rule = "collect_all"
             \\  starting_lives, trigger_rule = 0, "metadata"
+            \\  remember_entity_positions()
             \\  pickup_total = 1
             \\  reset()
             \\  try_move(1, 0)
             \\  assert(not won and player_x == 1 and player_y == 0)
             \\  try_move(-1, 0)
             \\  try_move(0, 1)
-            \\  assert(pickup_count == 1 and objective_ready())
+            \\  assert(pickup_count == 1 and score == 3 and objective_ready())
             \\  try_move(0, -1)
             \\  try_move(1, 0)
             \\  assert(won)
@@ -1109,6 +1188,30 @@ const Studio = struct {
             \\  reset()
             \\  try_move(1, 0)
             \\  assert(won and pickup_count == 0)
+            \\
+            \\  width, height = 5, 1
+            \\  solid = {}
+            \\  entities = { { kind = "enemy", x = 2, y = 0, fields = { 1, 1, 1, 0 } } }
+            \\  spawn = { x = 0, y = 0 }
+            \\  goal = { x = 4, y = 0 }
+            \\  starting_lives, trigger_rule = 3, "metadata"
+            \\  remember_entity_positions()
+            \\  reset()
+            \\  try_move(1, 0)
+            \\  assert(entities[1].x == 3 and lives == 3)
+            \\  try_move(1, 0)
+            \\  assert(player_x == 2 and entities[1].x == 4)
+            \\
+            \\  entities = { { kind = "enemy", x = 1, y = 0, fields = { 0, 0, 2, 0 } } }
+            \\  spawn = { x = 0, y = 0 }
+            \\  goal = { x = 3, y = 0 }
+            \\  starting_lives, trigger_rule = 3, "metadata"
+            \\  remember_entity_positions()
+            \\  reset()
+            \\  try_move(1, 0)
+            \\  assert(player_x == 0 and lives == 1 and not game_over)
+            \\  try_move(1, 0)
+            \\  assert(game_over and lives == -1)
             \\
             \\  width, height = 4, 1
             \\  solid = {}
@@ -1121,6 +1224,7 @@ const Studio = struct {
             \\  goal_rule = "reach"
             \\  starting_lives, trigger_rule = 2, "checkpoint"
             \\  pickup_total = 0
+            \\  remember_entity_positions()
             \\  reset()
             \\  try_move(1, 0)
             \\  assert(checkpoint_index == 1 and respawn_x == 1)
@@ -1134,6 +1238,7 @@ const Studio = struct {
             \\  spawn, goal = saved_spawn, saved_goal
             \\  goal_rule, pickup_total = saved_goal_rule, saved_pickup_total
             \\  starting_lives, trigger_rule = saved_starting_lives, saved_trigger_rule
+            \\  remember_entity_positions()
             \\  reset()
             \\end
             \\
@@ -1156,7 +1261,8 @@ const Studio = struct {
             \\    if not collected[index] then
             \\      local x = entity.x * tile_size - camera_x
             \\      local y = entity.y * tile_size - camera_y
-            \\      local color = entity.kind == "enemy" and 8 or
+            \\      local color = entity.kind == "enemy" and
+            \\        (entity_field(entity, "patrol", 0) == 1 and 14 or 8) or
             \\        entity.kind == "pickup" and 10 or
             \\        entity.kind == "trigger" and 9 or 13
             \\      if entity.kind == "trigger" and index == checkpoint_index then color = 11 end
@@ -1190,12 +1296,13 @@ const Studio = struct {
             \\    player_screen_x + player_size, player_screen_y + player_size, 12)
             \\  ui.print("CRIA PLAYTEST // ARROWS MOVE", 8, 8, 7)
             \\  ui.print("PICKUPS " .. pickup_count .. "/" .. pickup_total, 8, 18, 7)
-            \\  ui.print(starting_lives == 0 and "LIVES UNLIMITED" or "LIVES " .. lives, 8, 28, 7)
-            \\  if checkpoint_index then ui.print("CHECKPOINT ACTIVE", 8, 38, 11) end
+            \\  ui.print("SCORE " .. score, 8, 28, 7)
+            \\  ui.print(starting_lives == 0 and "LIVES UNLIMITED" or "LIVES " .. lives, 8, 38, 7)
+            \\  if checkpoint_index then ui.print("CHECKPOINT ACTIVE", 8, 48, 11) end
             \\  if goal_rule == "collect_all" and not objective_ready() then
-            \\    ui.print("GOAL LOCKED // COLLECT ALL", 8, 48, 8)
+            \\    ui.print("GOAL LOCKED // COLLECT ALL", 8, 58, 8)
             \\  else
-            \\    ui.print("GOAL READY", 8, 48, 11)
+            \\    ui.print("GOAL READY", 8, 58, 11)
             \\  end
             \\  if won then
             \\    ui.rectfill(128, 108, 352, 160, 0)
@@ -1269,7 +1376,7 @@ const Studio = struct {
                 self.notice = .playtest_failed;
                 return;
             }
-            std.debug.print("Cria generated playtest: pass (objectives, lives, checkpoints)\n", .{});
+            std.debug.print("Cria generated playtest: pass (objectives, lives, checkpoints, entity behaviors)\n", .{});
         } else {
             const argv = [_][]const u8{ runtime_path, root };
             if (!runPlaytestRuntime(self.allocator, io, root, &argv)) {

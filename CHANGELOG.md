@@ -1,6 +1,13 @@
 # ELIS Changelog
 
 ## Unreleased
+- Made built-in Cria entity fields matter in the generated starter playtest:
+  pickup `amount` awards score; enemy `patrol` moves horizontally at its
+  `speed` interval; enemy `damage` spends multiple lives. Defaults now give
+  authored pickups one point and enemies one speed/damage unit; START restores
+  entity positions and all derived state. The behavior probe covers score,
+  patrol, damage, game-over, and checkpoint reset while custom renamed fields
+  remain metadata-only.
 - Made ELIS prereleases directly deployable through `/ztash this`: the binary
   workflow now publishes an immutable two-platform `ztash-release.json` bound
   to the source commit, exact archive sizes, and SHA-256 hashes, with focused

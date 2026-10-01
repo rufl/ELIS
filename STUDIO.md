@@ -32,9 +32,10 @@ mas a exportação é bloqueada.
 
 Limites importantes: a exportação aprovada não valida Lua escrito à mão,
 animação, áudio, chamadas adicionais de mapa, taxa de quadros de placa física
-ou um playtest interativo completo. Controle físico e aprovação em hardware
-continuam sendo evidências separadas. Para os atalhos e contratos completos,
-continue nesta página em inglês.
+ou um jogo autoral completo. O PLAYTEST gerado cobre apenas o cartridge inicial
+limitado documentado abaixo; controle físico e aprovação em hardware continuam
+sendo evidências separadas. Para os atalhos e contratos completos, continue nesta
+página em inglês.
 
 ## Design boundary
 
@@ -44,12 +45,16 @@ workspace and dirty-state ownership, and PIWEBQOL's responsive density,
 minimum-size, reduced-motion, and input-equivalence policies.
 F9 / PLAYTEST runs a generated interactive starter cartridge for the current
 world. Arrow buttons move one cell, solid cells block movement, and pickup
-entities are counted. The authored objective either wins at the goal immediately
-or keeps it locked until every pickup is collected. Starting lives can be
-unlimited or finite; in finite mode an enemy spends a life, game-over occurs at
-zero, and checkpoint-enabled trigger entities become the new respawn position.
-START performs a full reset. This is bounded prototyping support, not a claim
-that arbitrary entity schemas become runtime behavior in the exported Lua map.
+entities are counted and award their authored `amount` score. Built-in entity
+field names also drive bounded behavior: enemy `patrol` moves horizontally at
+the authored `speed` turn interval and `damage` spends that many lives.
+Patrolling enemies bounce from blocked or occupied cells. The authored
+objective either wins at the goal immediately or keeps it locked until every
+pickup is collected. Starting lives can be unlimited or finite; in finite mode
+game-over occurs at zero, and checkpoint-enabled trigger entities become the
+new respawn position. START performs a full reset. Renaming a built-in behavior
+field intentionally opts that field out of starter semantics; arbitrary custom
+schemas remain export metadata, not inferred game code.
 
 Studio does not modify the indexed simulator framebuffer, Lua globals, palette,
 input state, or timing. Export is an explicit file operation. Preview is an
@@ -116,8 +121,10 @@ editor map preview, not a claim that game-specific mechanics are running.
   printable ASCII name and up to four named `unsigned`, `toggle`, or `tile`
   fields with defaults and bounds. The schema editor renames types and fields,
   adds or removes trailing fields, cycles field kinds, and edits defaults/ranges
-  through the shared undo/redo history. Non-decoration entities on collision
-  produce a warning.
+  through the shared undo/redo history. The starter playtest recognizes the
+  built-in behavior names `enemy.speed`, `enemy.patrol`, `enemy.damage`, and
+  `pickup.amount`; custom names remain data-only. Non-decoration entities on
+  collision produce a warning.
   Removing or reenabling a trailing field initializes instances from its validated
   default; undo restores their previous schema and distinct values. Failed entity
   placement leaves the project and pending undo gesture unchanged.
@@ -237,13 +244,14 @@ a bounded native session, then exits. `--capture=path.bmp` retains the rendered
 editor frame.
 
 `--playtest-smoke` generates the same temporary interactive runtime wrapper,
-copies the selected tilesets, runs objective, finite-life, game-over, and
-checkpoint-respawn probes plus one real simulator screenshot, verifies the
-frame, and cleans the wrapper directory before returning. The generated starter
-loop exercises movement, collision, entity rendering, pickup counting, both
-goal rules, both trigger modes, feedback, and full reset wiring; it does not
-replace hand-authored game logic. The toolbar PLAYTEST button and F9 use the
-interactive form and return to Cria after the simulator closes.
+copies the selected tilesets, runs objective, finite-life, game-over,
+checkpoint-respawn, pickup-score, patrol, and enemy-damage probes plus one real
+simulator screenshot, verifies the frame, and cleans the wrapper directory before
+returning. The generated starter loop exercises movement, collision, entity
+rendering, pickup scoring, patrol behavior, both goal rules, both trigger modes,
+feedback, and full reset wiring; it does not replace hand-authored game logic.
+The toolbar PLAYTEST button and F9 use the interactive form and return to Cria
+after the simulator closes.
 
 `--game-root` loads `lupi_manifest.txt`, `palette.lua`, and the selected raw
 bitmap assets. Palette values use Lupi's `0RRRRRGGGGGBBBBB` RGB555 contract.
@@ -270,11 +278,12 @@ window-size flags support deterministic UI proof.
 
 ## Next mature slice
 
-The `.elisworld` v7 playtest-rule slice is complete: objectives, bounded
-starting lives, and metadata/checkpoint trigger behavior share undo/redo, v6
-migration, Goal-inspector input equivalence, Lua metadata, template defaults,
-and generated-playtest behavioral proof. Cria can turn a validated world into a
-bounded playable prototype without mutating the saved project. Further gameplay
-authoring requires a new bounded acceptance and proof item. Physical controller
-approval remains separate evidence from automated keyboard/pointer and
-generated-playtest proof.
+The `.elisworld` v7 gameplay slice now covers objectives, bounded starting
+lives, metadata/checkpoint triggers, and named built-in entity behavior fields.
+All share undo/redo where authored, v6 migration, Goal/Entity inspector
+input-equivalence, Lua metadata, template defaults, and generated-playtest
+behavioral proof. Cria can turn a validated world into a bounded playable
+prototype without mutating the saved project. Further gameplay authoring
+requires a new bounded acceptance and proof item. Physical controller approval
+remains separate evidence from automated keyboard/pointer and generated-
+playtest proof.
