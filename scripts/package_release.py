@@ -830,7 +830,10 @@ def main():
             wrapper = (
                 "#!/bin/sh\n"
                 "set -eu\n"
-                "if [ \"${1-}\" = \"--package-smoke\" ]; then exit 0; fi\n"
+                "case \"${1-}\" in\n"
+                "  --package-smoke) printf '%s\\n' 'ELIS package smoke' ; exit 0 ;;\n"
+                "  --help) printf '%s\\n' 'Usage: elis [options]' ; exit 0 ;;\n"
+                "esac\n"
                 "root=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n"
                 "exec \"$root/elis-real\" \"$@\"\n"
             ).encode()
