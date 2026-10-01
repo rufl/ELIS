@@ -48,7 +48,9 @@ world. Arrow buttons move one cell, solid cells block movement, and pickup
 entities are counted and award their authored `amount` score. Built-in entity
 field names also drive bounded behavior: enemy `patrol` moves horizontally at
 the authored `speed` turn interval and `damage` spends that many lives.
-Patrolling enemies bounce from blocked or occupied cells. The authored
+Collected pickups with `respawn` set to `1` return after a finite-life loss;
+their score and objective count are reversed so collect-all objectives remain
+honest. Patrolling enemies bounce from blocked or occupied cells. The authored
 objective either wins at the goal immediately or keeps it locked until every
 pickup is collected. Starting lives can be unlimited or finite; in finite mode
 game-over occurs at zero, and checkpoint-enabled trigger entities become the
@@ -122,9 +124,9 @@ editor map preview, not a claim that game-specific mechanics are running.
   fields with defaults and bounds. The schema editor renames types and fields,
   adds or removes trailing fields, cycles field kinds, and edits defaults/ranges
   through the shared undo/redo history. The starter playtest recognizes the
-  built-in behavior names `enemy.speed`, `enemy.patrol`, `enemy.damage`, and
-  `pickup.amount`; custom names remain data-only. Non-decoration entities on
-  collision produce a warning.
+  built-in behavior names `enemy.speed`, `enemy.patrol`, `enemy.damage`,
+  `pickup.amount`, and `pickup.respawn`; custom names remain data-only.
+  Non-decoration entities on collision produce a warning.
   Removing or reenabling a trailing field initializes instances from its validated
   default; undo restores their previous schema and distinct values. Failed entity
   placement leaves the project and pending undo gesture unchanged.
@@ -245,11 +247,12 @@ editor frame.
 
 `--playtest-smoke` generates the same temporary interactive runtime wrapper,
 copies the selected tilesets, runs objective, finite-life, game-over,
-checkpoint-respawn, pickup-score, patrol, and enemy-damage probes plus one real
-simulator screenshot, verifies the frame, and cleans the wrapper directory before
-returning. The generated starter loop exercises movement, collision, entity
-rendering, pickup scoring, patrol behavior, both goal rules, both trigger modes,
-feedback, and full reset wiring; it does not replace hand-authored game logic.
+checkpoint-respawn, pickup-score, pickup-respawn, patrol, and enemy-damage
+probes plus one real simulator screenshot, verifies the frame, and cleans the
+wrapper directory before returning. The generated starter loop exercises
+movement, collision, entity rendering, pickup scoring and respawn, patrol
+behavior, both goal rules, both trigger modes, feedback, and full reset
+wiring; it does not replace hand-authored game logic.
 The toolbar PLAYTEST button and F9 use the interactive form and return to Cria
 after the simulator closes.
 

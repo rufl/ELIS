@@ -187,9 +187,10 @@ over the same authoritative project and command history:
   Save/Discard guard for mouse, keyboard, and controller users;
 - a chrome-free validated map preview, plus an interactive starter playtest that
   moves through collision, renders typed entities, counts and scores pickups,
-  patrols authored enemies, applies enemy damage, enforces authored objectives,
-  spends finite lives, and respawns at authored checkpoint triggers without
-  mutating the saved project;
+  restores authored respawning pickups after finite-life loss, patrols authored
+  enemies, applies enemy damage, enforces authored objectives, spends finite
+  lives, and respawns at authored checkpoint triggers without mutating the saved
+  project;
 
 Open a project using the game manifest and palette source as its asset workspace:
 

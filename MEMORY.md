@@ -37,10 +37,10 @@ Run `bash scripts/verify.sh`. It builds in `ReleaseSafe`, uses dummy SDL drivers
 - Full third-party ports are staged under `ports/` until content completeness, license isolation, deterministic package/simulator gates, and named physical-device proof. `demos/mr-rescue/` is the sole explicit physical-validation exception and remains unapproved; all 100 Hex-a-Hop levels follow only after named-board approval.
 - `.elisworld` schema v7 adds bounded starting lives, metadata/checkpoint
 trigger behavior, and the named built-in starter behaviors `enemy.speed`,
-`enemy.patrol`, `enemy.damage`, and `pickup.amount`; v6 added the
-reach-goal/collect-all objective rule, v5 added cardinal/blob terrain, and v4
-added project-defined names plus four typed fields per entity slot. These edits
-use project snapshots in the same ordered history as map edits. History
+`enemy.patrol`, `enemy.damage`, `pickup.amount`, and `pickup.respawn`; v6
+added the reach-goal/collect-all objective rule, v5 added cardinal/blob terrain,
+and v4 added project-defined names plus four typed fields per entity slot.
+- These edits use project snapshots in the same ordered history as map edits. History
 revisions remain monotonic across snapshots so dirty state cannot collide after
 save; project/settings writes use collision-free atomic temporary files, and
 dirty close requests require Save and Exit or explicit discard. V1 and v2 load
